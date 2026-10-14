@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planeación · Carga de datos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700}
+header .tag{background:#f4a261;color:#1a2035;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px}
+header .ses{margin-left:auto;font-size:12px;opacity:.85}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+.card{background:var(--sf);border:1px solid var(--brd);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.card h2 .n{background:var(--navy);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+.card p.d{color:var(--tx2);font-size:12.5px;margin-bottom:12px;line-height:1.45}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input[type=file]{font-size:12.5px}
+input[type=password],input[type=text]{padding:9px 12px;border:1.5px solid #c9d4f0;border-radius:8px;font-size:13px;font-family:inherit}
+button{background:var(--navy2);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.sec{background:#eef2fb;color:var(--navy);border:1px solid #c9d4f0}
+.log{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#0f172a;color:#a5d6a7;border-radius:10px;padding:12px 14px;margin-top:12px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none}
+.log .e{color:#ff8a80}.log .w{color:#ffd166}
+#lock{max-width:420px;margin:60px auto}
+.err{color:var(--err);font-size:12.5px;margin-top:8px;display:none}
+table{border-collapse:collapse;font-size:12px;width:100%}
+th,td{border-bottom:1px solid var(--brd);padding:5px 7px;text-align:right;white-space:nowrap}
+th{background:#f0f4ff;color:var(--navy);position:sticky;top:0}
+td:first-child,th:first-child{text-align:left}
+.scroll{overflow-x:auto;max-height:420px;margin-top:10px;border:1px solid var(--brd);border-radius:8px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:10px}
+.kpi{border:1px solid var(--brd);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-size:18px;color:var(--navy)}
+.kpi span{font-size:11.5px;color:var(--tx2)}
+.ag{background:var(--errbg);color:var(--err);font-weight:700}
+.note{background:var(--warnbg);color:#6b5200;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-top:10px}
+@media (max-width:640px){header .ses{margin-left:0}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Planeación · Carga de datos</h1><span class="tag">VERSIÓN DE PRUEBA</span>
+  <span class="ses" id="ses">Sin sesión</span>
+</header>
+
+<div id="lock" class="card">
+  <h2>Acceso de administrador</h2>
+  <p class="d">Usa la misma contraseña de administrador del portal.</p>
+  <div class="row"><input type="password" id="pw" placeholder="Contraseña de administrador" style="flex:1" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()">Entrar</button></div>
+  <div class="err" id="pw-err"></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="note">Esta página solo escribe en las tablas <b>plan_</b>. No modifica el portal actual ni sus tablas. Cada carga se puede repetir: sobrescribe, no duplica.</div>
+
+  <div class="card">
+    <h2><span class="n">1</span>Ventas mensuales <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
+    <p class="d">Archivo <b>Plantilla_Ventas_Mensuales.xlsx</b> (hojas VENTAS_SANVER y VENTAS_MF). Reemplaza los meses que vengan en el archivo; los demás meses de la base no se tocan.</p>
+    <div class="row"><input type="file" id="f-ventas" accept=".xlsx"><button onclick="run('ventas')">Cargar ventas</button></div>
+    <div class="log" id="log-ventas"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>Existencias MF <small style="color:var(--tx2);font-weight:400">· cada 3er día</small></h2>
+    <p class="d">Archivo <b>EXISTENCIAS_AL_….xlsx</b> (hoja Existencias). Suma todas las sucursales por clave, reemplaza el último corte y registra las claves en cero como días agotados de MF.</p>
+    <div class="row"><input type="file" id="f-mf" accept=".xlsx"><button onclick="run('mf')">Cargar existencias MF</button></div>
+    <div class="log" id="log-mf"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span>Empaques INNER / MASTER <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Archivo <b>Informacion_de_empaques.xlsx</b> (hoja BD). Solo las claves VALIDO se usarán para redondear.</p>
+    <div class="row"><input type="file" id="f-emp" accept=".xlsx"><button onclick="run('emp')">Cargar empaques</button></div>
+    <div class="log" id="log-emp"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>Histórico de agotados SANVER <small style="color:var(--tx2);font-weight:400">· una sola vez</small></h2>
+    <p class="d">Archivo <b>Portal_de_compras_respaldo_….xlsx</b> (hojas Historico de faltantes y Detalle). Guarda cada día que una clave estuvo en existencia 0 desde el 1 de abril. Puede tardar 1-3 minutos en leer el archivo.</p>
+    <div class="row"><input type="file" id="f-hist" accept=".xlsx"><button onclick="run('hist')">Cargar histórico</button></div>
+    <div class="log" id="log-hist"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">5</span>Compras por entregas directas <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
+    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Solo toma las filas ENTREGAS DIRECTAS y las suma por clave y mes; sirve para limpiar las ventas. Reemplaza los meses que vengan en el archivo.</p>
+    <div class="row"><input type="file" id="f-ed" accept=".xlsx"><button onclick="run('ed')">Cargar compras ED</button></div>
+    <div class="log" id="log-ed"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">✓</span>Verificación</h2>
+    <p class="d">Lo que quedó guardado en la base para las claves que escribas (separadas por coma).</p>
+    <div class="row"><input type="text" id="v-claves" value="44519, 45787, 39424, 34147, 49127, 61282" style="flex:1"><button onclick="verificar()">Consultar</button><button class="sec" onclick="resumen()">Resumen de la base</button></div>
+    <div id="v-res"></div>
+  </div>
+</main>
+
+<script>
+// ══════════ LÓGICA DE LECTURA (sin conexión a la base; probada aparte) ══════════
+/*PARSE-START*/
+const P={};
+P.norm=s=>String(s==null?'':s).trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ');
+P.num=v=>{if(v==null||v==='')return null;if(typeof v==='number')return isFinite(v)?v:null;const n=parseFloat(String(v).replace(/[$,\s]/g,''));return isNaN(n)?null:n;};
+P.clave=v=>{const n=P.num(v);return n!=null&&Number.isInteger(n)&&n>0?n:null;};
+P.pad=n=>String(n).padStart(2,'0');
+// Fecha de Excel (serial, texto DD/MM/AAAA o AAAA-MM-DD) → 'AAAA-MM-DD'
+P.fecha=v=>{
+  if(v==null||v==='')return null;
+  if(typeof v==='number'){if(v<20000||v>80000)return null;const d=new Date(Math.round((v-25569)*864e5));return d.getUTCFullYear()+'-'+P.pad(d.getUTCMonth()+1)+'-'+P.pad(d.getUTCDate());}
+  if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+P.pad(v.getMonth()+1)+'-'+P.pad(v.getDate());
+  const s=String(v).trim();let m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)))return m[1]+'-'+P.pad(m[2])+'-'+P.pad(m[3]);
+  if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)))return m[3]+'-'+P.pad(m[2])+'-'+P.pad(m[1]);
+  return null;
+};
+// Encabezado de mes → 'AAAA-MM-01'
+P.mes=v=>{
+  if(v==null||v==='')return null;
+  if(typeof v==='number'){const f=P.fecha(v);return f?f.slice(0,7)+'-01':null;}
+  const s=String(v).trim();let m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})$/)))return m[1]+'-'+P.pad(m[2])+'-01';
+  const f=P.fecha(s);return f?f.slice(0,7)+'-01':null;
+};
+P.aoa=ws=>XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+// Busca la fila de encabezado (primeras 10) que contenga todas las columnas pedidas
+P.header=(aoa,requeridas)=>{
+  const req=requeridas.map(P.norm);
+  for(let i=0;i<Math.min(10,aoa.length);i++){
+    const fila=aoa[i].map(P.norm);
+    if(req.every(r=>fila.includes(r))){const idx={};req.forEach((r,j)=>idx[requeridas[j]]=fila.indexOf(r));return{fila:i,idx,cols:fila};}
+  }
+  return null;
+};
+P.hoja=(wb,nombres)=>{for(const n of nombres){const k=wb.SheetNames.find(s=>P.norm(s)===P.norm(n));if(k)return wb.Sheets[k];}return null;};
+
+// 1. Ventas: {empresas:{SANVER:{meses,rows},MF:{…}}, avisos}
+P.ventas=wb=>{
+  const out={empresas:{},avisos:[]};
+  for(const [emp,hoja] of [['SANVER','VENTAS_SANVER'],['MF','VENTAS_MF']]){
+    const ws=P.hoja(wb,[hoja]);
+    if(!ws){out.avisos.push('No se encontró la hoja '+hoja+'.');continue;}
+    const aoa=P.aoa(ws);
+    const h=aoa[0]||[];
+    if(P.norm(h[0])!=='CLAVE')out.avisos.push(hoja+': la columna A debería llamarse Clave.');
+    const meses=[];h.forEach((c,j)=>{if(j===0)return;const m=P.mes(c);if(m)meses.push({j,m});});
+    const acc=new Map();let neg=0,dup=0,malas=0;const vistas=new Set();
+    for(let i=1;i<aoa.length;i++){
+      const r=aoa[i];const k=P.clave(r[0]);
+      if(k==null){if(String(r[0]).trim()!=='')malas++;continue;}
+      if(vistas.has(k))dup++;vistas.add(k);
+      for(const {j,m} of meses){
+        const v=P.num(r[j]);if(v==null||v===0)continue;
+        if(v<0)neg++;
+        const key=k+'|'+m;acc.set(key,(acc.get(key)||0)+v);
+      }
+    }
+    const porClave=new Map();let celdas=0;
+    acc.forEach((u,key)=>{const [c,m]=key.split('|');if(u===0)return;const k=+c;
+      if(!porClave.has(k))porClave.set(k,{});porClave.get(k)[m.slice(0,7)]=Math.round(u*10000)/10000;celdas++;});
+    vistas.forEach(k=>{if(!porClave.has(k))porClave.set(k,{});});
+    out.empresas[emp]={meses:meses.map(x=>x.m.slice(0,7)),claves:vistas.size,celdas,porClave};
+    if(dup)out.avisos.push(hoja+': '+dup+' claves repetidas (se sumaron).');
+    if(neg)out.avisos.push(hoja+': '+neg+' celdas negativas (devoluciones; se guardan tal cual).');
+    if(malas)out.avisos.push(hoja+': '+malas+' filas con clave no numérica (se ignoraron).');
+  }
+  return out;
+};
+
+// Combina lo que ya está en la base con el archivo: los meses del archivo se REEMPLAZAN
+// (en todas las claves); los demás meses se conservan. Devuelve solo las filas que cambian.
+P.mergeVentas=(empresa,existentes,arch)=>{
+  const meses=new Set(arch.meses);const out=[];
+  const base=new Map(existentes.map(r=>[Number(r.clave),r.meses||{}]));
+  const claves=new Set([...base.keys(),...arch.porClave.keys()]);
+  claves.forEach(k=>{
+    const antes=base.get(k)||{};const nuevo={};
+    Object.keys(antes).forEach(m=>{if(!meses.has(m))nuevo[m]=antes[m];});
+    Object.assign(nuevo,arch.porClave.get(k)||{});
+    const ord={};Object.keys(nuevo).sort().forEach(m=>ord[m]=nuevo[m]);
+    if(JSON.stringify(ord)!==JSON.stringify(antes)||!base.has(k))out.push({empresa,clave:k,meses:ord});
+  });
+  return out;
+};
+
+// 2. Existencias MF: {fecha, rows:[{clave,existencia}], sucursales, negativas}
+P.existMF=wb=>{
+  let ws=P.hoja(wb,['Existencias'])||wb.Sheets[wb.SheetNames[0]];
+  const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE','EXISTENCIA']);
+  if(!h)throw new Error('No encontré las columnas CLAVE y EXISTENCIA en la hoja '+(wb.SheetNames[0]));
+  const iF=h.cols.indexOf('FECHA'),iS=h.cols.indexOf('SUCURSAL');
+  const sum=new Map(),suc=new Set();let fmax=null;
+  for(let i=h.fila+1;i<aoa.length;i++){
+    const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);if(k==null)continue;
+    sum.set(k,(sum.get(k)||0)+(P.num(r[h.idx.EXISTENCIA])||0));
+    if(iS>=0&&r[iS]!=='')suc.add(String(r[iS]).trim());
+    if(iF>=0){const f=P.fecha(r[iF]);if(f&&(!fmax||f>fmax))fmax=f;}
+  }
+  let neg=0;const rows=[];
+  sum.forEach((e,k)=>{if(e<0)neg++;rows.push({clave:k,existencia:Math.max(0,Math.round(e*10000)/10000)});});
+  return{fecha:fmax,rows,sucursales:suc.size,negativas:neg};
+};
+
+// 3. Empaques: rows [{clave,uni_compra,inner_cant,master_cant,factor_conv,validacion}]
+P.empaques=wb=>{
+  const ws=P.hoja(wb,['BD']);if(!ws)throw new Error('No se encontró la hoja BD.');
+  const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE SANVER','UNI COMPRA','CTD. EN UM','CTD. EN UM2','VALIDACION']);
+  if(!h)throw new Error('No encontré los encabezados de la hoja BD (CLAVE SANVER, UNI COMPRA, Ctd. En UM, Ctd. En UM2, VALIDACION).');
+  const iC=h.cols.indexOf('CAMBIO DE UNIDADES');
+  const m=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){
+    const r=aoa[i];const k=P.clave(r[h.idx['CLAVE SANVER']]);if(k==null)continue;
+    const fila={clave:k,uni_compra:String(r[h.idx['UNI COMPRA']]||'').trim()||null,
+      inner_cant:P.num(r[h.idx['CTD. EN UM']]),master_cant:P.num(r[h.idx['CTD. EN UM2']]),
+      factor_conv:iC>=0?P.num(r[iC]):null,validacion:P.norm(r[h.idx.VALIDACION])||null};
+    const prev=m.get(k);
+    if(!prev||(prev.validacion!=='VALIDO'&&fila.validacion==='VALIDO'))m.set(k,fila);
+  }
+  const rows=[...m.values()];
+  return{rows,validos:rows.filter(r=>r.validacion==='VALIDO').length};
+};
+
+// 4. Histórico de agotados SANVER: rows [{empresa,clave,fecha,dias}]
+P.historico=wb=>{
+  const set=new Map();let leidas=0,dias=new Set();
+  const leer=(ws,colsFecha)=>{
+    if(!ws)return false;
+    const aoa=P.aoa(ws);
+    let h=null;for(const cf of colsFecha){h=P.header(aoa,[cf,'CLAVE','EXISTENCIAS']);if(h){h.cf=cf;break;}}
+    if(!h)return false;
+    for(let i=h.fila+1;i<aoa.length;i++){
+      const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);if(k==null)continue;leidas++;
+      const f=P.fecha(r[h.idx[h.cf]]);if(!f)continue;dias.add(f);
+      const e=P.num(r[h.idx.EXISTENCIAS]);
+      if(e!=null&&e<=0)set.set(k+'|'+f,{empresa:'SANVER',clave:k,fecha:f,dias:1});
+    }
+    return true;
+  };
+  const a=leer(P.hoja(wb,['Historico de faltantes']),['DIA/ MES.1','DIA/MES','FECHA']);
+  const b=leer(P.hoja(wb,['Detalle']),['FECHA']);
+  if(!a&&!b)throw new Error('No encontré las hojas Historico de faltantes ni Detalle con columnas Fecha, Clave y Existencias.');
+  const ds=[...dias].sort();
+  return{rows:[...set.values()],leidas,desde:ds[0],hasta:ds[ds.length-1],dias:ds.length};
+};
+
+// 5. Compras por entregas directas: rows [{clave,mes,cantidad}]
+P.comprasED=wb=>{
+  let ws=null,h=null;
+  for(const n of wb.SheetNames){const aoa=P.aoa(wb.Sheets[n]);const hh=P.header(aoa,['MES/AÑO','CLAVE','TIPO DE SOLICITUD','CANT REC']);if(hh){ws=aoa;h=hh;break;}}
+  if(!h)throw new Error('No encontré una hoja con las columnas Mes/año, CLAVE, TIPO DE SOLICITUD y CANT REC.');
+  const acc=new Map(),meses=new Set();
+  for(let i=h.fila+1;i<ws.length;i++){
+    const r=ws[i];const m=P.mes(r[h.idx['MES/AÑO']]);if(!m)continue;meses.add(m);
+    if(P.norm(r[h.idx['TIPO DE SOLICITUD']])!=='ENTREGAS DIRECTAS')continue;
+    const k=P.clave(r[h.idx.CLAVE]);const q=P.num(r[h.idx['CANT REC']]);if(k==null||!q)continue;
+    acc.set(k+'|'+m,(acc.get(k+'|'+m)||0)+q);
+  }
+  const rows=[];acc.forEach((q,key)=>{const [c,m]=key.split('|');rows.push({clave:+c,mes:m,cantidad:Math.round(q*10000)/10000});});
+  return{rows,meses:[...meses].sort()};
+};
+/*PARSE-END*/
+
+// ══════════ CONEXIÓN Y CARGA ══════════
+const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
+const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+const EMAIL_ADMIN="admin@portalcompras.app";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+const ocupado={};
+
+async function entrar(){
+  const pw=document.getElementById('pw').value,err=document.getElementById('pw-err');err.style.display='none';
+  const r=await sb.auth.signInWithPassword({email:EMAIL_ADMIN,password:pw});
+  if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
+  abrir();
+}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';}
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
+
+function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
+  return{clear(){el.innerHTML='';},msg(t,c){const d=document.createElement('div');if(c)d.className=c;d.textContent=t;el.appendChild(d);el.scrollTop=el.scrollHeight;}};}
+const pausa=()=>new Promise(r=>setTimeout(r,30));
+const fmt=n=>Number(n).toLocaleString('es-MX');
+async function leerLibro(input,hojas,log){
+  const f=document.getElementById(input).files[0];
+  if(!f)throw new Error('Primero selecciona el archivo.');
+  log.msg('📖 Leyendo '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)…');await pausa();
+  const buf=await f.arrayBuffer();
+  const opt={type:'array'};if(hojas)opt.sheets=hojas;
+  const wb=XLSX.read(new Uint8Array(buf),opt);
+  log.msg('   Hojas: '+wb.SheetNames.slice(0,6).join(', ')+(wb.SheetNames.length>6?' y '+(wb.SheetNames.length-6)+' más':''));
+  return wb;
+}
+// Inserta/actualiza en lotes de 1000, con un reintento por lote
+async function enLotes(tabla,rows,log,opciones){
+  const T=1000;let hechos=0;
+  for(let i=0;i<rows.length;i+=T){
+    const lote=rows.slice(i,i+T);
+    let q=()=>opciones?sb.from(tabla).upsert(lote,opciones):sb.from(tabla).insert(lote);
+    let{error}=await q();
+    if(error){await new Promise(r=>setTimeout(r,1500));({error}=await q());}
+    if(error)throw new Error(tabla+' (filas '+(i+1)+'-'+(i+lote.length)+'): '+error.message);
+    hechos+=lote.length;
+    if(rows.length>T&&(hechos%10000<T||hechos===rows.length))log.msg('   … '+fmt(hechos)+' / '+fmt(rows.length));
+  }
+}
+async function sesionOk(){const{data:{session}}=await sb.auth.getSession();if(!session)throw new Error('La sesión expiró. Recarga la página y vuelve a entrar.');}
+
+async function run(tipo){
+  if(ocupado[tipo])return;ocupado[tipo]=true;
+  const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
+  const log=L(tipo);log.clear();
+  try{
+    await sesionOk();
+    if(tipo==='ventas')await cargaVentas(log);
+    if(tipo==='mf')await cargaMF(log);
+    if(tipo==='emp')await cargaEmp(log);
+    if(tipo==='hist')await cargaHist(log);
+    if(tipo==='ed')await cargaED(log);
+  }catch(e){log.msg('❌ '+e.message,'e');}
+  finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
+}
+
+async function cargaVentas(log){
+  const wb=await leerLibro('f-ventas',['VENTAS_SANVER','VENTAS_MF'],log);
+  const r=P.ventas(wb);r.avisos.forEach(a=>log.msg('⚠️ '+a,'w'));
+  for(const emp of Object.keys(r.empresas)){
+    const e=r.empresas[emp];
+    if(!e.meses.length){log.msg('⚠️ '+emp+': no encontré columnas de mes.','w');continue;}
+    log.msg('⚙️ '+emp+': '+fmt(e.claves)+' claves · '+e.meses.length+' meses ('+e.meses[0]+' a '+e.meses[e.meses.length-1]+') · '+fmt(e.celdas)+' celdas con venta');
+    log.msg('   📥 Leyendo lo que ya hay en la base…');
+    const ex=await todo(()=>sb.from('plan_ventas').select('clave,meses').eq('empresa',emp).order('clave'));
+    const filas=P.mergeVentas(emp,ex,e);
+    log.msg('   '+fmt(ex.length)+' claves en la base · '+fmt(filas.length)+' por actualizar (se reemplazan los meses del archivo)');
+    if(filas.length)await enLotes('plan_ventas',filas.map(f=>({...f,actualizado_en:new Date().toISOString()})),log,{onConflict:'empresa,clave'});
+    log.msg('   ✅ '+emp+' guardado');
+  }
+  log.msg('🎉 Listo.');
+}
+
+async function cargaMF(log){
+  const wb=await leerLibro('f-mf',null,log);
+  const r=P.existMF(wb);
+  if(!r.fecha)throw new Error('No encontré la fecha del corte (columna FECHA).');
+  log.msg('⚙️ Corte '+r.fecha+' · '+r.sucursales+' sucursales · '+fmt(r.rows.length)+' claves'+(r.negativas?' · '+r.negativas+' con total negativo (cuentan como 0)':''));
+  // días que cubre este corte = días desde el corte anterior (máx. 7; 3 si es el primero)
+  const{data:prev}=await sb.from('plan_agotados_dia').select('fecha').eq('empresa','MF').lt('fecha',r.fecha).order('fecha',{ascending:false}).limit(1);
+  let dias=3;
+  if(prev&&prev.length){dias=Math.round((new Date(r.fecha)-new Date(prev[0].fecha))/864e5);dias=Math.min(7,Math.max(1,dias));}
+  const ag=r.rows.filter(x=>x.existencia<=0).map(x=>({empresa:'MF',clave:x.clave,fecha:r.fecha,dias}));
+  log.msg('   '+fmt(ag.length)+' claves en cero → '+dias+' día(s) agotado cada una'+(prev&&prev.length?' (corte anterior '+prev[0].fecha+')':' (primer corte)'));
+  log.msg('🧹 Reemplazando el corte anterior…');
+  let{error}=await sb.from('plan_inventario_mf').delete().gte('clave',0);if(error)throw new Error('borrando corte: '+error.message);
+  await enLotes('plan_inventario_mf',r.rows.map(x=>({...x,fecha_corte:r.fecha})),log);
+  ({error}=await sb.from('plan_agotados_dia').delete().eq('empresa','MF').eq('fecha',r.fecha));if(error)throw new Error('borrando agotados del corte: '+error.message);
+  await enLotes('plan_agotados_dia',ag,log);
+  log.msg('🎉 Listo. Existencias MF al '+r.fecha+'.');
+}
+
+async function cargaEmp(log){
+  const wb=await leerLibro('f-emp',['BD'],log);
+  const r=P.empaques(wb);
+  log.msg('⚙️ '+fmt(r.rows.length)+' claves · '+fmt(r.validos)+' VALIDO');
+  await enLotes('plan_empaques',r.rows.map(x=>({...x,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('🎉 Listo.');
+}
+
+async function cargaHist(log){
+  const wb=await leerLibro('f-hist',['Historico de faltantes','Detalle'],log);
+  log.msg('⚙️ Buscando días en existencia 0…');await pausa();
+  const r=P.historico(wb);
+  log.msg('   '+fmt(r.leidas)+' filas leídas · '+r.dias+' días ('+r.desde+' a '+r.hasta+') · '+fmt(r.rows.length)+' días-clave agotados');
+  await enLotes('plan_agotados_dia',r.rows,log,{onConflict:'empresa,clave,fecha'});
+  log.msg('🎉 Listo.');
+}
+
+async function cargaED(log){
+  const wb=await leerLibro('f-ed',null,log);
+  const r=P.comprasED(wb);
+  log.msg('⚙️ Meses en el archivo: '+r.meses[0].slice(0,7)+' a '+r.meses[r.meses.length-1].slice(0,7)+' · '+fmt(r.rows.length)+' clave-mes de entregas directas');
+  for(const m of r.meses){const{error}=await sb.from('plan_compras_ed').delete().eq('mes',m);if(error)throw new Error('borrando '+m+': '+error.message);}
+  await enLotes('plan_compras_ed',r.rows,log);
+  log.msg('🎉 Listo.');
+}
+
+// ══════════ VERIFICACIÓN ══════════
+async function todo(q){let out=[];for(let i=0;i<100;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
+async function verificar(){
+  const cont=document.getElementById('v-res');
+  const claves=document.getElementById('v-claves').value.split(/[,\s]+/).map(Number).filter(n=>n>0);
+  if(!claves.length){cont.innerHTML='<p class="note">Escribe al menos una clave.</p>';return;}
+  cont.innerHTML='<p class="d" style="margin-top:10px">Consultando…</p>';
+  try{
+    await sesionOk();
+    const [v,mf,em,ag,ed]=await Promise.all([
+      todo(()=>sb.from('plan_ventas').select('empresa,clave,meses').in('clave',claves).order('clave')).then(rs=>{const o=[];rs.forEach(r=>Object.entries(r.meses||{}).forEach(([m,u])=>o.push({empresa:r.empresa,clave:Number(r.clave),mes:m+'-01',unidades:u})));return o;}),
+      todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').in('clave',claves)),
+      todo(()=>sb.from('plan_empaques').select('*').in('clave',claves)),
+      todo(()=>sb.from('plan_agotados_mes').select('empresa,clave,mes,dias_agotado').in('clave',claves)),
+      todo(()=>sb.from('plan_compras_ed').select('clave,mes,cantidad').in('clave',claves))]);
+    const meses=[...new Set([...v.map(x=>x.mes),...ag.map(x=>x.mes),...ed.map(x=>x.mes)])].sort();
+    const n=x=>x==null?'':(Math.round(x*10)/10).toLocaleString('es-MX');
+    let h='';
+    for(const k of claves){
+      const e=em.find(x=>x.clave===k),m=mf.find(x=>x.clave===k);
+      h+='<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">Clave '+k+'</h3><div class="d" style="font-size:12px;color:var(--tx2)">'
+        +'Existencia MF: <b>'+(m?n(m.existencia)+'</b> (corte '+m.fecha_corte+')':'—</b>')+' · Empaque: <b>'
+        +(e?(e.validacion||'')+'</b> '+(e.inner_cant??'—')+' INNER / '+(e.master_cant??'—')+' MASTER '+(e.uni_compra||'')+(e.factor_conv?' · factor '+e.factor_conv:''):'sin registro</b>')+'</div>';
+      const fila=(et,f,cls)=>'<tr><td>'+et+'</td>'+meses.map(mm=>{const val=f(mm);return '<td'+(cls&&cls(mm)?' class="ag"':'')+'>'+n(val)+'</td>';}).join('')+'</tr>';
+      const g=(emp,mm)=>{const r=v.find(x=>x.clave===k&&x.empresa===emp&&x.mes===mm);return r?r.unidades:null;};
+      const a=(emp,mm)=>{const r=ag.find(x=>x.clave===k&&x.empresa===emp&&x.mes===mm);return r?r.dias_agotado:null;};
+      const d=mm=>{const r=ed.find(x=>x.clave===k&&x.mes===mm);return r?r.cantidad:null;};
+      h+='<div class="scroll"><table><tr><th></th>'+meses.map(mm=>'<th>'+mm.slice(0,7)+'</th>').join('')+'</tr>'
+        +fila('Venta SANVER',mm=>g('SANVER',mm))+fila('Venta MF',mm=>g('MF',mm))+fila('Compras ED',d)
+        +fila('Días agotado SANVER',mm=>a('SANVER',mm),mm=>(a('SANVER',mm)||0)>=10)
+        +fila('Días agotado MF',mm=>a('MF',mm),mm=>(a('MF',mm)||0)>=10)+'</table></div>';
+    }
+    cont.innerHTML=h+'<p class="d" style="margin-top:8px;font-size:11.5px">En rojo: meses con 10 días o más agotado (se excluirán del promedio).</p>';
+  }catch(e){cont.innerHTML='<p class="note">❌ '+e.message+'</p>';}
+}
+async function resumen(){
+  const cont=document.getElementById('v-res');cont.innerHTML='<p class="d" style="margin-top:10px">Contando…</p>';
+  try{
+    await sesionOk();
+    const t=[['plan_ventas','Ventas (empresa-clave)'],['plan_inventario_mf','Existencias MF'],['plan_empaques','Empaques'],['plan_agotados_dia','Días agotados'],['plan_compras_ed','Compras ED (clave-mes)']];
+    const r=await Promise.all(t.map(([tb])=>sb.from(tb).select('*',{count:'exact',head:true})));
+    cont.innerHTML='<div class="kpis">'+t.map(([tb,et],i)=>'<div class="kpi"><b>'+(r[i].error?'⚠️':fmt(r[i].count||0))+'</b><span>'+et+'</span></div>').join('')+'</div>';
+  }catch(e){cont.innerHTML='<p class="note">❌ '+e.message+'</p>';}
+}
+</script>
+</body>
+</html>
