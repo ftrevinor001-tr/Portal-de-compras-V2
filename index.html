@@ -2663,12 +2663,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElement
       <div><label>📂 Rotación</label><select id="sg-rot" onchange="renderSeg()"><option value="">Todas</option><option value="AS">Alta / Sagrados</option><option value="MEDIA">Media</option><option value="OTRAS">Lenta / otras</option></select></div>
       <div><label>🔍 Buscar clave / nombre</label><input id="sg-q" type="text" placeholder="Ej: 47868" oninput="renderSeg()" style="width:180px"></div>
       <div class="sg-kpis" id="sg-kpis"></div>
+      <button class="sg-save" style="background:#1c4587;padding:6px 12px;font-size:12px" onclick="segPasarTodas()" title="Copia la fecha de llegada vigente de cada clave como fecha compromiso de su OC al CEDI (la abierta más antigua de los últimos 120 días)">📅 Pasar fechas a Compromiso OCs</button>
       <button class="sg-save" style="background:#1e7a4a;padding:6px 12px;font-size:12px" onclick="segExcel()">⬇ Descargar Excel</button>
     </div>
     <div id="sg-wrap">
       <table id="sg-tbl">
-        <thead><tr><th>Estado</th><th>Clave</th><th>Nombre</th><th>Comprador</th><th>Rot.</th><th>Días</th><th>Fecha llegada</th><th style="width:34%">Comentario</th><th></th></tr></thead>
-        <tbody id="sg-body"><tr><td colspan="9" style="padding:30px;text-align:center;color:#6b7a99">Cargando…</td></tr></tbody>
+        <thead><tr><th>Estado</th><th>Clave</th><th>Nombre</th><th>Comprador</th><th>Rot.</th><th>Días</th><th title="Al guardar, la fecha de llegada se vuelve la fecha compromiso de esta OC en Compromiso OCs (cuenta como compromiso capturado para el OTIF)">OC (compromiso)</th><th>Fecha llegada</th><th style="width:30%">Comentario</th><th></th></tr></thead>
+        <tbody id="sg-body"><tr><td colspan="10" style="padding:30px;text-align:center;color:#6b7a99">Cargando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -2724,7 +2725,8 @@ async function openSeg(){
     const fB=TG.fechas[TG.fechas.length-1],fA=TG.fechas[TG.fechas.length-2];
     const D=await tgDatos(fA,fB);
     const S=await segLeer(D.faltB.map(r=>String(r.clave).trim()),D.inicio);
-    SEG={...SEG,rows:D.faltB,dias:D.dias,inicio:D.inicio,seg:S.actual,hist:S.hist,fB,err:S.err};
+    const O=await segOCs(D.faltB.map(r=>String(r.clave).trim()));
+    SEG={...SEG,rows:D.faltB,dias:D.dias,inicio:D.inicio,seg:S.actual,hist:S.hist,fB,err:S.err,ocs:O.ocs,comp:O.comp};
     const sc=document.getElementById('sg-comp'),prev=sc.value;
     sc.innerHTML='<option value="">Todos</option>'+[...new Set(D.faltB.map(tgComp))].sort().map(c=>`<option value="${c}">${c}</option>`).join('');
     sc.value=prev;
@@ -2760,7 +2762,7 @@ function renderSeg(){
   rows.sort((a,b)=>ORD[est(a)]-ORD[est(b)]||tgRank(a.rotacion)-tgRank(b.rotacion)||dd(b)-dd(a));
   const RC=['#7b68c8','#c0582a','#b8952a','#3a9688','#64748b'],RL=['SAGR','ALTA','MEDIA','LENTA','OTRA'];
   const body=document.getElementById('sg-body');
-  if(!rows.length){body.innerHTML='<tr><td colspan="9" style="padding:30px;text-align:center;color:#6b7a99">Sin claves con este filtro</td></tr>';return;}
+  if(!rows.length){body.innerHTML='<tr><td colspan="10" style="padding:30px;text-align:center;color:#6b7a99">Sin claves con este filtro</td></tr>';return;}
   body.innerHTML=rows.map(r=>{
     const cl=String(r.clave).trim(),s=SEG.seg[cl]||{},e=est(r),k=tgRank(r.rotacion),hs=SEG.hist[cl]||[];
     const tip=hs.map(x=>`${String(x.creado_en).slice(0,10).split('-').reverse().join('/')}: ${x.fecha_llegada?'llega '+segFmt(x.fecha_llegada):'sin fecha'}${x.comentario?' — '+x.comentario:''}`).join('\n');
@@ -2771,11 +2773,65 @@ function renderSeg(){
       <td>${segEsc(tgCorto2(tgComp(r)))}</td>
       <td class="sg-rot" style="color:${RC[k]}">${RL[k]}</td>
       <td>${segEsc(SEG.dias[cl]||'')}</td>
+      <td>${segSelOC(cl)}</td>
       <td><input type="date" value="${s.fecha_llegada?String(s.fecha_llegada).slice(0,10):''}" oninput="segDirty(this)"></td>
       <td><input type="text" value="${segEsc(s.comentario||'')}" placeholder="Ej: proveedor confirma embarque martes" oninput="segDirty(this)" onkeydown="if(event.key==='Enter')segGuardar(this)"></td>
       <td style="white-space:nowrap"><button class="sg-save" disabled onclick="segGuardar(this)">💾 Guardar</button>${hs.length?` <span class="sg-hist" title="${segEsc(tip)}">${hs.length} reg.</span>`:''}</td>
     </tr>`;
   }).join('');
+}
+// ── Liga con Compromiso OCs: OCs abiertas al CEDI de cada clave y su compromiso vigente ──
+async function segOCs(claves){
+  const ocs={},comp={};
+  try{
+    const nums=claves.map(Number).filter(n=>!isNaN(n));
+    for(let i=0;i<nums.length;i+=200){
+      const{data,error}=await sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,proveedor,entrega_directa').in('clave',nums.slice(i,i+200)).is('cerrada_en',null).order('folio');
+      if(error)throw error;
+      (data||[]).forEach(l=>{if(l.entrega_directa)return;const k=String(l.clave);(ocs[k]=ocs[k]||[]).push({folio:Number(l.folio),fecha_oc:String(l.fecha_oc||'').slice(0,10),pend:Number(l.cantidad_pend)||0,prov:l.proveedor||''});});
+    }
+    // Primero la OC abierta más antigua que NO esté por depurar (más de 120 días); las viejas van al final
+    const lim=new Date(Date.now()-120*864e5).toISOString().slice(0,10);
+    Object.values(ocs).forEach(a=>a.sort((x,y)=>((x.fecha_oc<lim)-(y.fecha_oc<lim))||(x.fecha_oc<y.fecha_oc?-1:x.fecha_oc>y.fecha_oc?1:x.folio-y.folio)));
+    const folios=[...new Set(Object.values(ocs).flat().map(o=>o.folio))];
+    for(let i=0;i<folios.length;i+=200){
+      const{data,error}=await sb.from('plan_oc_compromiso').select('folio,fecha,comentario').in('folio',folios.slice(i,i+200));
+      if(error)throw error;(data||[]).forEach(c=>comp[Number(c.folio)]={fecha:c.fecha?String(c.fecha).slice(0,10):null,comentario:c.comentario});
+    }
+  }catch(e){console.warn('OCs de seguimiento:',e.message||e);}
+  return{ocs,comp};
+}
+function segSelOC(cl){
+  const a=(SEG.ocs||{})[cl]||[];
+  if(!a.length)return '<span style="font-size:11px;color:#94a3b8" title="La clave no tiene OC abierta al CEDI">sin OC abierta</span>';
+  const fx=f=>f?f.slice(8,10)+'/'+f.slice(5,7)+'/'+f.slice(2,4):'—';
+  const op=a.map(o=>{const c=(SEG.comp||{})[o.folio];return `<option value="${o.folio}">${o.folio} · OC ${fx(o.fecha_oc)}${c&&c.fecha?' · comp. '+fx(c.fecha):''}</option>`;}).join('');
+  return `<select class="sg-oc" onchange="segDirty(this)" title="${segEsc(a.map(o=>'OC '+o.folio+' · '+o.prov+' · '+o.pend+' pend.').join('\n'))}" style="font-size:11px;max-width:170px">${op}${a.length>1?'<option value="TODAS">Todas las OCs abiertas</option>':''}<option value="">No pasar a OC</option></select>`;
+}
+// Guarda la fecha como compromiso capturado de las OCs (mismo registro que Compromiso OCs)
+async function segCompromiso(clave,folios,fecha,com){
+  const quien=((typeof usuarioActual!=='undefined'&&usuarioActual)||'admin')+' (seguimiento)';
+  const filas=[],omit=[];
+  folios.forEach(f=>{const o=((SEG.ocs||{})[clave]||[]).find(x=>x.folio===f);if(o&&o.fecha_oc&&fecha<o.fecha_oc){omit.push(f);return;}
+    const prev=(SEG.comp||{})[f]||{};filas.push({folio:f,fecha,comentario:com||prev.comentario||'Fecha de llegada (seguimiento de faltantes)',fecha_anterior:prev.fecha&&prev.fecha!==fecha?prev.fecha:null,usuario:quien,actualizado_en:new Date().toISOString()});});
+  if(!filas.length)return{err:'la fecha es anterior a la fecha de la OC '+omit.join(', ')};
+  const{error}=await sb.from('plan_oc_compromiso').upsert(filas,{onConflict:'folio'});
+  if(error)return{err:error.message};
+  filas.forEach(x=>{SEG.comp[x.folio]={fecha:x.fecha,comentario:x.comentario};});
+  return{ok:filas.map(x=>x.folio).join(', ')+(omit.length?' (se omitió '+omit.join(', ')+': fecha antes de la OC)':'')};
+}
+// Pasa de una vez las fechas vigentes a la OC más antigua abierta de cada clave (solo donde cambia)
+async function segPasarTodas(){
+  const pend=[];
+  (SEG.rows||[]).forEach(r=>{const cl=String(r.clave).trim(),s=SEG.seg[cl];const a=(SEG.ocs||{})[cl]||[];
+    if(!s||!s.fecha_llegada||!a.length)return;const f=String(s.fecha_llegada).slice(0,10);const o=a[0];
+    if(((SEG.comp||{})[o.folio]||{}).fecha===f||f<o.fecha_oc)return;pend.push({cl,folio:o.folio,f,com:s.comentario});});
+  if(!pend.length){alert('No hay fechas de llegada nuevas que pasar: las OCs ya tienen esa fecha como compromiso o las claves no tienen OC abierta al CEDI.');return;}
+  if(!confirm(pend.length+' OC(s) tomarán la fecha de llegada como fecha compromiso capturada (la OC abierta más antigua de cada clave, sin contar las de más de 120 días). ¿Continuar?'))return;
+  let ok=0;const errs=[];
+  for(const x of pend){const r=await segCompromiso(x.cl,[x.folio],x.f,x.com);if(r.err)errs.push('OC '+x.folio+': '+r.err);else ok++;}
+  alert('✓ '+ok+' OC(s) actualizadas en Compromiso OCs.'+(errs.length?'\n\nNo se pudieron actualizar:\n'+errs.slice(0,10).join('\n'):''));
+  renderSeg();
 }
 // Descarga a Excel lo que se ve en pantalla (respeta filtros) + hoja con el historial de capturas
 function segExcel(){
@@ -2819,13 +2875,21 @@ async function segGuardar(el){
   if(!fecha&&!com){alert('Escribe una fecha de llegada o un comentario.');return;}
   btn.disabled=true;btn.textContent='⏳';
   const reg={clave:tr.dataset.c,comprador:tr.dataset.comp,nombre:tr.dataset.nom,fecha_llegada:fecha,comentario:com,creado_por:(typeof usuarioActual!=='undefined'&&usuarioActual)||'admin'};
+  // La fecha de llegada también queda como fecha compromiso de la OC elegida (Compromiso OCs)
+  const selOC=tr.querySelector('select.sg-oc');let msgOC='';
+  if(fecha&&selOC&&selOC.value){
+    const folios=selOC.value==='TODAS'?(SEG.ocs[tr.dataset.c]||[]).map(o=>o.folio):[Number(selOC.value)];
+    const r=await segCompromiso(tr.dataset.c,folios,fecha,com);
+    if(r.err){if(!confirm('La fecha de llegada se guardará, pero no se pudo poner como compromiso de la OC:\n'+r.err+'\n\n¿Guardar de todos modos?')){btn.disabled=false;btn.textContent='💾 Guardar';return;}}
+    else msgOC=r.ok;
+  }
   const {data,error}=await sb.from(SEG_TABLA).insert(reg).select('id,clave,fecha_llegada,comentario,creado_por,creado_en').single();
   if(error){btn.disabled=false;btn.textContent='💾 Guardar';alert('No se pudo guardar: '+error.message);return;}
   const cl=tr.dataset.c;
   SEG.seg[cl]=data;(SEG.hist[cl]=SEG.hist[cl]||[]).unshift(data);
   // si el resumen de Telegram ya tenía datos cargados, actualizarlo también
   if(TG.seg){TG.seg[cl]=data;}
-  tr.classList.remove('sg-dirty');btn.textContent='✓';
+  tr.classList.remove('sg-dirty');btn.textContent='✓';if(msgOC)btn.title='Compromiso actualizado: OC '+msgOC;
   setTimeout(renderSeg,600);
 }
 </script>
