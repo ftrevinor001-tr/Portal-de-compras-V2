@@ -30,6 +30,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .kpi{border:1px solid var(--brd);border-radius:10px;padding:8px 14px;min-width:150px}
 .kpi b{display:block;font-size:18px;color:var(--navy)}
 .kpi span{font-size:11.5px;color:var(--tx2)}
+.kpi.clk{cursor:pointer;transition:all .12s}.kpi.clk:hover{border-color:#9db4dd;background:#f8fbff}
+.kpi.on{border-color:var(--navy);background:#eef3fc;box-shadow:inset 0 0 0 1px var(--navy)}
+.kpi.on span{color:var(--navy);font-weight:600}
 .scroll{overflow:auto;max-height:68vh;border:1px solid var(--brd);border-radius:10px;background:#fff}
 table{border-collapse:collapse;font-size:12.5px;width:100%}
 th,td{border-bottom:1px solid var(--brd);padding:6px 8px;text-align:left;white-space:nowrap;vertical-align:middle}
@@ -248,12 +251,20 @@ async function cargar(){
     pintar();
   }catch(e){document.getElementById('tb').innerHTML='<tr><td style="color:var(--err)">❌ '+esc(e.message)+'</td></tr>';}
 }
+// Filtro por tarjeta (clic en una tarjeta de arriba): '' todas · cap capturado · venc vencida · def por defecto
+let KF='';
+const KFN={cap:o=>!!o.compromiso,venc:(o,h)=>!!(o.ref&&o.ref<h),def:o=>!o.compromiso&&!!o.defecto};
+const KFT={cap:'con compromiso capturado',venc:'con fecha ya vencida',def:'con compromiso por defecto'};
+function kf(k){KF=KF===k?'':k;pintar();}
+const conKF=(v,h)=>KF&&KFN[KF]?v.filter(o=>KFN[KF](o,h)):v;
 function pintar(){
   if(!OCS)return;
   const f={mes:document.getElementById('f-mes').value,tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
-  const v=filtrarOC(OCS,f,hoy());const h=hoy();
-  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.defecto).length,dep=filtrarOC(OCS,{...f,mes:'',dep:true},h).length;
-  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas'+(f.mes==='REF'?' con compromiso este mes':f.mes==='OC'?' creadas este mes':'')+'</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con compromiso capturado</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>con compromiso por defecto (OC + entrega)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
+  const h=hoy();const v0=filtrarOC(OCS,f,h);
+  const con=v0.filter(o=>o.compromiso).length,venc=v0.filter(o=>o.ref&&o.ref<h).length,est=v0.filter(o=>!o.compromiso&&o.defecto).length,dep=filtrarOC(OCS,{...f,mes:'',dep:true},h).length;
+  const v=conKF(v0,h);
+  const kc=k=>' clk'+(KF===k?' on':'')+'" onclick="kf(\''+k+'\')" title="'+(KF===k?'Clic para quitar el filtro':'Clic para ver solo estas OCs en la tabla')+'"';
+  document.getElementById('kpis').innerHTML='<div class="kpi clk'+(KF?'':' on')+'" onclick="KF=\'\';pintar()" title="Clic para ver todas"><b>'+v0.length.toLocaleString('es-MX')+'</b><span>OCs abiertas'+(f.mes==='REF'?' con compromiso este mes':f.mes==='OC'?' creadas este mes':'')+'</span></div><div class="kpi'+kc('cap')+'><b>'+(v0.length?Math.round(con/v0.length*100):0)+'%</b><span>con compromiso capturado ('+con.toLocaleString('es-MX')+')</span></div><div class="kpi'+kc('venc')+'><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi'+kc('def')+'><b>'+est.toLocaleString('es-MX')+'</b><span>con compromiso por defecto (OC + entrega)</span></div>'+(f.tipo!=='ED'?'<div class="kpi clk'+(f.dep?' on':'')+'" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
   const puede=!!document.getElementById('quien').value;
   let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega en OC</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
   v.slice(0,800).forEach(o=>{
@@ -268,6 +279,7 @@ function pintar(){
   });
   if(v.length>800)html+='<tr><td colspan="11" class="d">Se muestran 800 de '+v.length+'. Usa los filtros para ver el resto.</td></tr>';
   if(!v.length)html+='<tr><td colspan="11" class="d">No hay OCs con esos filtros.</td></tr>';
+  if(KF)html=html.replace('</th></tr>','</th></tr><tr><td colspan="11" class="d" style="background:#eef3fc;color:var(--navy)">Mostrando solo las OCs <b>'+KFT[KF]+'</b> ('+v.length.toLocaleString('es-MX')+'). <a class="lk" onclick="kf(\''+KF+'\')">Ver todas</a></td></tr>');
   document.getElementById('tb').innerHTML=html;
 }
 function toggle(f){ABIERTO.has(f)?ABIERTO.delete(f):ABIERTO.add(f);pintar();}
@@ -286,7 +298,7 @@ async function guardar(folio){
 function filtrosActuales(){return{mes:document.getElementById('f-mes').value,tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};}
 const aFecha=f=>f?new Date(f+'T12:00:00'):null;
 function plantilla(){
-  const v=filtrarOC(OCS,filtrosActuales(),hoy());
+  const v=conKF(filtrarOC(OCS,filtrosActuales(),hoy()),hoy());
   if(!v.length){toast('No hay OCs con esos filtros');return;}
   const filas=[['Folio OC','Proveedor','Comprador','Fecha OC','Claves','Compromiso por defecto','Compromiso capturado','Fecha compromiso real','Comentario']];
   v.forEach(o=>filas.push([o.folio,o.proveedor,o.comprador,aFecha(o.fecha_oc),o.claves.length,aFecha(o.defecto),aFecha(o.compromiso),null,o.comentario||'']));

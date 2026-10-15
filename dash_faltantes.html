@@ -264,7 +264,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
   </div>
     <div id="cn-sob" style="display:none">
       <div class="fbox" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;position:sticky;top:0;z-index:50;background:#fff;padding:12px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);border:1px solid #eef1f7">
-        <div><div class="flbl">📅 Día</div><select id="sob-mes" onchange="renderSobreInv()" style="font-size:13px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px;min-width:130px"></select></div>
+        <div><div class="flbl">📅 Día</div><select id="sob-mes" onchange="sobDia()" style="font-size:13px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px;min-width:130px"></select></div>
         <div><div class="flbl">👤 Comprador</div><select id="sob-comp" onchange="sobCascada('comp')" style="font-size:13px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px;min-width:170px"></select></div>
         <div><div class="flbl">📂 Familia (GRUPO)</div><select id="sob-fam" onchange="sobCascada('fam')" style="font-size:13px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px;min-width:170px"></select></div>
         <div><div class="flbl">🔄 Rotación</div><select id="sob-rot" onchange="sobCascada('rot')" style="font-size:13px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px;min-width:150px"></select></div>
@@ -366,8 +366,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <h2>Consulta de clave</h2>
       <p>Estatus de cada clave en el día elegido (Excel) junto al cálculo del portal: antecedente, pronóstico y propuesta. <b>Clic en una clave</b> para ver su historia: días en faltante o riesgo, ventas mes a mes, OCs y alarmas.</p>
       <div class="ctl">
-        <select id="cq-fecha" onchange="pintarConsulta(true)" title="Día"></select>
-        <select id="cq-regla" onchange="cambiarRegla(this.value)" title="Con qué regla se calcula el estatus"><option value="nueva">Estatus: regla nueva (1.2 / 1.4)</option><option value="excel">Estatus: Excel original</option></select>
+        <div id="cq-fecha" data-t="Día"></div>
         <input type="search" id="cq-q" placeholder="Buscar clave o nombre…" oninput="CQ.lim=200;pintarConsulta()" style="min-width:210px">
         <div id="cq-comp" data-t="Comprador"></div>
         <div id="cq-est" data-t="Estatus"></div>
@@ -383,7 +382,6 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
         <button class="tglb" onclick="limpiarCQ()">↺ Limpiar</button>
         <button class="tglb" onclick="excelCQ()" style="margin-left:auto">⬇ Excel</button>
       </div>
-      <div class="howto" id="cq-regla-res" style="margin:8px 0 0"></div>
       <div class="semleg" id="cq-semleg"></div>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:11.5px;color:#6b7a99;margin-bottom:6px"><span id="cq-count"></span><span id="cq-plan"></span></div>
       <div class="cqw" id="cq-tw"><table class="cqt"><thead id="cq-head">
@@ -404,7 +402,6 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <h2>Comparativo diario</h2>
       <p>Qué cambió entre dos días: claves que entraron o salieron de faltante y de riesgo. Por defecto compara el día anterior contra el último día cargado.</p>
       <div class="ctl">
-        <select id="cm-regla" onchange="cambiarRegla(this.value)" title="Con qué regla se calcula el estatus"><option value="nueva">Estatus: regla nueva (1.2 / 1.4)</option><option value="excel">Estatus: Excel original</option></select>
         <label style="font-size:12px;color:#6b7a99">Día A</label><select id="cm-a" onchange="pintarComparativo(true)"></select>
         <button class="tglb" onclick="swapCM()" title="Invertir">⇄</button>
         <label style="font-size:12px;color:#6b7a99">Día B</label><select id="cm-b" onchange="pintarComparativo(true)"></select>
@@ -590,6 +587,8 @@ async function doFetch(msgEl){
   const session=await esperarSesion(sb);
   if(!session) throw new Error('Sin sesión activa. Entra al portal con tu contraseña desde la pantalla de ingreso.');
   if(msgEl){msgEl.textContent='📡 Consultando datos en el servidor...';}
+  // Días que tienen detalle guardado en la base (para poder consultar cualquiera, no solo los del último Excel)
+  try{const{data:dd,error:ed}=await sb.from('dias_cargados').select('fecha').order('fecha',{ascending:true}).range(0,1999);if(!ed&&dd)window.DIAS_DB=dd.map(x=>String(x.fecha).slice(0,10));}catch(_){}
   let{data:meta,error:e1}=await sb.from('datasets').select('payload,actualizado_en').eq('clave','faltantes_v2').maybeSingle();
   let clave='faltantes_v2';
   if(!e1&&(!meta||!meta.payload)){clave='faltantes';({data:meta,error:e1}=await sb.from('datasets').select('payload,actualizado_en').eq('clave','faltantes').maybeSingle());}
@@ -922,7 +921,9 @@ function initSobreInv(){
   // Días con formato legible dd/mm/aaaa (value queda en ISO)
   const fmtDia=iso=>{const p=String(iso).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso;};
   const mesEl=document.getElementById('sob-mes');
-  if(mesEl)mesEl.innerHTML=`<option value="">— Todos los días —</option>`+S.meses.map(v=>`<option value="${v}">${fmtDia(v)}</option>`).join('');
+  // Todos los días con detalle; los que no vienen precalculados se calculan al elegirlos
+  const diasSob=[...new Set([...diasDetalle(),...S.meses])].sort();
+  if(mesEl)mesEl.innerHTML=diasSob.slice().reverse().map(v=>`<option value="${v}">${fmtDia(v)}</option>`).join('');
   setOpts('sob-comp',S.comps,'— Todos —');
   setOpts('sob-fam',S.grupos,'— Todas —');
   setOpts('sob-rot',S.rots,'— Todas —');
@@ -932,7 +933,32 @@ function initSobreInv(){
   // preseleccionar el mes más reciente
   const mesSel=document.getElementById('sob-mes');
   if(mesSel&&S.meses.length)mesSel.value=S.meses[S.meses.length-1];
-  renderSobreInv();
+  sobDia();
+}
+// Calcula al momento los meses de inventario vs objetivo de un día que no venía en la carga ligera
+async function sobDia(){
+  const S=G.sobreInv;const f=document.getElementById('sob-mes').value;if(!S||!f)return;
+  if(!S.meses.includes(f)){
+    const kb=document.getElementById('sob-kpis');if(kb)kb.innerHTML='<div style="grid-column:1/-1;padding:18px;color:#6b7a99">⏳ Calculando el '+fdl(f)+'…</div>';
+    try{const rows=await diaDetalle(f);const r=sobCalcDia(rows,f);
+      if(!S.meses.includes(f)){S.celdas.push(...r.celdas);S.meses.push(f);S.meses.sort();
+        const T=G.topExceso||(G.topExceso={porDiaComp:{},dias:[]});Object.assign(T.porDiaComp,r.porDiaComp);if(!T.dias.includes(f)){T.dias.push(f);T.dias.sort();}}
+    }catch(e){if(kb)kb.innerHTML='<div style="grid-column:1/-1;padding:18px;color:#c0392b">❌ No se pudo cargar el '+fdl(f)+': '+escH2(e.message||e)+'</div>';return;}
+    if(document.getElementById('sob-mes').value!==f)return;
+  }
+  sobCascada('mes');
+}
+function sobCalcDia(rows,dia){
+  const FM=G.sobreInv&&G.sobreInv.regla?G.sobreInv.regla.sobre:1.4,EXCL_FAM='TORNILLOS, TUERCAS Y REMACHES';const acc={},tmp={};
+  rows.forEach(x=>{const mi=+x.meses_inv||0;if(mi<=0)return;const c=String(x.comprador||'').trim().toUpperCase();if(!c||c==='PRODUCCION')return;
+    const g=String(x.grupo||'').trim().toUpperCase()||'(SIN GRUPO)',rot=String(x.clmov||'').trim().toUpperCase()||'(SIN ROTACIÓN)',mar=String(x.marca||'').trim().toUpperCase()||'(SIN MARCA)';
+    const obj=+x.obj_meses||0,lim=obj*FM,ex=+x.existencias||0,bo=+x.bo||0;const mib=ex>0?mi*(ex+bo)/ex:mi;
+    const k=c+'||'+g+'||'+rot+'||'+mar;const a=acc[k]||(acc[k]={sm:0,so:0,sob:0,smb:0,n:0,exc:0});a.sm+=mi;a.so+=lim;a.sob+=obj;a.smb+=mib;a.n++;if(mi>lim)a.exc+=mi-lim;
+    if(mi>lim&&g!==EXCL_FAM)(tmp[dia+'||'+c]=tmp[dia+'||'+c]||[]).push({clave:x.clave,nombre:String(x.nombre||'').slice(0,45),marca:String(x.marca||''),grupo:g,rot,mi:+mi.toFixed(1),mib:+mib.toFixed(1),obj:+obj.toFixed(1),lim:+lim.toFixed(1),exc:+(mi-lim).toFixed(1),bo});});
+  const r2=v=>+v.toFixed(2);
+  const celdas=Object.keys(acc).map(k=>{const[c,g,rot,mar]=k.split('||');const a=acc[k];return{c,dia,g,rot,mar,sm:r2(a.sm),so:r2(a.so),sob:r2(a.sob),smb:r2(a.smb),n:a.n,exc:r2(a.exc)};});
+  const porDiaComp={};Object.keys(tmp).forEach(k=>{tmp[k].sort((a,b)=>b.exc-a.exc);porDiaComp[k]=tmp[k].slice(0,40);});
+  return{celdas,porDiaComp};
 }
 
 // Devuelve las celdas que pasan los filtros actuales (excepto el indicado, para cascada)
@@ -1850,7 +1876,7 @@ function resumenRegla(comp){
   return '📏 <b>Regla nueva</b> (riesgo entra con T. entrega × '+R.entra+' y sale con × '+R.sale+'; sobre inventario con Objetivo × '+R.sobre+') al '+fdl(R.fecha)+(comp?' · '+escH2(comp):'')+': '
     +E.map(e=>ESTL[e]+' <b>'+nf(o.nueva[e]||0)+'</b> <span style="color:#94a3b8">(Excel '+nf(o.excel[e]||0)+')</span>').join(' · ');
 }
-const diasDetalle=()=>(G.detF&&G.detF.length?G.detF:G.fechas||[]).slice().sort();
+const diasDetalle=()=>{const u=[...new Set([...(G.detF||[]),...(window.DIAS_DB||[])])].sort();return u.length?u:(G.fechas||[]).slice().sort();};
 
 // ── RESUMEN: una sola gráfica de faltantes por día, apilada por rotación ──
 function renderCharts(){
@@ -1890,7 +1916,7 @@ document.addEventListener('click',()=>document.querySelectorAll('.ms.open').forE
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.ms.open').forEach(x=>x.classList.remove('open'));});
 function msVis(id){const m=MSX[id],q=m.q.trim().toUpperCase();return m.opts.filter(o=>!q||o.t.toUpperCase().includes(q)||o.v.toUpperCase().includes(q));}
 function msList(id){const el=document.getElementById(id),m=MSX[id];el.querySelector('.msq').style.display=m.opts.length>8?'':'none';
-  el.querySelector('.msl').innerHTML=msVis(id).map(o=>'<label class="'+(o.n?'':'z')+'"><input type="checkbox" value="'+escH2(o.v)+'"'+(m.sel.has(o.v)?' checked':'')+'><span>'+escH2(o.t)+'</span><span class="n">'+nf(o.n)+'</span></label>').join('')||'<div class="sm2" style="padding:6px">Sin opciones con los filtros actuales</div>';}
+  el.querySelector('.msl').innerHTML=msVis(id).map(o=>'<label class="'+(o.n===0?'z':'')+'"><input type="checkbox" value="'+escH2(o.v)+'"'+(m.sel.has(o.v)?' checked':'')+'><span>'+escH2(o.t)+'</span><span class="n">'+(o.n==null?'':nf(o.n))+'</span></label>').join('')||'<div class="sm2" style="padding:6px">Sin opciones con los filtros actuales</div>';}
 function msBtn(id){const el=document.getElementById(id),m=MSX[id],s=[...m.sel],b=el.querySelector('.msb');const lab=v=>m.lbl[v]||v||'(sin dato)';
   b.classList.toggle('on',s.length>0);b.innerHTML=escH2(m.t)+': <b>'+(s.length===0?'Todos':s.length===1?escH2(lab(s[0])):s.length+' selecc.')+'</b> ▾';b.title=s.length?m.t+': '+s.map(lab).join(', '):'Clic para elegir uno o varios';}
 // Opciones en cascada: cnt = Map(valor→claves); las seleccionadas que ya no aparecen se conservan con 0
@@ -1911,20 +1937,28 @@ const CQL={'cq-sem':v=>SLBL[v]||v||'(sin dato)','cq-est':v=>ESTL[v]||v||'(sin da
 const CQO={'cq-sem':(a,b)=>(SORD[a.v]??9)-(SORD[b.v]??9),'cq-est':ordEst,'cq-estp':ordEst,'cq-rot':ordRot};
 async function initConsulta(){
   CQF.forEach(([id])=>msMount(id,()=>{CQ.lim=200;pintarConsulta();}));document.getElementById('cq-sem').style.display='none';
-  const sel=document.getElementById('cq-fecha');const ds=diasDetalle();
-  if(!sel.options.length){sel.innerHTML=ds.slice().reverse().map(f=>'<option value="'+f+'">'+fdl(f)+'</option>').join('');}
+  msMount('cq-fecha',()=>{CQ.lim=200;pintarConsulta(true);});
+  const ds=diasDetalle();const mf=MSX['cq-fecha'];
+  mf.opts=ds.slice().reverse().map(f=>({v:f,t:fdl(f),n:null}));mf.opts.forEach(o=>mf.lbl[o.v]=o.t);
+  [...mf.sel].forEach(v=>{if(!ds.includes(v))mf.sel.delete(v);});
+  if(!mf.sel.size&&ds.length)mf.sel.add(ds[ds.length-1]);
+  msBtn('cq-fecha');CQ.fechaIni=1;
   await pintarConsulta(true);
 }
 async function pintarConsulta(recargar){
   const body=document.getElementById('cq-body');
   if(recargar){
-    body.innerHTML='<tr><td colspan="24" class="cq-load">⏳ Cargando el detalle del '+fdl(document.getElementById('cq-fecha').value)+'…</td></tr>';
+    const mf=MSX['cq-fecha'];const ds=diasDetalle();
+    if(!mf.sel.size&&ds.length){mf.sel.add(ds[ds.length-1]);msBtn('cq-fecha');}
+    let dias=[...mf.sel].sort();
+    if(dias.length>31){dias=dias.slice(-31);mf.sel=new Set(dias);msBtn('cq-fecha');alert('Para que cargue rápido se consultan como máximo 31 días a la vez: se dejaron los 31 más recientes que elegiste.');}
+    CQ.dias=dias;
+    body.innerHTML='<tr><td colspan="24" class="cq-load">⏳ Cargando el detalle '+(dias.length===1?'del '+fdl(dias[0]):'de '+dias.length+' días')+'…</td></tr>';
     try{
-      const [rows,plan]=await Promise.all([diaDetalle(document.getElementById('cq-fecha').value),cargarPlan()]);
+      const [porDia,plan]=await Promise.all([Promise.all(dias.map(f=>diaDetalle(f))),cargarPlan()]);const rows=[].concat(...porDia);
       rows.forEach(r=>{r._p=plan.byClave.get(String(r.clave))||null;r._estP=r._p?r._p.est:null;});
       CQ.rows=rows;
       if(!CQ.ini){CQ.ini=1;const up=usuarioPortal();if(up&&rows.some(r=>r.comprador===up))MSX['cq-comp'].sel.add(up);}
-      document.getElementById('cq-regla').value=REGLA;
       document.getElementById('cq-plan').innerHTML=plan.err?'⚠️ Sin cálculo del portal ('+escH2(plan.err)+'): no se muestran antecedente, pronóstico ni propuesta.':'Antecedente, pronóstico, estatus del portal y propuesta: cálculo del portal al <b>'+fdl(plan.fecha)+'</b>.';
     }catch(e){body.innerHTML='<tr><td colspan="24" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
@@ -1939,21 +1973,22 @@ async function pintarConsulta(recargar){
   document.getElementById('cq-semleg').innerHTML=Object.keys(SEMC).map(s=>'<button class="semb'+(ss.has(s)?' on':'')+'" style="--c:'+SEMC[s]+'" title="'+SEMD[s]+' · clic para agregar o quitar" onclick="cqSem(\''+s+'\')"><i></i>'+SLBL[s]+' <b>'+nf(cs[s]||0)+'</b></button>').join('');
   const SO={sem:r=>SORD[r.semaforo]??9,clave:r=>+r.clave||0,nombre:r=>r.nombre,exist:r=>r.existencias,bo:r=>r.bo,mi:r=>r.meses_inv??-1,mib:r=>r.mib??-1,est:r=>r.estatus,estp:r=>r._estP||'',ant:r=>r._p?r._p.A??-1:-1,pron:r=>r._p?r._p.P??-1:-1,dem:r=>r._p?r._p.D??-1:-1,prop:r=>r._p?r._p.s??-1:-1,comp:r=>r.comprador,marca:r=>r.marca};
   const{k,d}=CQ.sort;const fn=SO[k]||SO.sem;
-  rows.sort((a,b)=>{const x=fn(a),y=fn(b);return(typeof x==='string'?String(x).localeCompare(String(y),'es'):x-y)*d||(+a.clave-+b.clave);});
+  rows.sort((a,b)=>{const x=fn(a),y=fn(b);return(typeof x==='string'?String(x).localeCompare(String(y),'es'):x-y)*d||(+a.clave-+b.clave)||String(b.fecha).localeCompare(String(a.fecha));});
   CQ.vis=rows;
-  document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+' claves';
-  const scq=[...MSX['cq-comp'].sel];const rr=resumenRegla(scq.length===1?scq[0]:'');const rb=document.getElementById('cq-regla-res');rb.innerHTML=rr;rb.style.display=rr?'':'none';
+  const md=(CQ.dias||[]).length>1;
+  document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+(md?' registros (clave por día, '+CQ.dias.length+' días)':' claves');
   document.querySelectorAll('#cq-head th[data-k]').forEach(th=>{th.querySelector('.si').textContent=th.dataset.k===k?(d>0?'▲':'▼'):'';});
   const cp=v=>v==null?'—':v>0?'<b style="color:#047857">'+nf(v)+'</b>':'<span style="color:#a0a9be">0</span>';
   let h='';
+  const yaFicha=new Set();
   rows.slice(0,CQ.lim).forEach(r=>{const p=r._p;const eA=estPlan(p,'A'),eP=estPlan(p,'P');const ch=p&&eA!==eP;
-    h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b></td><td class="nm">'+escH2(r.nombre)+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
-     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num" title="Riesgo: entra con menos de '+nf((r.t_entrega||0)*1.2,1)+' y sale con '+nf((r.t_entrega||0)*1.4,1)+' meses · sobre inventario con más de '+nf((r.obj_meses||0)*1.4,1)+'">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="num sm2">'+(r.mib!=null?nf(r.mib,1):'—')+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td><td>'+estTag(r.estatus)+(r.estatusExcel&&r.estatusExcel!==r.estatus?'<div class="sm2" title="Estatus que trae el Excel">Excel: '+(ESTL[r.estatusExcel]||r.estatusExcel)+'</div>':'')+'</td>'
+    h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b>'+(md?'<div class="sm2">'+fdl(r.fecha).slice(0,5)+'</div>':'')+'</td><td class="nm">'+escH2(r.nombre)+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
+     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num" title="Riesgo: entra con menos de '+nf((r.t_entrega||0)*1.2,1)+' y sale con '+nf((r.t_entrega||0)*1.4,1)+' meses · sobre inventario con más de '+nf((r.obj_meses||0)*1.4,1)+'">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="num sm2">'+(r.mib!=null?nf(r.mib,1):'—')+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td><td>'+estTag(r.estatus)+'</td>'
      +'<td class="ga num">'+(p?nf(p.A,p.A!=null&&p.A<10?1:0):'—')+'</td><td class="ga num">'+(p?nf(mesesPlan(p,'A'),1):'—')+'</td><td class="ga">'+(p?estTag(eA):'—')+'</td>'
      +'<td class="gp num">'+(p?nf(p.P,p.P!=null&&p.P<10?1:0):'—')+'</td><td class="gp num">'+(p?nf(mesesPlan(p,'P'),1):'—')+'</td><td class="gp">'+(p?estTag(eP)+(ch?' <span title="Cambia entre antecedente y pronóstico" style="color:#d97706;font-weight:800">⇄</span>':''):'—')+'</td>'
      +'<td class="gd num">'+(p?'<b>'+nf(p.D,p.D!=null&&p.D<10?1:0)+'</b>':'—')+'</td><td class="gd num">'+(p?nf(p.mi,1):'—')+'</td><td class="gd">'+(p?estTag(p.est):'—')+'</td>'
      +'<td class="gr num">'+(p?cp(p.s):'—')+'</td><td class="gr num">'+(p&&p.sE!=null?cp(p.sE):'—')+'</td><td class="sm2">'+escH2(r.reorden)+'</td></tr>';
-    if(CQ.abierto.has(String(r.clave)))h+='<tr class="cqx"><td colspan="24"><div class="cqbox" id="cqx-'+escH2(r.clave)+'">⏳ Cargando la ficha de la clave…</div></td></tr>';
+    if(CQ.abierto.has(String(r.clave))&&!yaFicha.has(String(r.clave))&&yaFicha.add(String(r.clave)))h+='<tr class="cqx"><td colspan="24"><div class="cqbox" id="cqx-'+escH2(r.clave)+'">⏳ Cargando la ficha de la clave…</div></td></tr>';
   });
   if(rows.length>CQ.lim)h+='<tr><td colspan="24" class="cq-load"><button class="bsm" onclick="CQ.lim+=300;pintarConsulta()">Mostrar 300 más ('+nf(rows.length-CQ.lim)+' restantes)</button></td></tr>';
   if(!rows.length)h='<tr><td colspan="24" class="cq-load">Sin claves con estos filtros.</td></tr>';
@@ -1975,10 +2010,10 @@ async function pintarFicha(c){
 function srtCQ(k){CQ.sort=CQ.sort.k===k?{k,d:-CQ.sort.d}:{k,d:1};pintarConsulta();}
 function limpiarCQ(){CQF.forEach(([id])=>{MSX[id].sel.clear();msBtn(id);});document.getElementById('cq-q').value='';['cq-pedir','cq-camb'].forEach(id=>document.getElementById(id).classList.remove('on'));CQ.lim=200;pintarConsulta();}
 function excelCQ(){
-  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (sin BO)':r.meses_inv,'Meses inv con BO':r.mib,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,['Estatus ('+(REGLA==='nueva'?'regla nueva':'Excel')+')']:r.estatus,'Estatus Excel original':r.estatusExcel,'Pto. reorden':r.reorden,
+  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (sin BO)':r.meses_inv,'Meses inv con BO':r.mib,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,'Estatus':r.estatus,'Pto. reorden':r.reorden,
     'Consumo antecedente':p?p.A:'','Meses antecedente':p?mesesPlan(p,'A'):'','Estatus antecedente':p?estPlan(p,'A'):'','Consumo pronóstico':p?p.P:'','Meses pronóstico':p?mesesPlan(p,'P'):'','Estatus pronóstico':p?estPlan(p,'P'):'',
     'Demanda portal':p?p.D:'','Meses portal':p?p.mi:'','Estatus portal':p?p.est:'','Propuesta portal':p?p.s:'','Propuesta con empaque':p?p.sE:''};});
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Consulta');XLSX.writeFile(wb,'Consulta_claves_'+document.getElementById('cq-fecha').value+'.xlsx');
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Consulta');const dd=CQ.dias||[];XLSX.writeFile(wb,'Consulta_claves_'+(dd.length>1?dd[0]+'_a_'+dd[dd.length-1]:dd[0]||'')+'.xlsx');
 }
 
 // ── COMPARATIVO DIARIO ──
@@ -2029,8 +2064,7 @@ async function pintarComparativo(recargar){
   const base=base0.filter(x=>msPasa(x,CMF,null));
   const cnt={};base.forEach(x=>cnt[x.t]=(cnt[x.t]||0)+1);
   document.getElementById('cm-cards').innerHTML=Object.keys(CMPT).map(t=>{const o=CMPT[t];return '<div class="cmc'+(CM.tipo===t?' on':'')+'" style="--c:'+o.c+'" onclick="CM.tipo=CM.tipo===\''+t+'\'?\'\':\''+t+'\';pintarComparativo()" title="'+o.d+'"><div class="t">'+o.i+' '+o.t+'</div><div class="n">'+nf(cnt[t]||0)+'</div><div class="d">'+o.d+'</div></div>';}).join('');
-  document.getElementById('cm-regla').value=REGLA;
-  document.getElementById('cm-sub').innerHTML=(REGLA==='nueva'&&G.difEst?'📏 Regla nueva · ':'Estatus del Excel · ')+'Del <b>'+fdl(fa)+'</b> al <b>'+fdl(fb)+'</b>'+(CM.tipo?' · mostrando <b>'+CMPT[CM.tipo].t.toLowerCase()+'</b> (clic otra vez en la tarjeta para ver todos)':' · clic en una tarjeta para filtrar');
+  document.getElementById('cm-sub').innerHTML='Del <b>'+fdl(fa)+'</b> al <b>'+fdl(fb)+'</b>'+(CM.tipo?' · mostrando <b>'+CMPT[CM.tipo].t.toLowerCase()+'</b> (clic otra vez en la tarjeta para ver todos)':' · clic en una tarjeta para filtrar');
   let rows=base.filter(x=>!CM.tipo||x.t===CM.tipo);
   const ORDT=Object.keys(CMPT);const{k,d}=CM.sort;
   const SO={t:x=>ORDT.indexOf(x.t),clave:x=>+x.clave||0,nombre:x=>x.r.nombre,comp:x=>x.r.comprador,exb:x=>x.b?x.b.existencias:-1,bo:x=>x.b?x.b.bo:-1,mi:x=>x.b&&x.b.meses_inv!=null?x.b.meses_inv:-1};
@@ -2044,7 +2078,7 @@ function limpiarCM(){CMF.forEach(([id])=>{MSX[id].sel.clear();msBtn(id);});docum
 function srtCM(k){CM.sort=CM.sort.k===k?{k,d:-CM.sort.d}:{k,d:1};pintarComparativo();}
 function swapCM(){const a=document.getElementById('cm-a'),b=document.getElementById('cm-b');const t=a.value;a.value=b.value;b.value=t;pintarComparativo(true);}
 function excelCM(){
-  const wb=XLSX.utils.book_new();const mk=rs=>rs.map(x=>({'Cambio':CMPT[x.t].t,'Clave':x.clave,'Nombre':x.r.nombre,'Marca':x.r.marca,'Comprador':x.r.comprador,'Rotación':x.r.clmov,'Estatus A':x.a?x.a.estatus:'','Estatus B':x.b?x.b.estatus:'','Existencias A':x.a?x.a.existencias:'','Existencias B':x.b?x.b.existencias:'','BO B':x.b?x.b.bo:'','Meses inv B':x.b?x.b.meses_inv:'','Meses c/BO B':x.b?x.b.mib:'','Estatus Excel A':x.a?x.a.estatusExcel:'','Estatus Excel B':x.b?x.b.estatusExcel:'','T. entrega':x.b?x.b.t_entrega:'','Objetivo':x.b?x.b.obj_meses:''}));
+  const wb=XLSX.utils.book_new();const mk=rs=>rs.map(x=>({'Cambio':CMPT[x.t].t,'Clave':x.clave,'Nombre':x.r.nombre,'Marca':x.r.marca,'Comprador':x.r.comprador,'Rotación':x.r.clmov,'Estatus A':x.a?x.a.estatus:'','Estatus B':x.b?x.b.estatus:'','Existencias A':x.a?x.a.existencias:'','Existencias B':x.b?x.b.existencias:'','BO B':x.b?x.b.bo:'','Meses inv B':x.b?x.b.meses_inv:'','Meses c/BO B':x.b?x.b.mib:'','T. entrega':x.b?x.b.t_entrega:'','Objetivo':x.b?x.b.obj_meses:''}));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(mk(CM.vis||[]).length?mk(CM.vis):[{'Sin datos':''}]),'Cambios');
   XLSX.writeFile(wb,'Comparativo_'+CM.fa+'_vs_'+CM.fb+'.xlsx');
 }
@@ -2071,7 +2105,7 @@ function render(){
   resetDates();
   const _rf=(nm,fn)=>{try{fn();}catch(e){console.error('render '+nm+':',e);}};
   _rf('res',renderRes);
-  DIA.clear();['cq-fecha','cm-a','cm-b'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';});
+  DIA.clear();CQ.fechaIni=0;['cm-a','cm-b'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';});
   if(document.getElementById('panel-consulta').classList.contains('on'))initConsulta();
   if(document.getElementById('panel-comp').classList.contains('on'))initComparativo();
 }
@@ -2080,7 +2114,7 @@ function showTab(id,btn){
   document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
   const panel=document.getElementById('panel-'+id);if(!panel)return;
   panel.classList.add('on');if(btn)btn.classList.add('on');
-  if(id==='consulta'&&!document.getElementById('cq-fecha').options.length)initConsulta();
+  if(id==='consulta'&&!CQ.fechaIni)initConsulta();
   if(id==='comp'&&!document.getElementById('cm-b').options.length)initComparativo();
 }
 window.showTab=showTab;

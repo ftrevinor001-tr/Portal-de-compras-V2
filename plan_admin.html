@@ -91,8 +91,8 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="card">
-    <h2><span class="n">5</span>Compras por entregas directas <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
-    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Solo toma las filas ENTREGAS DIRECTAS y las suma por clave y mes; sirve para limpiar las ventas. Reemplaza los meses que vengan en el archivo.</p>
+    <h2><span class="n">5</span>Compras: entregas directas y costos <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
+    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Toma las filas ENTREGAS DIRECTAS y las suma por clave y mes para limpiar las ventas (reemplaza los meses que vengan en el archivo). También guarda el <b>costo unitario de compra</b> de cada clave (TOTAL ÷ CANT REC de sus últimos 3 meses con compra), que se usa para medir la afectación en dinero de las claves críticas.</p>
     <div class="row"><input type="file" id="f-ed" accept=".xlsx"><button onclick="run('ed')">Cargar compras ED</button></div>
     <div class="log" id="log-ed"></div>
   </div>
@@ -244,6 +244,10 @@ async function cargaED(log){
   log.msg('⚙️ Meses en el archivo: '+r.meses[0].slice(0,7)+' a '+r.meses[r.meses.length-1].slice(0,7)+' · '+fmt(r.rows.length)+' clave-mes de entregas directas');
   for(const m of r.meses){const{error}=await sb.from('plan_compras_ed').delete().eq('mes',m);if(error)throw new Error('borrando '+m+': '+error.message);}
   await enLotes('plan_compras_ed',r.rows,log);
+  const cos=P.costosCompra(wb);
+  if(cos&&cos.length){log.msg('💲 Costo unitario de compra (TOTAL ÷ CANT REC, últimos 3 meses con compra): '+fmt(cos.length)+' claves');
+    try{await enLotes('plan_costos',cos.map(c=>({...c,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});}
+    catch(e){log.msg('⚠️ No se guardaron los costos ('+(e.message||e)+'). ¿Ya corriste plan_tablas_8.sql?');}}
   log.msg('🎉 Listo.');
 }
 

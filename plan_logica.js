@@ -160,6 +160,22 @@ P.comprasED=wb=>{
   const rows=[];acc.forEach((q,key)=>{const [c,m]=key.split('|');rows.push({clave:+c,mes:m,cantidad:Math.round(q*10000)/10000});});
   return{rows,meses:[...meses].sort()};
 };
+// 5b. Costo unitario de compra por clave (para medir la afectación en dinero): TOTAL ÷ CANT REC
+// de los últimos 3 meses con compra de cada clave (CEDI y entregas directas). Unidad = la de venta (CANT REC viene en unidad básica).
+P.costosCompra=wb=>{
+  let ws=null,h=null;
+  for(const n of wb.SheetNames){const aoa=P.aoa(wb.Sheets[n]);const hh=P.header(aoa,['MES/AÑO','CLAVE','TOTAL','CANT REC']);if(hh){ws=aoa;h=hh;break;}}
+  if(!h)return null;
+  const acc=new Map();
+  for(let i=h.fila+1;i<ws.length;i++){
+    const r=ws[i];const m=P.mes(r[h.idx['MES/AÑO']]);const k=P.clave(r[h.idx.CLAVE]);const t=P.num(r[h.idx.TOTAL]),q=P.num(r[h.idx['CANT REC']]);
+    if(!m||k==null||!(t>0)||!(q>0))continue;
+    if(!acc.has(k))acc.set(k,new Map());const mm=acc.get(k);const x=mm.get(m)||{t:0,q:0};x.t+=t;x.q+=q;mm.set(m,x);
+  }
+  const rows=[];acc.forEach((mm,k)=>{const ms=[...mm.keys()].sort().slice(-3);let t=0,q=0;ms.forEach(m=>{t+=mm.get(m).t;q+=mm.get(m).q;});
+    if(q>0)rows.push({clave:k,costo:Math.round(t/q*10000)/10000,mes:ms[ms.length-1],meses:ms.length});});
+  return rows;
+};
 // 6. Detalle del maestro diario: rows por fecha
 P.detalle=wb=>{
   const ws=P.hoja(wb,['Detalle']);if(!ws)throw new Error('No se encontró la hoja Detalle.');

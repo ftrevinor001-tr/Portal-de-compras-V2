@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js" charset="utf-8"></script>
+<script src="plan_ms.js" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
 :root{
@@ -116,7 +117,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
     <button class="tab" data-t="otif">🚚 OTIF</button>
   </nav>
   <div class="tright">
-    <select id="g-comp" title="Comprador"></select>
+    <div id="g-comp" data-t="Comprador"></div>
     <span class="chip" id="corte">Cargando…</span>
     <button class="btn" onclick="recargar()" title="Volver a leer los datos">↻</button>
   </div>
@@ -140,17 +141,17 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
         <div class="legend" id="tr-leg"></div><div id="tr-chart"></div></div>
       <div class="card"><h2>Meses de inventario</h2><div class="sub">Claves por cobertura con la demanda seleccionada (existencia ÷ consumo mensual).</div><div id="hist-chart"></div></div>
     </div>
-    <div class="card"><h2>Claves más críticas</h2><div class="sub">Faltante y riesgo, ordenadas por consumo mensual: lo que más duele si no llega. Clic para ver el detalle.</div><div id="crit"></div></div>
+    <div class="card"><h2>Claves más críticas</h2><div class="sub" id="crit-sub">Faltante y riesgo, ordenadas por afectación en dinero: consumo mensual × costo unitario de compra. Lo que más pesa en ventas si no llega. Clic para ver el detalle.</div><div id="crit"></div></div>
   </section>
 
   <!-- ═════ DETALLE ═════ -->
   <section class="pane" id="pane-det">
     <div class="row" style="margin-bottom:10px">
       <input type="search" id="d-q" placeholder="Buscar clave o descripción…" style="width:230px">
-      <select id="d-est"><option value="">Todos los estatus</option></select>
-      <select id="d-rot"><option value="">Todas las rotaciones</option></select>
-      <select id="d-marca"><option value="">Todas las marcas</option></select>
-      <select id="d-grupo"><option value="">Todos los grupos</option></select>
+      <div id="d-est" data-t="Estatus"></div>
+      <div id="d-rot" data-t="Rotación"></div>
+      <div id="d-marca" data-t="Marca"></div>
+      <div id="d-grupo" data-t="Grupo"></div>
       <button class="btn" id="d-comprar">🛒 Solo por pedir</button>
       <button class="btn" id="d-cambia" title="El estatus cambia entre antecedente y pronóstico">⇄ Cambia de estatus</button>
       <button class="btn" id="d-mf" title="MF con más meses de inventario que el límite: revisar redistribución">🏬 MF a revisar</button>
@@ -229,9 +230,11 @@ const malo=e=>RIESGOS.includes(e);
 // Cambia: el estatus con antecedente y con pronóstico es distinto. Empeora: antecedente sano y pronóstico en riesgo/faltante
 function cambia(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&a!==p);}
 function empeora(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&!malo(a)&&malo(p));}
+// Cada filtro acepta un valor o un Set (selección múltiple; Set vacío = todos)
+const enF=(v,x)=>v==null||v===''?true:v instanceof Set?(!v.size||v.has(String(x??''))):v===x;
 function filtrarClaves(rows,f){
   const q=(f.q||'').trim().toUpperCase();
-  return rows.filter(r=>(!f.comp||r.comp===f.comp)&&(!f.est||estDe(r,f.base||'D')===f.est)&&(!f.rot||r.rot===f.rot)&&(!f.marca||r.m===f.marca)&&(!f.grupo||r.g===f.grupo)
+  return rows.filter(r=>enF(f.comp,r.comp)&&(!f.est||enF(f.est,estDe(r,f.base||'D')))&&enF(f.rot,r.rot)&&enF(f.marca,r.m)&&enF(f.grupo,r.g)
     &&(!f.comprar||(propDe(r,f.base||'D')||0)>0)&&(!f.cambia||cambia(r))&&(!f.mf||r.mfF)&&(!f.lista||f.lista.has(r.c))
     &&(!q||String(r.c)===q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)));
 }
@@ -242,7 +245,7 @@ function histCobertura(rows,b){const n=RANGOS.map(()=>0);let sin=0;rows.forEach(
 // Tendencia: filas de plan_estatus_hist → {fechas:[], series:{estatus:[...]}}
 function serieTendencia(hist,base,comp,desde){
   const bm={D:'PORTAL',A:'ANT',P:'PRON'}[base]||base;const g={};
-  hist.forEach(h=>{const f=String(h.fecha).slice(0,10);if(h.base!==bm||(comp&&h.comprador!==comp)||(desde&&f<desde))return;(g[f]||(g[f]={}))[h.estatus]=(g[f][h.estatus]||0)+Number(h.claves);});
+  hist.forEach(h=>{const f=String(h.fecha).slice(0,10);if(h.base!==bm||!enF(comp,h.comprador)||(desde&&f<desde))return;(g[f]||(g[f]={}))[h.estatus]=(g[f][h.estatus]||0)+Number(h.claves);});
   const fechas=Object.keys(g).sort();const ests=[...new Set(hist.filter(h=>h.base===bm).map(h=>h.estatus))].sort((a,b)=>(EST[a]?EST[a].o:9)-(EST[b]?EST[b].o:9));
   const series={};ests.forEach(e=>series[e]=fechas.map(f=>g[f][e]||0));return{fechas,series};
 }
@@ -310,15 +313,15 @@ async function entrar(){
 
 // ══════════ ESTADO ══════════
 const S={claves:[],byClave:new Map(),ocs:{},fecha:null,ventasHasta:{},ventasDesde:{},hist:null,alarmas:null,lineasCerradas:null,recs:null,comp:null,lineasSug:null,emps:null,motivos:null,catMot:null,
-  base:'D',tab:'tab',f:{q:'',est:'',rot:'',marca:'',grupo:'',comprar:false,cambia:false,mf:false,lista:null},sort:{k:'est',d:1},abierto:new Set(),limite:400,psort:{k:'mi',d:1},osort:{k:'folio',d:1}};
+  base:'D',tab:'tab',costos:new Map(),f:{q:'',comprar:false,cambia:false,mf:false,lista:null},sort:{k:'est',d:1},abierto:new Set(),limite:400,psort:{k:'mi',d:1},osort:{k:'folio',d:1}};
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>irTab(b.dataset.t));
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{S.base=b.dataset.b;document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));pintar();});
-  $('g-comp').onchange=()=>{lsSet('plan_dash_comp',$('g-comp').value);pintar();};
+  MS.mount('g-comp',{t:'Comprador',todos:'Todos',on:()=>{lsSet('plan_dash_comp',JSON.stringify([...MS.sel('g-comp')]));S.limite=400;pintar();}});
+  DF.forEach(([id])=>MS.mount(id,{on:()=>{S.limite=400;pintarDetalle();}}));
   $('tr-rango').onchange=()=>pintarTendencia();
   ['d-q'].forEach(id=>$(id).oninput=()=>{S.f.q=$(id).value;S.limite=400;pintarDetalle();});
-  [['d-est','est'],['d-rot','rot'],['d-marca','marca'],['d-grupo','grupo']].forEach(([id,k])=>$(id).onchange=()=>{S.f[k]=$(id).value;S.limite=400;pintarDetalle();});
   [['d-comprar','comprar'],['d-cambia','cambia'],['d-mf','mf']].forEach(([id,k])=>$(id).onclick=()=>{S.f[k]=!S.f[k];$(id).classList.toggle('on',S.f[k]);S.limite=400;pintarDetalle();});
   $('p-est').onchange=()=>pintarPedir();
   ['pc-mes','pc-res'].forEach(id=>$(id).onchange=()=>pintarPrecision());
@@ -337,27 +340,37 @@ async function recargar(){
     const js=JSON.parse(txt);
     S.claves=js.claves||[];S.byClave=new Map(S.claves.map(r=>[Number(r.c),r]));S.ocs=js.ocs||{};S.fecha=js.fecha;S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
     $('corte').textContent='Cálculo al '+fmtF(S.fecha)+' · '+fmtN(S.claves.length)+' claves';
+    try{const cs=await todo(()=>sb.from('plan_costos').select('clave,costo,mes').order('clave'));S.costos=new Map(cs.map(x=>[Number(x.clave),{c:Number(x.costo),mes:String(x.mes||'').slice(0,7)}]));S.costoErr=null;}
+    catch(e){S.costos=new Map();S.costoErr=e.message||String(e);}
     llenarFiltros();
     pintar();
   }catch(e){document.querySelector('main').insertAdjacentHTML('afterbegin','<div class="alert"><b>❌ '+esc(e.message||e)+'</b></div>');$('corte').textContent='Sin datos';}
 }
 function llenarFiltros(){
-  const uniq=k=>[...new Set(S.claves.map(r=>r[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'es'));
-  const gc=$('g-comp');const comps=uniq('comp');const prev=gc.value||lsGet('plan_dash_comp')||'';const up=usuarioPortal();
-  gc.innerHTML='<option value="">🌐 Todos los compradores</option>'+comps.map(c=>'<option>'+esc(c)+'</option>').join('');
-  gc.value=comps.includes(up)?up:comps.includes(prev)?prev:'';
-  const fill=(id,arr,txt)=>{const el=$(id),v=el.value;el.innerHTML='<option value="">'+txt+'</option>'+arr.map(x=>'<option value="'+esc(x)+'">'+esc(EST[x]?EST[x].l:x)+'</option>').join('');el.value=arr.includes(v)?v:'';};
-  fill('d-est',Object.keys(EST),'Todos los estatus');fill('d-rot',uniq('rot'),'Todas las rotaciones');fill('d-marca',uniq('m'),'Todas las marcas');fill('d-grupo',uniq('g'),'Todos los grupos');
+  const cnt=new Map();S.claves.forEach(r=>{if(r.comp)cnt.set(r.comp,(cnt.get(r.comp)||0)+1);});
+  if(!S.compIni){S.compIni=1;const up=usuarioPortal();let prev=[];try{const v=lsGet('plan_dash_comp');prev=v?(v.startsWith('[')?JSON.parse(v):[v]):[];}catch(e){}
+    MS.set('g-comp',cnt.has(up)?[up]:prev.filter(c=>cnt.has(c)));}
+  MS.opts('g-comp',cnt);
 }
-const compSel=()=>$('g-comp').value;
-const misClaves=()=>compSel()?S.claves.filter(r=>r.comp===compSel()):S.claves;
+// Filtros del Detalle (selección múltiple en cascada)
+const DF=[['d-est',r=>estDe(r,S.base)],['d-rot',r=>r.rot],['d-marca',r=>r.m],['d-grupo',r=>r.g]];
+const DFL={'d-est':v=>EST[v]?EST[v].l:(v||'(sin dato)')};
+const ORD_ROT=['SAGRADOS','ALTA ROTACION','MEDIA ROTACION','LENTA ROTACION','NUEVOS','SIN COMPRA'];const sinAc=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const DFO={'d-est':(a,b)=>(EST[a.v]?EST[a.v].o:9)-(EST[b.v]?EST[b.v].o:9),'d-rot':(a,b)=>((ORD_ROT.indexOf(sinAc(a.v))+1||99)-(ORD_ROT.indexOf(sinAc(b.v))+1||99))||a.t.localeCompare(b.t,'es')};
+const compSel=()=>MS.sel('g-comp');
+const compOk=c=>enF(compSel(),c);
+// Afectación en dinero: consumo mensual (base elegida) × costo unitario de compra
+const costoDe=r=>{const x=S.costos.get(Number(r.c));return x?x.c:null;};
+const impDe=(r,b)=>{const c=costoDe(r),q=consDe(r,b||'D');return c!=null&&q!=null?q*c:null;};
+const fmt$=v=>v==null?'—':'$'+fmtN(v,v<100?2:0);
+const misClaves=()=>compSel().size?S.claves.filter(r=>compOk(r.comp)):S.claves;
 function irTab(t){S.tab=t;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
   $('base-row').style.display=(t==='tab'||t==='det')?'':'none';pintar();}
 function pintar(){
   $('base-desc').textContent='— '+BASES[S.base].d;
   if(S.tab==='tab')pintarTablero();else if(S.tab==='det')pintarDetalle();else if(S.tab==='ped'){pintarPedir();pintarPrecision();}else if(S.tab==='tgt')pintarTarget();else if(S.tab==='otif')pintarOTIF();
 }
-function verEnDetalle(f){S.f={q:'',est:'',rot:'',marca:'',grupo:'',comprar:false,cambia:false,mf:false,lista:null,...f};['d-q','d-est','d-rot','d-marca','d-grupo'].forEach(id=>$(id).value='');if(f.est)$('d-est').value=f.est;
+function verEnDetalle(f){S.f={q:'',comprar:false,cambia:false,mf:false,lista:null,...f};delete S.f.est;$('d-q').value=f.q||'';DF.forEach(([id])=>MS.clear(id));if(f.est)MS.set('d-est',[f.est]);
   ['comprar','cambia','mf'].forEach(k=>$('d-'+k).classList.toggle('on',!!S.f[k]));S.limite=400;irTab('det');}
 function limpiarDet(){verEnDetalle({});}
 
@@ -386,9 +399,9 @@ function pintarTablero(){
 async function kpisIndicadores(){
   try{
     await cargarAlarmas();const mes=(S.fecha||hoy()).slice(0,7);
-    const al=S.alarmas.filter(a=>String(a.fecha_alarma).slice(0,7)===mes&&(!compSel()||a.comprador===compSel()));const t=resumenTarget(al).gen;
+    const al=S.alarmas.filter(a=>String(a.fecha_alarma).slice(0,7)===mes&&compOk(a.comprador));const t=resumenTarget(al).gen;
     if($('k-tgt')){$('k-tgt').textContent=pctTxt(t.target);$('k-tgt2').textContent=fmtN(t.ok)+' de '+fmtN(t.n)+' alarmas evaluadas · '+fmtN(t.pend)+' en plazo';}
-    await cargarOTIF();const ol=S.otif.filter(l=>l.mes===mes&&(!compSel()||l.comprador===compSel()));const g=ol.length?P.otifResumen(ol.map(x=>({...x,g:'G'})),'g')[0]:null;
+    await cargarOTIF();const ol=S.otif.filter(l=>l.mes===mes&&compOk(l.comprador));const g=ol.length?P.otifResumen(ol.map(x=>({...x,g:'G'})),'g')[0]:null;
     if($('k-otif')){$('k-otif').textContent=pctTxt(g&&g.otif);$('k-otif2').textContent=fmtN(ol.length)+' líneas cerradas en '+fmtMes(mes);}
   }catch(e){if($('k-tgt'))$('k-tgt').textContent='—';}
 }
@@ -420,10 +433,21 @@ function pintarHist(rows){
   $('hist-chart').innerHTML=s;
 }
 function pintarCriticas(rows){
-  const b=S.base;const cr=rows.filter(r=>malo(estDe(r,b))&&(consDe(r,b)||0)>0).sort((x,y)=>consDe(y,b)-consDe(x,b)).slice(0,15);
+  const b=S.base;const conCosto=S.costos.size>0;
+  let cr=rows.filter(r=>malo(estDe(r,b))&&(consDe(r,b)||0)>0);
+  const sinC=conCosto?cr.filter(r=>costoDe(r)==null).length:0;
+  if(conCosto)cr=cr.filter(r=>costoDe(r)!=null).sort((x,y)=>impDe(y,b)-impDe(x,b));else cr.sort((x,y)=>consDe(y,b)-consDe(x,b));
+  cr=cr.slice(0,15);
+  $('crit-sub').innerHTML=conCosto?'Faltante y riesgo, ordenadas por <b>afectación en dinero</b>: consumo mensual × costo unitario de compra (Compras_por_ID, últimos 3 meses con compra). Lo que más pesa si no llega. Clic para ver el detalle.'+(sinC?' <span class="mut">'+fmtN(sinC)+' claves en faltante/riesgo sin costo registrado no entran.</span>':'')
+    :'⚠️ Aún no hay costos cargados'+(S.costoErr?' ('+esc(S.costoErr)+'; corre plan_tablas_8.sql)':'')+': carga Compras_por_ID en Cálculo diario → 5 para ordenar por dinero. Mientras, se ordena por consumo mensual.';
   if(!cr.length){$('crit').innerHTML='<div class="empty">Sin claves en faltante o riesgo con esta base. ✅</div>';return;}
-  const mx=consDe(cr[0],b);
-  $('crit').innerHTML='<table><tbody>'+cr.map(r=>{const e=estDe(r,b);return '<tr style="cursor:pointer" onclick="verEnDetalle({q:\''+r.c+'\'});$(\'d-q\').value=\''+r.c+'\'"><td style="width:30px">'+EST[e].i+'</td><td style="width:70px"><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'<div class="mut sm">'+esc(r.m||'')+' · '+esc(r.comp||'')+'</div></td><td style="width:45%"><div class="bar" style="height:14px"><i style="width:'+Math.max(2,consDe(r,b)/mx*100)+'%;background:'+EST[e].c+'"></i></div></td><td class="num" style="width:150px"><b>'+fmtN(consDe(r,b))+'</b> <span class="mut sm">'+esc(r.u||'')+'/mes</span></td><td class="num sm mut" style="width:120px">exist. '+fmtN(r.ex)+' · BO '+fmtN(r.bo)+'</td></tr>';}).join('')+'</tbody></table>';
+  const val=r=>conCosto?impDe(r,b):consDe(r,b);const mx=val(cr[0])||1;
+  $('crit').innerHTML='<table><tbody>'+cr.map(r=>{const e=estDe(r,b);const c=costoDe(r);
+    return '<tr style="cursor:pointer" onclick="verEnDetalle({q:\''+r.c+'\'})"><td style="width:30px">'+EST[e].i+'</td><td style="width:70px"><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'<div class="mut sm">'+esc(r.m||'')+' · '+esc(r.comp||'')+'</div></td>'
+    +'<td style="width:38%"><div class="bar" style="height:14px"><i style="width:'+Math.max(2,val(r)/mx*100)+'%;background:'+EST[e].c+'"></i></div></td>'
+    +(conCosto?'<td class="num" style="width:170px"><b>'+fmt$(impDe(r,b))+'</b> <span class="mut sm">/mes</span><div class="mut sm">'+fmtN(consDe(r,b))+' '+esc(r.u||'')+' × '+fmt$(c)+'</div></td>'
+      :'<td class="num" style="width:150px"><b>'+fmtN(consDe(r,b))+'</b> <span class="mut sm">'+esc(r.u||'')+'/mes</span></td>')
+    +'<td class="num sm mut" style="width:120px">exist. '+fmtN(r.ex)+' · BO '+fmtN(r.bo)+'</td></tr>';}).join('')+'</tbody></table>';
 }
 
 // ══════════ DETALLE ══════════
@@ -432,20 +456,21 @@ const DCOLS=[
   {k:'A',t:'Consumo',num:1,g:'A'},{k:'mA',t:'Meses',num:1,g:'A',d:1},{k:'eA',t:'Estatus',g:'A'},
   {k:'P',t:'Consumo',num:1,g:'P'},{k:'mP',t:'Meses',num:1,g:'P',d:1},{k:'eP',t:'Estatus',g:'P'},
   {k:'D',t:'Demanda',num:1,g:'D'},{k:'mi',t:'Meses',num:1,g:'D',d:1},{k:'miB',t:'c/BO',num:1,g:'D',d:1},{k:'est',t:'Estatus',g:'D'},
-  {k:'pm',t:'Obj.',num:1,d:1},{k:'lt',t:'T.entr.',num:1,d:1},{k:'comp',t:'Comprador'},{k:'m',t:'Marca'},{k:'oc',t:'OCs abiertas',num:1},
+  {k:'pm',t:'Obj.',num:1,d:1},{k:'lt',t:'T.entr.',num:1,d:1},{k:'comp',t:'Comprador'},{k:'m',t:'Marca'},{k:'imp',t:'$ consumo/mes',num:1},{k:'oc',t:'OCs abiertas',num:1},
   {k:'sA',t:'Ant.',num:1,g:'Pr'},{k:'sP',t:'Pron.',num:1,g:'Pr'},{k:'s',t:'Portal',num:1,g:'Pr'},{k:'sE',t:'Empaque',num:1,g:'Pr'},
   {k:'mfM',t:'MF meses',num:1,d:1}
 ];
 function valorOrden(r,k){
-  if(k==='mA')return mesesDe(r,'A');if(k==='mP')return mesesDe(r,'P');if(k==='oc')return(S.ocs[r.c]||[]).length;
+  if(k==='imp')return impDe(r,S.base);if(k==='mA')return mesesDe(r,'A');if(k==='mP')return mesesDe(r,'P');if(k==='oc')return(S.ocs[r.c]||[]).length;
   if(k==='est'||k==='eA'||k==='eP'){const e=k==='est'?r.est:estDe(r,k==='eA'?'A':'P');return EST[e]?EST[e].o:9;}
   return r[k];
 }
 function pintarDetalle(){
-  const f={...S.f,comp:compSel(),base:S.base};
-  const rows=filtrarClaves(S.claves,f);const{k,d}=S.sort;
+  const base0=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base});
+  MS.cascada(base0,DF,DFL,DFO);
+  const rows=base0.filter(r=>MS.pasa(r,DF));const{k,d}=S.sort;
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
-  $('d-count').textContent=fmtN(rows.length)+' de '+fmtN(compSel()?misClaves().length:S.claves.length)+' claves';
+  $('d-count').textContent=fmtN(rows.length)+' de '+fmtN(misClaves().length)+' claves';
   const B=S.base,act=g=>B===g?' act':'';
   const gspan=g=>DCOLS.filter(c=>c.g===g).length;
   const pre=DCOLS.findIndex(c=>c.g==='A');const mid=DCOLS.filter((c,i)=>!c.g&&i>DCOLS.findIndex(c=>c.g==='D')&&i<DCOLS.findIndex(c=>c.g==='Pr')).length;
@@ -461,7 +486,7 @@ function pintarDetalle(){
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
       +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td>'
       +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="num gD" style="color:#7c3aed" title="Meses de inventario contando el BO del CEDI (referencia; el estatus no lo cuenta)">'+fmtN(r.miB,1)+'</td><td class="gD">'+tag(r.est,B==='D')+'</td>'
-      +'<td class="num">'+fmtN(r.pm,1)+'</td><td class="num">'+fmtN(r.lt,1)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="sm">'+esc(r.m||'')+'</td><td class="num">'+(ocs.length?'<span title="'+esc(ocs.map(o=>'OC '+o[0]+': '+fmtN(o[1])+' pend.').join('\n'))+'">'+ocs.length+'</span>':'<span class="cero">0</span>')+'</td>'
+      +'<td class="num">'+fmtN(r.pm,1)+'</td><td class="num">'+fmtN(r.lt,1)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="sm">'+esc(r.m||'')+'</td><td class="num" title="'+(costoDe(r)!=null?'Costo unitario '+fmt$(costoDe(r))+' × consumo':'Sin costo registrado')+'">'+fmt$(impDe(r,S.base))+'</td><td class="num">'+(ocs.length?'<span title="'+esc(ocs.map(o=>'OC '+o[0]+': '+fmtN(o[1])+' pend.').join('\n'))+'">'+ocs.length+'</span>':'<span class="cero">0</span>')+'</td>'
       +'<td class="num gPr'+act('A')+'">'+cp(r.sA)+'</td><td class="num gPr'+act('P')+'">'+cp(r.sP)+'</td><td class="num gPr'+act('D')+'">'+cp(r.s)+'</td><td class="num gPr" title="'+esc(r.eT||'sin empaque válido')+'">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT||'')+'</span>':'—')+'</td>'
       +'<td class="num">'+(r.mfM!=null?(r.mfF?'<span class="pill p-warn" title="Excedente MF: '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' ⚑</span>':fmtN(r.mfM,1)):'—')+'</td></tr>';
     if(S.abierto.has(r.c))html+='<tr class="det"><td colspan="'+DCOLS.length+'" id="det-'+r.c+'"><div class="loading">Cargando ventas de la clave…</div></td></tr>';
@@ -521,11 +546,11 @@ function graficaMeses(arr,agot){
   return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado.</div>';
 }
 function excelDetalle(){
-  const rows=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base});
+  const rows=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base}).filter(r=>MS.pasa(r,DF));
   const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
-    'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
+    'Costo unitario':costoDe(r),'Afectación $ por mes (demanda portal)':impDe(r,'D'),'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
     'Existencia MF':r.mfI,'Demanda MF':r.mfD,'Meses MF':r.mfM,'Revisar con gerencia':r.mfF?'SÍ':'','Excedente MF':r.mfX,'Notas':r.nt}));
   descargarXLSX([[out,'Detalle por clave']],'Detalle_claves_'+S.fecha);
 }
@@ -558,7 +583,7 @@ async function cargarPrecision(){
 }
 async function pintarPrecision(){
   try{await cargarPrecision();}catch(e){$('pc-body').innerHTML='<tr><td class="empty">No se pudieron leer las OCs ('+esc(e.message||e)+'). ¿Ya corriste plan_tablas_6.sql?</td></tr>';return;}
-  let f=filasPrecision(S.lineasSug,S.byClave,S.emps,S.motivos).filter(x=>!compSel()||x.comp===compSel());
+  let f=filasPrecision(S.lineasSug,S.byClave,S.emps,S.motivos).filter(x=>compOk(x.comp));
   const meses=[...new Set(f.map(x=>(x.fecha_oc||'').slice(0,7)).filter(Boolean))].sort().reverse();const sel=$('pc-mes');const v=sel.value;
   sel.innerHTML='<option value="">Todos los meses</option>'+meses.map(m=>'<option value="'+m+'">'+fmtMes(m)+'</option>').join('');sel.value=meses.includes(v)?v:(meses[0]||'');
   if(sel.value)f=f.filter(x=>(x.fecha_oc||'').startsWith(sel.value));
@@ -591,7 +616,7 @@ async function cargarAlarmas(){if(S.alarmas)return;S.alarmas=(await todo(()=>sb.
 const TRES={'EN TIEMPO':'p-ok','ANTICIPADA':'p-ok','ANTICIPACION EXCESIVA':'p-warn','TARDE':'p-bad','SIN OC':'p-bad','SIN NECESIDAD':'p-n','EXCLUIDA':'p-n','EN REVISION GERENCIA':'p-b','EN PLAZO':'p-b'};
 async function pintarTarget(){
   try{await cargarAlarmas();}catch(e){$('t-body').innerHTML='<tr><td class="empty">'+esc(e.message||e)+'</td></tr>';return;}
-  const al0=S.alarmas.filter(a=>!compSel()||a.comprador===compSel());
+  const al0=S.alarmas.filter(a=>compOk(a.comprador));
   const meses=[...new Set(al0.map(a=>a.fecha_alarma.slice(0,7)))].sort().reverse();const sel=$('t-mes'),v=sel.value;
   sel.innerHTML=meses.map(m=>'<option value="'+m+'">'+fmtMes(m)+'</option>').join('')||'<option value="">Sin alarmas</option>';sel.value=meses.includes(v)?v:(meses[0]||'');
   const al=al0.filter(a=>a.fecha_alarma.startsWith(sel.value));const R=resumenTarget(al);
@@ -623,7 +648,7 @@ async function cargarOTIF(){
 }
 async function pintarOTIF(){
   try{await cargarOTIF();}catch(e){$('o-body').innerHTML='<tr><td class="empty">'+esc(e.message||e)+'</td></tr>';return;}
-  const base=S.otif.filter(l=>!compSel()||l.comprador===compSel());
+  const base=S.otif.filter(l=>compOk(l.comprador));
   const meses=[...new Set(base.map(l=>l.mes))].sort().reverse();const sel=$('o-mes'),v=sel.value;
   sel.innerHTML=meses.map(m=>'<option value="'+m+'">'+fmtMes(m)+'</option>').join('')||'<option value="">Sin líneas cerradas</option>';sel.value=meses.includes(v)?v:(meses[0]||'');
   const q=$('o-prov').value.trim().toUpperCase();
