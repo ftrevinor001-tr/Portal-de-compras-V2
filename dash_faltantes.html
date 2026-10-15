@@ -281,7 +281,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <!-- Gráfica de sobre inventario promedio por comprador (barras horizontales) -->
       <div class="card" style="margin-bottom:16px">
         <h2>Sobre inventario promedio por comprador</h2>
-        <p style="font-size:12px;color:#6b7a99;margin:-4px 0 12px">Meses de inventario que están por encima del objetivo (promedio meses inv. − promedio objetivo), ordenado de mayor a menor. Responde a los filtros de arriba.</p>
+        <p style="font-size:12px;color:#6b7a99;margin:-4px 0 12px">Meses de inventario por encima del límite de sobre inventario (Objetivo × 1.4; antes se medía contra el objetivo), ordenado de mayor a menor. Responde a los filtros de arriba.</p>
         <div style="font-size:11px;color:#b8860b;font-style:italic;margin:-2px 0 10px">Nota: se excluye la familia TORNILLOS, TUERCAS Y REMACHES.</div>
         <div style="position:relative;height:440px"><canvas id="sob-exceso-chart"></canvas></div>
       </div>
@@ -325,7 +325,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <!-- Top 10 claves con más meses sobre objetivo -->
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
-          <h2 style="margin:0">Top 10 claves con más meses sobre el objetivo</h2>
+          <h2 style="margin:0">Top 10 claves con más meses sobre el límite de sobre inventario</h2>
           <div style="display:flex;flex-direction:column;gap:3px;margin-left:auto">
             <label style="font-size:10px;font-weight:700;color:#6b7a99;text-transform:uppercase">Comprador</label>
             <select id="top-comp" onchange="renderTopExceso()" style="font-size:12px;padding:6px 10px;border:1.5px solid #c9d4f0;border-radius:7px">
@@ -333,7 +333,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
             </select>
           </div>
         </div>
-        <p style="font-size:12px;color:#6b7a99;margin:-2px 0 4px">Claves cuyo nivel de inventario (meses) más excede su objetivo individual. Exceso = meses de inventario − objetivo de la clave.</p>
+        <p style="font-size:12px;color:#6b7a99;margin:-2px 0 4px">Claves cuyo nivel de inventario (meses) más excede su objetivo individual. Exceso = meses de inventario − límite de sobre inventario de la clave (Objetivo × 1.4). Entre paréntesis, los meses contando el BO.</p>
         <div style="font-size:11px;color:#b8860b;font-style:italic;margin:-2px 0 10px">Nota: se excluye la familia TORNILLOS, TUERCAS Y REMACHES.</div>
         <div class="dtw"><table class="dt">
           <colgroup><col style="width:70px"><col style="min-width:220px"><col style="width:90px"><col style="width:130px"><col style="width:80px"><col style="width:80px"><col style="width:90px"><col style="width:60px"></colgroup>
@@ -354,9 +354,10 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <p>Estatus de cada clave en el día elegido (Excel) junto al cálculo del portal: antecedente, pronóstico y propuesta. <b>Clic en una clave</b> para ver su historia: días en faltante o riesgo, ventas mes a mes, OCs y alarmas.</p>
       <div class="ctl">
         <select id="cq-fecha" onchange="pintarConsulta(true)" title="Día"></select>
+        <select id="cq-regla" onchange="cambiarRegla(this.value)" title="Con qué regla se calcula el estatus"><option value="nueva">Estatus: regla nueva (1.2 / 1.4)</option><option value="excel">Estatus: Excel original</option></select>
         <input type="search" id="cq-q" placeholder="Buscar clave o nombre…" oninput="CQ.lim=200;pintarConsulta()" style="min-width:210px">
         <select id="cq-comp" data-t="Todos los compradores" onchange="pintarConsulta()"></select>
-        <select id="cq-est" data-t="Estatus Excel: todos" onchange="pintarConsulta()"></select>
+        <select id="cq-est" data-t="Estatus: todos" onchange="pintarConsulta()"></select>
         <select id="cq-estp" data-t="Estatus portal: todos" onchange="pintarConsulta()"></select>
         <select id="cq-rot" data-t="Todas las rotaciones" onchange="pintarConsulta()"></select>
         <select id="cq-marca" data-t="Todas las marcas" onchange="pintarConsulta()"></select>
@@ -368,12 +369,13 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
         <button class="tglb" onclick="limpiarCQ()">↺ Limpiar</button>
         <button class="tglb" onclick="excelCQ()" style="margin-left:auto">⬇ Excel</button>
       </div>
+      <div class="howto" id="cq-regla-res" style="margin:8px 0 0"></div>
       <div class="semleg" id="cq-semleg"></div>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:11.5px;color:#6b7a99;margin-bottom:6px"><span id="cq-count"></span><span id="cq-plan"></span></div>
       <div class="cqw" id="cq-tw"><table class="cqt"><thead id="cq-head">
-        <tr class="g"><th colspan="12"></th><th colspan="3" class="ga">📊 Antecedente</th><th colspan="3" class="gp">🔮 Pronóstico</th><th colspan="3" class="gd">🧭 Portal</th><th colspan="2" class="gr">🛒 Propuesta</th><th></th></tr>
+        <tr class="g"><th colspan="13"></th><th colspan="3" class="ga">📊 Antecedente</th><th colspan="3" class="gp">🔮 Pronóstico</th><th colspan="3" class="gd">🧭 Portal</th><th colspan="2" class="gr">🛒 Propuesta</th><th></th></tr>
         <tr><th data-k="sem" onclick="srtCQ('sem')">Sem.<span class="si"></span></th><th data-k="clave" onclick="srtCQ('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCQ('nombre')">Nombre<span class="si"></span></th><th data-k="marca" onclick="srtCQ('marca')">Marca<span class="si"></span></th><th data-k="comp" onclick="srtCQ('comp')">Comprador<span class="si"></span></th><th>Rotación</th>
-          <th data-k="exist" onclick="srtCQ('exist')" class="num">Exist.<span class="si"></span></th><th data-k="bo" onclick="srtCQ('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCQ('mi')" class="num">Meses inv.<span class="si"></span></th><th class="num">Obj.</th><th class="num">T. entr.</th><th data-k="est" onclick="srtCQ('est')">Estatus Excel<span class="si"></span></th>
+          <th data-k="exist" onclick="srtCQ('exist')" class="num">Exist.<span class="si"></span></th><th data-k="bo" onclick="srtCQ('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCQ('mi')" class="num" title="Meses de inventario sin contar el BO (con esto se calcula el estatus)">Meses inv.<span class="si"></span></th><th data-k="mib" onclick="srtCQ('mib')" class="num" title="Meses de inventario contando el BO (referencia)">Meses c/BO<span class="si"></span></th><th class="num">Obj.</th><th class="num">T. entr.</th><th data-k="est" onclick="srtCQ('est')" title="Estatus del Excel calculado con la regla elegida arriba">Estatus<span class="si"></span></th>
           <th data-k="ant" onclick="srtCQ('ant')" class="ga num">Consumo<span class="si"></span></th><th class="ga num">Meses</th><th class="ga">Estatus</th>
           <th data-k="pron" onclick="srtCQ('pron')" class="gp num">Consumo<span class="si"></span></th><th class="gp num">Meses</th><th class="gp">Estatus</th>
           <th data-k="dem" onclick="srtCQ('dem')" class="gd num">Demanda<span class="si"></span></th><th class="gd num">Meses</th><th data-k="estp" onclick="srtCQ('estp')" class="gd">Estatus<span class="si"></span></th>
@@ -388,6 +390,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <h2>Comparativo diario</h2>
       <p>Qué cambió entre dos días: claves que entraron o salieron de faltante y de riesgo. Por defecto compara el día anterior contra el último día cargado.</p>
       <div class="ctl">
+        <select id="cm-regla" onchange="cambiarRegla(this.value)" title="Con qué regla se calcula el estatus"><option value="nueva">Estatus: regla nueva (1.2 / 1.4)</option><option value="excel">Estatus: Excel original</option></select>
         <label style="font-size:12px;color:#6b7a99">Día A</label><select id="cm-a" onchange="pintarComparativo(true)"></select>
         <button class="tglb" onclick="swapCM()" title="Invertir">⇄</button>
         <label style="font-size:12px;color:#6b7a99">Día B</label><select id="cm-b" onchange="pintarComparativo(true)"></select>
@@ -399,7 +402,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <div class="cmcards" id="cm-cards"></div>
       <div style="font-size:12px;color:#475569;margin-bottom:6px" id="cm-sub"></div>
       <div class="cqw"><table class="cqt"><thead id="cm-head"><tr>
-        <th data-k="t" onclick="srtCM('t')">Cambio<span class="si"></span></th><th data-k="clave" onclick="srtCM('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCM('nombre')">Nombre<span class="si"></span></th><th>Marca</th><th data-k="comp" onclick="srtCM('comp')">Comprador<span class="si"></span></th><th>Rotación</th><th>Estatus A → B</th><th data-k="exb" onclick="srtCM('exb')" class="num">Existencia A → B<span class="si"></span></th><th data-k="bo" onclick="srtCM('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCM('mi')" class="num">Meses inv.<span class="si"></span></th><th class="num">T. entr.</th><th class="num">Obj.</th>
+        <th data-k="t" onclick="srtCM('t')">Cambio<span class="si"></span></th><th data-k="clave" onclick="srtCM('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCM('nombre')">Nombre<span class="si"></span></th><th>Marca</th><th data-k="comp" onclick="srtCM('comp')">Comprador<span class="si"></span></th><th>Rotación</th><th>Estatus A → B</th><th data-k="exb" onclick="srtCM('exb')" class="num">Existencia A → B<span class="si"></span></th><th data-k="bo" onclick="srtCM('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCM('mi')" class="num">Meses inv.<span class="si"></span></th><th class="num" title="Meses de inventario contando el BO">Meses c/BO</th><th class="num">T. entr.</th><th class="num">Obj.</th>
       </tr></thead><tbody id="cm-body"></tbody></table></div>
     </div>
   </div>
@@ -1012,8 +1015,8 @@ function renderTopExceso(){
       <td style="white-space:normal;line-height:1.3">${x.nombre}</td>
       <td>${x.marca||'—'}</td>
       <td>${x.comp}</td>
-      <td style="text-align:right;font-weight:600">${x.mi.toFixed(1)}</td>
-      <td style="text-align:right;color:#6b7a99">${x.obj.toFixed(1)}</td>
+      <td style="text-align:right;font-weight:600">${x.mi.toFixed(1)}${x.mib!=null?` <span style="font-weight:400;color:#7c3aed;font-size:11px">(${x.mib.toFixed(1)} c/BO)</span>`:''}</td>
+      <td style="text-align:right;color:#6b7a99">${x.obj.toFixed(1)}${x.lim!=null?` <span style="font-size:11px">· lím. ${x.lim.toFixed(1)}</span>`:''}</td>
       <td style="text-align:right;font-weight:700;color:#c0392b">+${x.exc.toFixed(1)}</td>
       <td style="text-align:center;font-weight:700;color:${boCol};font-size:11px">${bo}</td>
     </tr>`;
@@ -1025,15 +1028,17 @@ function renderSobreInv(){
   const EXCL_FAM='TORNILLOS, TUERCAS Y REMACHES';   // familia excluida de este tablero
   const celdas=sobFiltrado(null).filter(x=>String(x.g||'').trim().toUpperCase()!==EXCL_FAM);
   // Agregar por comprador: sumar meses y objetivo, contar claves
+  // Con la regla nueva (S.regla) "so" ya es el límite de sobre inventario = Objetivo × 1.4; "sob" el objetivo y "smb" los meses con BO
+  const RG=!!S.regla,FM=RG?S.regla.sobre:1;
   const porComp={};
   celdas.forEach(x=>{
-    (porComp[x.c]=porComp[x.c]||{sm:0,so:0,n:0});
-    porComp[x.c].sm+=x.sm;porComp[x.c].so+=x.so;porComp[x.c].n+=x.n;
+    (porComp[x.c]=porComp[x.c]||{sm:0,so:0,sob:0,smb:0,n:0});
+    porComp[x.c].sm+=x.sm;porComp[x.c].so+=x.so;porComp[x.c].sob+=(x.sob??x.so);porComp[x.c].smb+=(x.smb??x.sm);porComp[x.c].n+=x.n;
   });
   const comps=Object.keys(porComp).sort();
   const rows=comps.map(c=>{
     const d2=porComp[c];
-    return {comp:c,n:d2.n,promMeses:d2.n?d2.sm/d2.n:0,promObj:d2.n?d2.so/d2.n:0};
+    return {comp:c,n:d2.n,promMeses:d2.n?d2.sm/d2.n:0,promObj:d2.n?d2.so/d2.n:0,promObjBase:d2.n?d2.sob/d2.n:0,promBO:d2.n?d2.smb/d2.n:0};
   });
 
   // KPIs globales
@@ -1041,6 +1046,8 @@ function renderSobreInv(){
   const gSm=celdas.reduce((a,x)=>a+x.sm,0), gSo=celdas.reduce((a,x)=>a+x.so,0);
   const promGlobalMeses=totalClaves?gSm/totalClaves:0;
   const promGlobalObj=totalClaves?gSo/totalClaves:0;
+  const promGlobalBO=totalClaves?celdas.reduce((a,x)=>a+(x.smb??x.sm),0)/totalClaves:0;
+  const promGlobalObjBase=totalClaves?celdas.reduce((a,x)=>a+(x.sob??x.so),0)/totalClaves:0;
   const sobre=rows.filter(r=>r.promMeses>r.promObj).length;
   const kpiBox=document.getElementById('sob-kpis');
   if(kpiBox){
@@ -1051,8 +1058,9 @@ function renderSobreInv(){
     kpiBox.innerHTML=
       kpi('Claves analizadas',totalClaves.toLocaleString(),'con inventario (meses > 0)','#1c4587')+
       kpi('Prom. meses inventario',promGlobalMeses.toFixed(1),'promedio simple global','#993c1d')+
-      kpi('Prom. objetivo',promGlobalObj.toFixed(1),'meses objetivo promedio','#1e7a4a')+
-      kpi('Compradores sobre objetivo',sobre+' de '+rows.length,'prom. inv. mayor al objetivo','#b8952a');
+      (RG?kpi('Prom. meses con BO',promGlobalBO.toFixed(1),'contando lo que viene en BO','#7c3aed'):'')+
+      kpi(RG?'Límite sobre inventario':'Prom. objetivo',promGlobalObj.toFixed(1),RG?'promedio de Objetivo × '+FM+' (objetivo prom. '+promGlobalObjBase.toFixed(1)+')':'meses objetivo promedio','#1e7a4a')+
+      kpi(RG?'Compradores sobre el límite':'Compradores sobre objetivo',sobre+' de '+rows.length,RG?'prom. inv. mayor al límite de sobre inventario':'prom. inv. mayor al objetivo','#b8952a');
   }
 
   // Gráfica: barras (meses inv) + línea de objetivo, con valores visibles
@@ -1087,7 +1095,7 @@ function renderSobreInv(){
     window._sobChart=new Chart(ctx,{type:'bar',data:{labels:rows.map(r=>r.comp),
       datasets:[
         {type:'bar',label:'Prom. meses inventario',data:rows.map(r=>+r.promMeses.toFixed(2)),backgroundColor:'#c0582a',order:2},
-        {type:'line',label:'Prom. objetivo',data:rows.map(r=>+r.promObj.toFixed(2)),borderColor:'#1e7a4a',backgroundColor:'#1e7a4a',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#1e7a4a',tension:0.2,order:1,fill:false}
+        {type:'line',label:RG?'Límite sobre inventario (Objetivo × '+FM+')':'Prom. objetivo',data:rows.map(r=>+r.promObj.toFixed(2)),borderColor:'#1e7a4a',backgroundColor:'#1e7a4a',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#1e7a4a',tension:0.2,order:1,fill:false}
       ]},
       options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:18}},
         plugins:{legend:{position:'top'},tooltip:{callbacks:{afterlabel:c=>{const r=rows[c.dataIndex];return r?`${r.n} claves`:'';}}}},
@@ -1124,13 +1132,14 @@ function renderSobreInv(){
         options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
           layout:{padding:{right:150}},
           plugins:{legend:{display:false},
-            tooltip:{callbacks:{label:c=>{const r=exRows[c.dataIndex];return ['Sobre objetivo: +'+r.exceso.toFixed(1)+' meses','Prom. inventario: '+r.promMeses.toFixed(1),'Prom. objetivo: '+r.promObj.toFixed(1),'Claves: '+r.n];}}}},
+            tooltip:{callbacks:{label:c=>{const r=exRows[c.dataIndex];return [(RG?'Sobre el límite: +':'Sobre objetivo: +')+r.exceso.toFixed(1)+' meses','Prom. inventario: '+r.promMeses.toFixed(1),(RG?'Límite (Objetivo × '+FM+'): ':'Prom. objetivo: ')+r.promObj.toFixed(1),'Claves: '+r.n];}}}},
           scales:{x:{beginAtZero:true,title:{display:true,text:'Meses por encima del objetivo'}},y:{ticks:{font:{size:11}}}}},
         plugins:[exLabelPlugin]});
     }
   }
 
   // Tabla
+  const thO=document.querySelector('#sob-tabla thead th:nth-child(4)');if(thO)thO.textContent=RG?'Límite sobre inv. (Obj × '+FM+')':'Prom. Objetivo';
   const tb=document.getElementById('sob-tbody');
   if(tb){
     tb.innerHTML=rows.map(r=>{
@@ -1139,8 +1148,8 @@ function renderSobreInv(){
       return `<tr style="border-bottom:1px solid #eef1f7">
         <td style="padding:7px 10px;font-weight:600">${r.comp}</td>
         <td style="padding:7px 10px;text-align:right">${r.n.toLocaleString()}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:700">${r.promMeses.toFixed(1)}</td>
-        <td style="padding:7px 10px;text-align:right">${r.promObj.toFixed(1)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:700">${r.promMeses.toFixed(1)}${RG?` <span style="font-weight:400;color:#7c3aed;font-size:11px" title="con BO">(${r.promBO.toFixed(1)} c/BO)</span>`:''}</td>
+        <td style="padding:7px 10px;text-align:right">${r.promObj.toFixed(1)}${RG?` <span style="color:#94a3b8;font-size:11px">(obj. ${r.promObjBase.toFixed(1)})</span>`:''}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:700;color:${col}">${dif>0?'+':''}${dif.toFixed(1)}</td>
       </tr>`;
     }).join('')||'<tr><td colspan="5" style="padding:16px;text-align:center;color:#8a97ad">Sin datos para los filtros aplicados</td></tr>';
@@ -1788,7 +1797,7 @@ async function cargarPlan(){
   }catch(e){PLAN={err:e.message||String(e),byClave:new Map(),ocs:{}};}
   return PLAN;
 }
-function estPlan(r,b){if(!r)return null;if(b==='D')return r.est;const X=b==='A'?r.A:r.P;if(X==null)return r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO';return P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
+function estPlan(r,b){if(!r)return null;if(b==='D')return r.est;const X=b==='A'?r.A:r.P;if(X==null)return r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO';const v=b==='A'?r.eA:r.eP;if(v)return v;return P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
 const mesesPlan=(r,b)=>{if(!r)return null;const X=b==='A'?r.A:b==='P'?r.P:r.D;return X>0?r.ex/X:null;};
 
 // ── Detalle de un día: de la memoria (Excel manual) o de la base ──
@@ -1806,9 +1815,23 @@ async function diaDetalle(f){
     rows=out.map(r=>({fecha:f,clave:String(r.clave||'').trim(),nombre:r.nombre||'',marca:r.marca||'',unidad:r.unidad||'',clasificacion:String(r.clasificacion||'').trim(),existencias:+r.existencias||0,grupo:String(r.grupo||'').trim(),
       comprador:String(r.comprador||'').trim().toUpperCase(),clmov:String(r.rotacion||'').trim().toUpperCase(),t_entrega:r.t_entrega==null?null:+r.t_entrega,obj_meses:r.obj_meses==null?null:+r.obj_meses,meses_inv:r.meses_inv==null?null:+r.meses_inv,
       estatus:String(r.estatus||'').trim().toUpperCase(),reorden:String(r.reorden||'').trim(),bo:+r.back_order||0})).filter(r=>r.comprador&&!EXCL.includes(r.comprador));
-    rows.forEach(r=>r.semaforo=getSem(r));
   }
+  rows.forEach(r=>{if(r.estatusExcel==null){r.estatusExcel=r.estatus;const c=((G.difEst||{})[f]||{})[String(r.clave)];r.estatusNuevo=c?(CODE[c]||c):r.estatus;}
+    r.mib=r.meses_inv!=null&&r.existencias>0?r.meses_inv*(r.existencias+(r.bo||0))/r.existencias:r.meses_inv;});
+  aplicarRegla(rows);
   DIA.set(f,rows);return rows;
+}
+// Regla de estatus: 'nueva' (riesgo entra con T.entrega×1.2 y sale con ×1.4) o 'excel' (la que trae el archivo)
+const CODE={F:'FALTANTE',R:'RIESGO',O:'OPTIMO',S:'SOBRE INVENTARIO',C:'SIN COMPRA'};
+let REGLA='nueva';
+function aplicarRegla(rows){rows.forEach(r=>{r.estatus=REGLA==='nueva'&&G.difEst?r.estatusNuevo:r.estatusExcel;r.semaforo=getSem(r);});}
+function cambiarRegla(v){REGLA=v;['cq-regla','cm-regla'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=v;});DIA.forEach(rows=>aplicarRegla(rows));
+  if(document.getElementById('panel-consulta').classList.contains('on'))pintarConsulta(true);if(document.getElementById('panel-comp').classList.contains('on'))pintarComparativo(true);}
+function resumenRegla(comp){
+  const R=G.regla;if(!R)return '';
+  const o=comp&&R.porComp[comp]?R.porComp[comp]:R;const E=['RIESGO','OPTIMO','SOBRE INVENTARIO'];
+  return '📏 <b>Regla nueva</b> (riesgo entra con T. entrega × '+R.entra+' y sale con × '+R.sale+'; sobre inventario con Objetivo × '+R.sobre+') al '+fdl(R.fecha)+(comp?' · '+escH2(comp):'')+': '
+    +E.map(e=>ESTL[e]+' <b>'+nf(o.nueva[e]||0)+'</b> <span style="color:#94a3b8">(Excel '+nf(o.excel[e]||0)+')</span>').join(' · ');
 }
 const diasDetalle=()=>(G.detF&&G.detF.length?G.detF:G.fechas||[]).slice().sort();
 
@@ -1848,6 +1871,7 @@ async function pintarConsulta(recargar){
       const [rows,plan]=await Promise.all([diaDetalle(document.getElementById('cq-fecha').value),cargarPlan()]);
       rows.forEach(r=>{r._p=plan.byClave.get(String(r.clave))||null;r._estP=r._p?r._p.est:null;});
       CQ.rows=rows;llenarFiltrosCQ();
+      document.getElementById('cq-regla').value=REGLA;
       document.getElementById('cq-plan').innerHTML=plan.err?'⚠️ Sin cálculo del portal ('+escH2(plan.err)+'): no se muestran antecedente, pronóstico ni propuesta.':'Antecedente, pronóstico, estatus del portal y propuesta: cálculo del portal al <b>'+fdl(plan.fecha)+'</b>.';
     }catch(e){body.innerHTML='<tr><td colspan="24" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
@@ -1859,17 +1883,18 @@ async function pintarConsulta(recargar){
   // Semáforo como leyenda que filtra
   const cs={};CQ.rows.filter(r=>!f.comprador||r.comprador===f.comprador).forEach(r=>cs[r.semaforo]=(cs[r.semaforo]||0)+1);
   document.getElementById('cq-semleg').innerHTML=Object.keys(SEMC).map(s=>'<button class="semb'+(f.semaforo===s?' on':'')+'" style="--c:'+SEMC[s]+'" title="'+SEMD[s]+'" onclick="document.getElementById(\'cq-sem\').value=document.getElementById(\'cq-sem\').value===\''+s+'\'?\'\':\''+s+'\';pintarConsulta()"><i></i>'+SLBL[s]+' <b>'+nf(cs[s]||0)+'</b></button>').join('');
-  const SO={sem:r=>SORD[r.semaforo]??9,clave:r=>+r.clave||0,nombre:r=>r.nombre,exist:r=>r.existencias,bo:r=>r.bo,mi:r=>r.meses_inv??-1,est:r=>r.estatus,estp:r=>r._estP||'',ant:r=>r._p?r._p.A??-1:-1,pron:r=>r._p?r._p.P??-1:-1,dem:r=>r._p?r._p.D??-1:-1,prop:r=>r._p?r._p.s??-1:-1,comp:r=>r.comprador,marca:r=>r.marca};
+  const SO={sem:r=>SORD[r.semaforo]??9,clave:r=>+r.clave||0,nombre:r=>r.nombre,exist:r=>r.existencias,bo:r=>r.bo,mi:r=>r.meses_inv??-1,mib:r=>r.mib??-1,est:r=>r.estatus,estp:r=>r._estP||'',ant:r=>r._p?r._p.A??-1:-1,pron:r=>r._p?r._p.P??-1:-1,dem:r=>r._p?r._p.D??-1:-1,prop:r=>r._p?r._p.s??-1:-1,comp:r=>r.comprador,marca:r=>r.marca};
   const{k,d}=CQ.sort;const fn=SO[k]||SO.sem;
   rows.sort((a,b)=>{const x=fn(a),y=fn(b);return(typeof x==='string'?String(x).localeCompare(String(y),'es'):x-y)*d||(+a.clave-+b.clave);});
   CQ.vis=rows;
   document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+' claves';
+  const rr=resumenRegla(f.comprador||'');const rb=document.getElementById('cq-regla-res');rb.innerHTML=rr;rb.style.display=rr?'':'none';
   document.querySelectorAll('#cq-head th[data-k]').forEach(th=>{th.querySelector('.si').textContent=th.dataset.k===k?(d>0?'▲':'▼'):'';});
   const cp=v=>v==null?'—':v>0?'<b style="color:#047857">'+nf(v)+'</b>':'<span style="color:#a0a9be">0</span>';
   let h='';
   rows.slice(0,CQ.lim).forEach(r=>{const p=r._p;const eA=estPlan(p,'A'),eP=estPlan(p,'P');const ch=p&&eA!==eP;
     h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b></td><td class="nm">'+escH2(r.nombre)+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
-     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td><td>'+estTag(r.estatus)+'</td>'
+     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num" title="Riesgo: entra con menos de '+nf((r.t_entrega||0)*1.2,1)+' y sale con '+nf((r.t_entrega||0)*1.4,1)+' meses · sobre inventario con más de '+nf((r.obj_meses||0)*1.4,1)+'">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="num sm2">'+(r.mib!=null?nf(r.mib,1):'—')+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td><td>'+estTag(r.estatus)+(r.estatusExcel&&r.estatusExcel!==r.estatus?'<div class="sm2" title="Estatus que trae el Excel">Excel: '+(ESTL[r.estatusExcel]||r.estatusExcel)+'</div>':'')+'</td>'
      +'<td class="ga num">'+(p?nf(p.A,p.A!=null&&p.A<10?1:0):'—')+'</td><td class="ga num">'+(p?nf(mesesPlan(p,'A'),1):'—')+'</td><td class="ga">'+(p?estTag(eA):'—')+'</td>'
      +'<td class="gp num">'+(p?nf(p.P,p.P!=null&&p.P<10?1:0):'—')+'</td><td class="gp num">'+(p?nf(mesesPlan(p,'P'),1):'—')+'</td><td class="gp">'+(p?estTag(eP)+(ch?' <span title="Cambia entre antecedente y pronóstico" style="color:#d97706;font-weight:800">⇄</span>':''):'—')+'</td>'
      +'<td class="gd num">'+(p?'<b>'+nf(p.D,p.D!=null&&p.D<10?1:0)+'</b>':'—')+'</td><td class="gd num">'+(p?nf(p.mi,1):'—')+'</td><td class="gd">'+(p?estTag(p.est):'—')+'</td>'
@@ -1901,7 +1926,7 @@ async function pintarFicha(c){
 function srtCQ(k){CQ.sort=CQ.sort.k===k?{k,d:-CQ.sort.d}:{k,d:1};pintarConsulta();}
 function limpiarCQ(){CQF.forEach(([id])=>document.getElementById(id).value='');document.getElementById('cq-q').value='';['cq-pedir','cq-camb'].forEach(id=>document.getElementById(id).classList.remove('on'));CQ.lim=200;pintarConsulta();}
 function excelCQ(){
-  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (Excel)':r.meses_inv,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,'Estatus Excel':r.estatus,'Pto. reorden':r.reorden,
+  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (sin BO)':r.meses_inv,'Meses inv con BO':r.mib,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,['Estatus ('+(REGLA==='nueva'?'regla nueva':'Excel')+')']:r.estatus,'Estatus Excel original':r.estatusExcel,'Pto. reorden':r.reorden,
     'Consumo antecedente':p?p.A:'','Meses antecedente':p?mesesPlan(p,'A'):'','Estatus antecedente':p?estPlan(p,'A'):'','Consumo pronóstico':p?p.P:'','Meses pronóstico':p?mesesPlan(p,'P'):'','Estatus pronóstico':p?estPlan(p,'P'):'',
     'Demanda portal':p?p.D:'','Meses portal':p?p.mi:'','Estatus portal':p?p.est:'','Propuesta portal':p?p.s:'','Propuesta con empaque':p?p.sE:''};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Consulta');XLSX.writeFile(wb,'Consulta_claves_'+document.getElementById('cq-fecha').value+'.xlsx');
@@ -1942,17 +1967,18 @@ async function initComparativo(){
 async function pintarComparativo(recargar){
   const fa=document.getElementById('cm-a').value,fb=document.getElementById('cm-b').value;
   if(recargar){
-    document.getElementById('cm-body').innerHTML='<tr><td colspan="12" class="cq-load">⏳ Comparando '+fdl(fa)+' contra '+fdl(fb)+'…</td></tr>';
+    document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load">⏳ Comparando '+fdl(fa)+' contra '+fdl(fb)+'…</td></tr>';
     try{const[a,b]=await Promise.all([diaDetalle(fa),diaDetalle(fb)]);CM.rows=calcComparativo(a,b);CM.fa=fa;CM.fb=fb;
       const comps=[...new Set(CM.rows.map(x=>x.r.comprador))].sort();const sc=document.getElementById('cm-comp');const v=sc.value;const up=usuarioPortal();
       sc.innerHTML='<option value="">Todos los compradores</option>'+comps.map(c=>'<option>'+escH2(c)+'</option>').join('');sc.value=comps.includes(v)?v:(!sc.dataset.ini&&comps.includes(up)?up:'');sc.dataset.ini='1';
-    }catch(e){document.getElementById('cm-body').innerHTML='<tr><td colspan="12" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
+    }catch(e){document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
   const comp=document.getElementById('cm-comp').value,rot=document.getElementById('cm-rot').value,q=document.getElementById('cm-q').value.trim().toUpperCase();
   const base=CM.rows.filter(x=>(!comp||x.r.comprador===comp)&&(!rot||x.r.clmov===rot)&&(!q||x.clave.startsWith(q)||String(x.r.nombre).toUpperCase().includes(q)));
   const cnt={};base.forEach(x=>cnt[x.t]=(cnt[x.t]||0)+1);
   document.getElementById('cm-cards').innerHTML=Object.keys(CMPT).map(t=>{const o=CMPT[t];return '<div class="cmc'+(CM.tipo===t?' on':'')+'" style="--c:'+o.c+'" onclick="CM.tipo=CM.tipo===\''+t+'\'?\'\':\''+t+'\';pintarComparativo()" title="'+o.d+'"><div class="t">'+o.i+' '+o.t+'</div><div class="n">'+nf(cnt[t]||0)+'</div><div class="d">'+o.d+'</div></div>';}).join('');
-  document.getElementById('cm-sub').innerHTML='Del <b>'+fdl(fa)+'</b> al <b>'+fdl(fb)+'</b>'+(CM.tipo?' · mostrando <b>'+CMPT[CM.tipo].t.toLowerCase()+'</b> (clic otra vez en la tarjeta para ver todos)':' · clic en una tarjeta para filtrar');
+  document.getElementById('cm-regla').value=REGLA;
+  document.getElementById('cm-sub').innerHTML=(REGLA==='nueva'&&G.difEst?'📏 Regla nueva · ':'Estatus del Excel · ')+'Del <b>'+fdl(fa)+'</b> al <b>'+fdl(fb)+'</b>'+(CM.tipo?' · mostrando <b>'+CMPT[CM.tipo].t.toLowerCase()+'</b> (clic otra vez en la tarjeta para ver todos)':' · clic en una tarjeta para filtrar');
   let rows=base.filter(x=>!CM.tipo||x.t===CM.tipo);
   const ORDT=Object.keys(CMPT);const{k,d}=CM.sort;
   const SO={t:x=>ORDT.indexOf(x.t),clave:x=>+x.clave||0,nombre:x=>x.r.nombre,comp:x=>x.r.comprador,exb:x=>x.b?x.b.existencias:-1,bo:x=>x.b?x.b.bo:-1,mi:x=>x.b&&x.b.meses_inv!=null?x.b.meses_inv:-1};
@@ -1960,12 +1986,12 @@ async function pintarComparativo(recargar){
   CM.vis=rows;
   document.querySelectorAll('#cm-head th[data-k]').forEach(th=>{th.querySelector('.si').textContent=th.dataset.k===k?(d>0?'▲':'▼'):'';});
   document.getElementById('cm-body').innerHTML=rows.slice(0,1500).map(x=>{const o=CMPT[x.t];return '<tr><td><span class="cmt" style="--c:'+o.c+'">'+o.i+' '+o.t+'</span></td><td><b>'+escH2(x.clave)+'</b></td><td class="nm">'+escH2(x.r.nombre)+'</td><td>'+escH2(x.r.marca)+'</td><td>'+escH2(S2N(x.r.comprador))+'</td><td>'+escH2((x.r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
-    +'<td>'+estTag(x.a&&x.a.estatus)+' → '+estTag(x.b&&x.b.estatus)+'</td><td class="num">'+(x.a?nf(x.a.existencias):'—')+' → <b>'+(x.b?nf(x.b.existencias):'—')+'</b></td><td class="num">'+(x.b?nf(x.b.bo):'—')+'</td><td class="num">'+(x.b&&x.b.meses_inv!=null?nf(x.b.meses_inv,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.t_entrega,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.obj_meses,1):'—')+'</td></tr>';}).join('')||'<tr><td colspan="12" class="cq-load">Sin cambios con estos filtros. ✅</td></tr>';
+    +'<td>'+estTag(x.a&&x.a.estatus)+' → '+estTag(x.b&&x.b.estatus)+'</td><td class="num">'+(x.a?nf(x.a.existencias):'—')+' → <b>'+(x.b?nf(x.b.existencias):'—')+'</b></td><td class="num">'+(x.b?nf(x.b.bo):'—')+'</td><td class="num">'+(x.b&&x.b.meses_inv!=null?nf(x.b.meses_inv,1):'—')+'</td><td class="num sm2">'+(x.b&&x.b.mib!=null?nf(x.b.mib,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.t_entrega,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.obj_meses,1):'—')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="cq-load">Sin cambios con estos filtros. ✅</td></tr>';
 }
 function srtCM(k){CM.sort=CM.sort.k===k?{k,d:-CM.sort.d}:{k,d:1};pintarComparativo();}
 function swapCM(){const a=document.getElementById('cm-a'),b=document.getElementById('cm-b');const t=a.value;a.value=b.value;b.value=t;pintarComparativo(true);}
 function excelCM(){
-  const wb=XLSX.utils.book_new();const mk=rs=>rs.map(x=>({'Cambio':CMPT[x.t].t,'Clave':x.clave,'Nombre':x.r.nombre,'Marca':x.r.marca,'Comprador':x.r.comprador,'Rotación':x.r.clmov,'Estatus A':x.a?x.a.estatus:'','Estatus B':x.b?x.b.estatus:'','Existencias A':x.a?x.a.existencias:'','Existencias B':x.b?x.b.existencias:'','BO B':x.b?x.b.bo:'','Meses inv B':x.b?x.b.meses_inv:'','T. entrega':x.b?x.b.t_entrega:'','Objetivo':x.b?x.b.obj_meses:''}));
+  const wb=XLSX.utils.book_new();const mk=rs=>rs.map(x=>({'Cambio':CMPT[x.t].t,'Clave':x.clave,'Nombre':x.r.nombre,'Marca':x.r.marca,'Comprador':x.r.comprador,'Rotación':x.r.clmov,'Estatus A':x.a?x.a.estatus:'','Estatus B':x.b?x.b.estatus:'','Existencias A':x.a?x.a.existencias:'','Existencias B':x.b?x.b.existencias:'','BO B':x.b?x.b.bo:'','Meses inv B':x.b?x.b.meses_inv:'','Meses c/BO B':x.b?x.b.mib:'','Estatus Excel A':x.a?x.a.estatusExcel:'','Estatus Excel B':x.b?x.b.estatusExcel:'','T. entrega':x.b?x.b.t_entrega:'','Objetivo':x.b?x.b.obj_meses:''}));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(mk(CM.vis||[]).length?mk(CM.vis):[{'Sin datos':''}]),'Cambios');
   XLSX.writeFile(wb,'Comparativo_'+CM.fa+'_vs_'+CM.fb+'.xlsx');
 }

@@ -78,7 +78,7 @@
     const der=r?'<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'
       +kv('Antecedente',n(r.A,1)+' / mes · '+usados('ANT'))+kv('Pronóstico',n(r.P,1)+' / mes · '+usados('PRON'))
       +kv('Demanda portal',n(r.D,1)+' / mes · '+esc(r.bD))+kv('Meses objetivo (N)',r.N+' · objetivo '+n(r.pm,1)+' · entrega '+n(r.lt,1))
-      +kv('Óptimo','entre '+n(r.lt*P.R.FACT_ENTREGA,1)+' y '+n(r.pm*P.R.FACT_MAX,1)+' meses de inventario')
+      +kv('Límites','riesgo entra con menos de '+n(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+n(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+n(r.pm*P.R.FACT_MAX,1)+' · hoy '+n(r.mi,1)+' meses'+(r.miB!=null?' ('+n(r.miB,1)+' con BO)':''))
       +kv('Propuesta',n(r.D,1)+' × ('+n(r.lt,1)+' + '+n(r.pm,1)+') − ('+n(r.ex)+' + '+n(r.bo)+' BO CEDI) = <b>'+n(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+n(r.sE)+'</b>':''))
       +((r.boT||0)>(r.bo||0)?kv('BO','total '+n(r.boT)+' · entrega directa '+n(r.boT-r.bo)+' (no cuenta)'):'')
       +kv('Estatus','Excel <b>'+esc(r.estX||'—')+'</b> · portal <b>'+esc(r.est)+'</b>')

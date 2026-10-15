@@ -292,9 +292,12 @@ async function cargaCalc(log){
   // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
   const prevEst=await leerEstadoPublicado(pub,log);
   let res=null,totN=0,totC=0;const nuevasDia=[];
+  // Estatus del día anterior por clave (para el margen de riesgo entre 1.2 y 1.4)
+  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,{est:r.est,eA:r.eA,eP:r.eP}]):[]);
   for(const f of pendientes){
     await pausa();
     res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
+    if(!soloPublicar||pendientes.length>1)ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP}]));
     await guardarHistEstatus(res,f,log);
     if(soloPublicar)break;
     if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}

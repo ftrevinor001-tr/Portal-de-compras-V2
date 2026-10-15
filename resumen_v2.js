@@ -35,7 +35,7 @@
       const mine=x=>comp==='GENERAL'||x===comp;
       const cl=v.claves.filter(r=>mine(r.comp));
       const rsg=cl.filter(r=>r.est==='RIESGO').sort((a,b)=>(a.mi??0)-(b.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'T.Entrega':r.lt,'Demanda':r1(r.D),'Propuesta':r.sE!=null?r.sE:r.s}));
-      push(comp,'RIESGO',rsg,rsg.length,nota+' Meses de inventario por debajo del tiempo de entrega × 1.4 con la demanda del portal (promedio de antecedente y pronóstico).');
+      push(comp,'RIESGO',rsg,rsg.length,nota+' Riesgo: entra con menos de T. entrega × 1.2 meses y sale al pasar T. entrega × 1.4, con la demanda del portal (promedio de antecedente y pronóstico).');
       const sob=cl.filter(r=>r.est==='SOBRE INVENTARIO').sort((a,b)=>(b.mi??0)-(a.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'Obj':r.pm,'Demanda':r1(r.D)}));
       push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario que el objetivo × 1.4.');
       const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));

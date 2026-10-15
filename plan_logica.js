@@ -183,6 +183,10 @@ P.detalle=wb=>{
 // ── Reglas de cálculo (acordadas con Compras, oct-2026) ──
 P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:10,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
      FACT_ENTREGA:1.4,FACT_MAX:1.4,EXCLUIR_ROT:['SIN COMPRA','NUEVOS']};
+// Riesgo con margen (oct-2026): una clave ENTRA a riesgo con menos de T. entrega × 1.2 y solo SALE cuando pasa de T. entrega × 1.4.
+// Entre 1.2 y 1.4 conserva el estatus del día anterior (evita que brinque de riesgo a óptimo y regrese por unas piezas).
+// Sobre inventario: más de Objetivo × 1.4 (sin cambio). Los meses de inventario NO cuentan el BO.
+P.R.FACT_ENTRA_RIESGO=1.2;
 P.ym=(ym,k)=>{let[y,m]=ym.split('-').map(Number);m+=k;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}return y+'-'+P.pad(m);};
 // Serie de ventas de una clave ya limpia de entregas directas (solo 2025, nunca negativa)
 P.serie=(meses,ed)=>{
@@ -230,13 +234,34 @@ P.antPron=(s,ref,N,agot,ultimo,primero)=>{
   else if(ini>P.ym(ref,-12))notas.push('primera venta '+ini);
   return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,I:inter?avg(w):null,notas};
 };
-P.estatus=(rot,ex,D,lt,pm)=>{
+// Estatus por meses de inventario. prev = estatus del día anterior (para el margen entre 1.2 y 1.4)
+P.clasificar=(mi,lt,pm,prev)=>{
+  if(mi<lt*P.R.FACT_ENTRA_RIESGO)return'RIESGO';
+  if(mi<lt*P.R.FACT_ENTREGA&&(prev==='RIESGO'||prev==='FALTANTE'))return'RIESGO';
+  if(mi<=pm*P.R.FACT_MAX)return'OPTIMO';
+  return'SOBRE INVENTARIO';
+};
+P.estatus=(rot,ex,D,lt,pm,prev)=>{
   if(rot==='SIN COMPRA')return'SIN COMPRA';
   if(ex<=0)return'FALTANTE';
   if(!D)return'RIESGO';
-  const mi=ex/D;
-  if(mi>=lt*P.R.FACT_ENTREGA&&mi<=pm*P.R.FACT_MAX)return'OPTIMO';
-  return mi<lt*P.R.FACT_ENTREGA?'RIESGO':'SOBRE INVENTARIO';
+  return P.clasificar(ex/D,lt,pm,prev);
+};
+// Estatus del Excel recalculado con la misma regla, a partir de los meses de inventario del Detalle.
+// orig = estatus que trae el Excel (SIN COMPRA se respeta). Meses vacíos o 0 con existencia = sin venta → RIESGO.
+P.estatusExcel=(orig,ex,mi,lt,pm,prev)=>{
+  if(orig==='SIN COMPRA')return'SIN COMPRA';
+  if(!(ex>0))return'FALTANTE';
+  if(mi==null||mi===''||!(Number(mi)>0))return'RIESGO';
+  return P.clasificar(Number(mi),Number(lt)||0,Number(pm)||0,prev);
+};
+// Recalcula una serie de días: filas [{fecha,clave,estatus,existencias,meses_inv,t_entrega,obj_meses}] → Map 'fecha|clave' → estatus nuevo
+P.cadenaExcel=filas=>{
+  const porClave=new Map();filas.forEach(r=>{const k=String(r.clave);(porClave.get(k)||porClave.set(k,[]).get(k)).push(r);});
+  const out=new Map();
+  porClave.forEach((a,k)=>{a.sort((x,y)=>x.fecha<y.fecha?-1:x.fecha>y.fecha?1:0);let prev=null;
+    a.forEach(r=>{const e=P.estatusExcel(String(r.estatus||'').toUpperCase(),Number(r.existencias)||0,r.meses_inv,r.t_entrega,r.obj_meses,prev);out.set(r.fecha+'|'+k,e);prev=e;});});
+  return out;
 };
 // Redondeo a empaque: ≥1 MASTER → múltiplo de MASTER más cercano; menor → hacia arriba al INNER
 P.empaque=(q,e,unidad)=>{
@@ -256,7 +281,8 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
     const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
     const D=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
-    const est=P.estatus(d.rot,d.ex,D,lt,pm);
+    const pv=ctx.prevEst&&ctx.prevEst.get(k)||{};
+    const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.round(d.bo*fr*10000)/10000;
     const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+bo)));
@@ -269,9 +295,9 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
-    const eX=X=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm);
-    out.push({c:k,n:d.nombre,m:d.marca||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A),eP:eX(ap.P),
-      A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
+    const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr);
+    out.push({c:k,n:d.nombre,m:d.marca||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
+      A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nt:notas.join(' · ')});

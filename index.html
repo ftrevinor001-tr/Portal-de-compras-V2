@@ -1628,6 +1628,28 @@ async function restringidasVigentes(){
   const vig=rr.data.filter(x=>{if(!x.autorizado_en)return true;const b=new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00');return isNaN(b)?true:Math.floor((Date.now()-b.getTime())/864e5)<30;});
   return new Set(vig.map(x=>String(x.clave).trim()+'||'+String(x.comprador).trim().toUpperCase()));
 }
+// Meses de inventario vs objetivo con la regla nueva (misma estructura que buildData, más límite y meses con BO)
+function sobreInvRegla(detR){
+  const FM=P.R.FACT_MAX,EXCL_FAM='TORNILLOS, TUERCAS Y REMACHES';
+  const acc={},meses=new Set(),grupos=new Set(),marcas=new Set(),rots=new Set(),comps=new Set(),tmp={};
+  detR.forEach(x=>{
+    const mi=+x.meses_inv||0;if(mi<=0)return;
+    const c=String(x.comprador||'').trim().toUpperCase();if(!c||c==='PRODUCCION')return;
+    const dia=String(x.fecha||'').slice(0,10);if(!dia)return;
+    const g=String(x.grupo||'').trim().toUpperCase()||'(SIN GRUPO)',rot=String(x.clmov||'').trim().toUpperCase()||'(SIN ROTACIÓN)',mar=String(x.marca||'').trim().toUpperCase()||'(SIN MARCA)';
+    const obj=+x.obj_meses||0,lim=obj*FM,ex=+x.existencias||0,bo=+x.bo||0;const mib=ex>0?mi*(ex+bo)/ex:mi;
+    meses.add(dia);grupos.add(g);marcas.add(mar);rots.add(rot);comps.add(c);
+    const k=c+'||'+dia+'||'+g+'||'+rot+'||'+mar;const a=acc[k]||(acc[k]={sm:0,so:0,sob:0,smb:0,n:0,exc:0});
+    a.sm+=mi;a.so+=lim;a.sob+=obj;a.smb+=mib;a.n++;if(mi>lim)a.exc+=mi-lim;
+    if(mi>lim&&g!==EXCL_FAM){(tmp[dia+'||'+c]=tmp[dia+'||'+c]||[]).push({clave:x.clave,nombre:String(x.nombre||'').slice(0,45),marca:String(x.marca||''),grupo:g,rot,mi:+mi.toFixed(1),mib:+mib.toFixed(1),obj:+obj.toFixed(1),lim:+lim.toFixed(1),exc:+(mi-lim).toFixed(1),bo});}
+  });
+  const r2=v=>+v.toFixed(2);
+  const celdas=Object.keys(acc).map(k=>{const[c,dia,g,rot,mar]=k.split('||');const a=acc[k];return{c,dia,g,rot,mar,sm:r2(a.sm),so:r2(a.so),sob:r2(a.sob),smb:r2(a.smb),n:a.n,exc:r2(a.exc)};});
+  const porDiaComp={};Object.keys(tmp).forEach(k=>{tmp[k].sort((a,b)=>b.exc-a.exc);porDiaComp[k]=tmp[k].slice(0,40);});
+  const dias=[...meses].sort();
+  return{sobreInv:{celdas,meses:dias,grupos:[...grupos].sort(),marcas:[...marcas].sort(),rots:[...rots].sort(),comps:[...comps].sort(),cierre:dias[dias.length-1],regla:{sobre:FM}},
+    topExceso:{porDiaComp,dias:[...new Set(Object.keys(tmp).map(k=>k.split('||')[0]))].sort()}};
+}
 async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
   log('🪶 Histórico Faltantes V2: preparando versión ligera…');
   const restr=await restringidasVigentes();
@@ -1647,6 +1669,21 @@ async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
   const faltDia={};
   (p.detR||[]).forEach(r=>{if(r.estatus!=='FALTANTE'||!r.fecha)return;(faltDia[r.fecha]=faltDia[r.fecha]||[]).push([r.clave,String(r.nombre||'').slice(0,60),r.marca,r.comprador,r.clmov,r.bo,r.clasificacion]);});
   const{detR,rowsRes,...ligero}=p;
+  // ── Regla nueva de estatus (riesgo entra con T.entrega×1.2 y sale con ×1.4; sobre inventario > Objetivo×1.4) ──
+  try{
+    const det=p.detR||[];
+    const nueva=P.cadenaExcel(det);
+    const COD={FALTANTE:'F',RIESGO:'R',OPTIMO:'O','SOBRE INVENTARIO':'S','SIN COMPRA':'C'};
+    const difEst={};let nDif=0;
+    det.forEach(r=>{const e=nueva.get(r.fecha+'|'+String(r.clave));if(e&&e!==r.estatus){(difEst[r.fecha]=difEst[r.fecha]||{})[String(r.clave)]=COD[e]||e;nDif++;}});
+    const uf=p.detF&&p.detF.length?p.detF[p.detF.length-1]:p.uf;
+    const cuenta=f=>{const o={excel:{},nueva:{},porComp:{}};det.forEach(r=>{if(r.fecha!==f)return;const n=nueva.get(r.fecha+'|'+String(r.clave))||r.estatus;
+      o.excel[r.estatus]=(o.excel[r.estatus]||0)+1;o.nueva[n]=(o.nueva[n]||0)+1;const c=o.porComp[r.comprador]||(o.porComp[r.comprador]={excel:{},nueva:{}});c.excel[r.estatus]=(c.excel[r.estatus]||0)+1;c.nueva[n]=(c.nueva[n]||0)+1;});return o;};
+    ligero.difEst=difEst;ligero.regla={fecha:uf,entra:P.R.FACT_ENTRA_RIESGO,sale:P.R.FACT_ENTREGA,sobre:P.R.FACT_MAX,...cuenta(uf)};
+    // Meses de inventario vs objetivo con la misma regla: exceso = meses − Objetivo × 1.4 (límite de sobre inventario), y meses con BO
+    const si=sobreInvRegla(det);p={...p,sobreInv:si.sobreInv,topExceso:si.topExceso};
+    log('   📏 Regla nueva de estatus aplicada: '+nDif.toLocaleString()+' claves-día cambian respecto al Excel · al '+uf+': riesgo '+(ligero.regla.excel.RIESGO||0)+' → '+(ligero.regla.nueva.RIESGO||0)+', sobre inv. '+(ligero.regla.excel['SOBRE INVENTARIO']||0)+' → '+(ligero.regla.nueva['SOBRE INVENTARIO']||0));
+  }catch(e){log('   ⚠️ No se pudo aplicar la regla nueva: '+e.message);}
   // Meses de inventario vs objetivo: solo cierres de mes y los últimos 10 días (lo que más se consulta)
   try{
     const dias=(p.sobreInv&&p.sobreInv.meses)||[];const cierre={};dias.forEach(d=>{const m=d.slice(0,7);if(!cierre[m]||d>cierre[m])cierre[m]=d;});

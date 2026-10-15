@@ -220,7 +220,7 @@ const BASES={D:{l:'Portal',d:'promedio de antecedente y pronóstico (la que usan
 const RIESGOS=['FALTANTE','RIESGO'];
 // Estatus de una clave con la base elegida (D portal, A antecedente, P pronóstico)
 // El estatus por antecedente/pronóstico se calcula aquí con la misma fórmula (no depende de que el cálculo publicado lo traiga)
-function estBase(r,b){const X=b==='A'?r.A:r.P;if(X==null)return null;return P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
+function estBase(r,b){const X=b==='A'?r.A:r.P;if(X==null)return null;const v=b==='A'?r.eA:r.eP;return v!==undefined&&v!==null?v:P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
 function estDe(r,b){if(b==='D')return r.est;const v=estBase(r,b);return v||(r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO');}
 function consDe(r,b){return b==='A'?r.A:b==='P'?r.P:r.D;}
 function mesesDe(r,b){const c=consDe(r,b);return c>0?r.ex/c:null;}
@@ -431,7 +431,7 @@ const DCOLS=[
   {k:'c',t:'Clave'},{k:'n',t:'Descripción',cls:'desc'},{k:'ex',t:'Exist.',num:1},{k:'bo',t:'BO CEDI',num:1},{k:'u',t:'Unidad'},
   {k:'A',t:'Consumo',num:1,g:'A'},{k:'mA',t:'Meses',num:1,g:'A',d:1},{k:'eA',t:'Estatus',g:'A'},
   {k:'P',t:'Consumo',num:1,g:'P'},{k:'mP',t:'Meses',num:1,g:'P',d:1},{k:'eP',t:'Estatus',g:'P'},
-  {k:'D',t:'Demanda',num:1,g:'D'},{k:'mi',t:'Meses',num:1,g:'D',d:1},{k:'est',t:'Estatus',g:'D'},
+  {k:'D',t:'Demanda',num:1,g:'D'},{k:'mi',t:'Meses',num:1,g:'D',d:1},{k:'miB',t:'c/BO',num:1,g:'D',d:1},{k:'est',t:'Estatus',g:'D'},
   {k:'pm',t:'Obj.',num:1,d:1},{k:'lt',t:'T.entr.',num:1,d:1},{k:'comp',t:'Comprador'},{k:'m',t:'Marca'},{k:'oc',t:'OCs abiertas',num:1},
   {k:'sA',t:'Ant.',num:1,g:'Pr'},{k:'sP',t:'Pron.',num:1,g:'Pr'},{k:'s',t:'Portal',num:1,g:'Pr'},{k:'sE',t:'Empaque',num:1,g:'Pr'},
   {k:'mfM',t:'MF meses',num:1,d:1}
@@ -460,7 +460,7 @@ function pintarDetalle(){
     html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
       +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td>'
-      +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="gD">'+tag(r.est,B==='D')+'</td>'
+      +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="num gD" style="color:#7c3aed" title="Meses de inventario contando el BO del CEDI (referencia; el estatus no lo cuenta)">'+fmtN(r.miB,1)+'</td><td class="gD">'+tag(r.est,B==='D')+'</td>'
       +'<td class="num">'+fmtN(r.pm,1)+'</td><td class="num">'+fmtN(r.lt,1)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="sm">'+esc(r.m||'')+'</td><td class="num">'+(ocs.length?'<span title="'+esc(ocs.map(o=>'OC '+o[0]+': '+fmtN(o[1])+' pend.').join('\n'))+'">'+ocs.length+'</span>':'<span class="cero">0</span>')+'</td>'
       +'<td class="num gPr'+act('A')+'">'+cp(r.sA)+'</td><td class="num gPr'+act('P')+'">'+cp(r.sP)+'</td><td class="num gPr'+act('D')+'">'+cp(r.s)+'</td><td class="num gPr" title="'+esc(r.eT||'sin empaque válido')+'">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT||'')+'</span>':'—')+'</td>'
       +'<td class="num">'+(r.mfM!=null?(r.mfF?'<span class="pill p-warn" title="Excedente MF: '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' ⚑</span>':fmtN(r.mfM,1)):'—')+'</td></tr>';
@@ -497,7 +497,7 @@ async function pintarExplicacion(c){
       +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF)+'</details>':'')+'</div>'
       +'<div><div class="kv"><b>Antecedente</b><span>'+fmtN(r.A,1)+' / mes · '+(sv.filter(x=>x.usa.includes('ANT')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span><b>Pronóstico</b><span>'+fmtN(r.P,1)+' / mes · '+(sv.filter(x=>x.usa.includes('PRON')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span>'
       +'<b>Demanda portal</b><span>'+fmtN(r.D,1)+' / mes · '+esc(r.bD)+'</span><b>Meses objetivo (N)</b><span>'+r.N+' · objetivo '+fmtN(r.pm,1)+' · entrega '+fmtN(r.lt,1)+'</span>'
-      +'<b>Óptimo</b><span>entre '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' y '+fmtN(r.pm*P.R.FACT_MAX,1)+' meses</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
+      +'<b>Límites</b><span>riesgo entra con menos de '+fmtN(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+fmtN(r.pm*P.R.FACT_MAX,1)+' · hoy '+fmtN(r.mi,1)+' meses ('+fmtN(r.miB,1)+' con BO)</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
       +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+' · entrega directa '+fmtN(r.boT-r.bo)+' (no cuenta) · CEDI '+fmtN(r.bo)+'</span>':'')+'<b>Estatus Excel</b><span>'+esc(r.estX||'—')+'</span>'+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
