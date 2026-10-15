@@ -298,9 +298,9 @@ P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
 };
 // Fracción del BO que llega al CEDI por clave = pendiente de OCs al CEDI ÷ pendiente total (CEDI + entrega directa).
 // Se usa proporción porque la cantidad de la OC puede venir en unidad de compra y el BO en unidad de inventario.
-P.fracBoCEDI=(cur,enc)=>{
+P.fracBoCEDI=(cur,enc,sinED)=>{
   const g=new Map();
-  (cur?[...cur.values()]:[]).forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;const e=enc&&enc.get(Number(l.folio));const ed=!!(e&&e.destino);
+  (cur?[...cur.values()]:[]).forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;const e=enc&&enc.get(Number(l.folio));const ed=P.esED(e&&e.destino,l.comprador||(e&&e.comprador),sinED);
     const o=g.get(l.clave)||{t:0,ed:0};o.t+=p;if(ed)o.ed+=p;g.set(l.clave,o);});
   const m=new Map();g.forEach((o,k)=>{if(o.ed>0)m.set(k,(o.t-o.ed)/o.t);});return m;
 };
@@ -370,12 +370,16 @@ P.destinoED=obs=>{
   for(const r of rx){const m=o.match(r);if(m)return m[1]==='VALLEZ'?'VALLES':m[1]==='EL CARMEN'?'DEL CARMEN':m[1];}
   return null;
 };
+// Compradores que reciben en sucursal y después mueven la mercancía al CEDI: sus OCs NO son entrega directa
+// aunque Observaciones traiga una sucursal. La lista se edita en Cálculo diario (tabla plan_config); esta es la de arranque.
+P.R.SIN_ED_DEF=['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA'];
+P.esED=(destino,comprador,sinED)=>!!destino&&!(sinED||new Set(P.R.SIN_ED_DEF)).has(P.norm(comprador||''));
 // Encabezados de OC (RP01-23): Map folio → {estatus, estado, obs}
 P.ocEncabezados=wb=>{
   const ws=P.hoja(wb,['RP01-23 Ordenes de Compra']);if(!ws)return new Map();
   const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO','ESTATUS']);if(!h)return new Map();
-  const iE=h.cols.indexOf('ESTADO OC'),iO=h.cols.indexOf('OBSERVACIONES');const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;const obs=iO>=0?String(r[iO]||'').trim():'';const d=P.destinoED(obs);m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):'',obs,destino:d});}
+  const iE=h.cols.indexOf('ESTADO OC'),iO=h.cols.indexOf('OBSERVACIONES'),iC=h.cols.indexOf('COMPRADOR');const m=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;const obs=iO>=0?String(r[iO]||'').trim():'';const d=P.destinoED(obs);m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):'',obs,destino:d,comprador:iC>=0?P.norm(r[iC]):''});}
   return m;
 };
 // Compara la foto anterior (líneas abiertas en la base) con la de hoy

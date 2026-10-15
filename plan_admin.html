@@ -97,6 +97,12 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-ed"></div>
   </div>
 
+  <div class="card">
+    <h2><span class="n">⚙</span>Entregas directas: compradores que reciben en sucursal <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Una OC es <b>entrega directa</b> cuando Observaciones trae una sucursal. Marca aquí a los compradores que reciben en una sucursal y de ahí mueven la mercancía al CEDI: sus OCs cuentan como <b>entrega en CEDI</b> (entran a OTIF, Target, BO del CEDI y vencidas). Al guardar se corrigen también las OCs ya registradas.</p>
+    <div id="ed-lista" style="margin:8px 0"></div>
+    <div class="row"><button onclick="guardarSinED()">Guardar compradores</button><span class="d" id="ed-res"></span></div>
+  </div>
   <div class="card" style="border:2px solid var(--navy2)">
     <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
     <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (promedio de los dos), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
@@ -131,7 +137,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -282,7 +288,7 @@ async function cargaCalc(log){
   if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
   const{ctx,restr}=await contexto(log);
   // BO de entregas directas: no llega al CEDI, se quita del BO para la propuesta
-  try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb));log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
+  try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb),await cargarSinED());log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
   // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
   const prevEst=await leerEstadoPublicado(pub,log);
   let res=null,totN=0,totC=0;const nuevasDia=[];
@@ -338,12 +344,42 @@ async function guardarHistEstatus(res,f,log){
   if(error){log.msg('⚠️ Historial de estatus no guardado ('+error.message+'). ¿Ya corriste plan_tablas_6.sql?','w');return;}
   await enLotes('plan_estatus_hist',P.histEstatus(res,f),log,{onConflict:'fecha,comprador,base,estatus'});
 }
+// ── Compradores sin entrega directa (configurables) ──
+let SIN_ED=null;
+async function cargarSinED(forzar){
+  if(SIN_ED&&!forzar)return SIN_ED;
+  try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
+    SIN_ED=new Set((!error&&data&&Array.isArray(data.valor)?data.valor:P.R.SIN_ED_DEF).map(P.norm));}
+  catch(e){SIN_ED=new Set(P.R.SIN_ED_DEF);}
+  return SIN_ED;
+}
+const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+async function pintarSinED(){
+  const set=await cargarSinED(true);const el=document.getElementById('ed-lista');
+  el.innerHTML=[...new Set([...COMPRADORES_ED,...set])].sort().map(c=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-size:13px"><input type="checkbox" value="'+c+'"'+(set.has(c)?' checked':'')+'> '+c+'</label>').join('');
+}
+async function guardarSinED(){
+  const out=document.getElementById('ed-res');out.textContent='Guardando…';
+  const nuevos=[...document.querySelectorAll('#ed-lista input:checked')].map(i=>i.value);
+  const antes=await cargarSinED(true);
+  const{error}=await sb.from('plan_config').upsert({id:'compradores_sin_ed',valor:nuevos,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(error){out.textContent='❌ No se guardó: '+error.message+'. ¿Ya corriste plan_tablas_7.sql?';return;}
+  // Corregir las OCs ya guardadas: los marcados dejan de ser entrega directa; los desmarcados vuelven a serlo si traen sucursal
+  const quitar=nuevos.filter(c=>!antes.has(c)),volver=[...antes].filter(c=>!nuevos.includes(c));
+  let msg='';
+  if(quitar.length){const r=await sb.from('plan_oc_lineas').update({entrega_directa:false}).in('comprador',quitar).eq('entrega_directa',true);if(r.error)msg+=' ⚠️ '+r.error.message;}
+  if(volver.length){const r=await sb.from('plan_oc_lineas').update({entrega_directa:true}).in('comprador',volver).not('destino','is',null);if(r.error)msg+=' ⚠️ '+r.error.message;}
+  SIN_ED=new Set(nuevos.map(P.norm));
+  out.textContent='✅ Guardado. '+(quitar.length||volver.length?'Se corrigieron las OCs ya registradas de: '+[...quitar,...volver].join(', ')+'. ':'')+'El próximo cálculo diario recalcula el BO del CEDI y la propuesta.'+msg;
+}
 async function procesarOCs(wb,fecha,log,res,prevEst){
   const ltMap=new Map((res||[]).map(r=>[r.c,r.lt]));
   const cur=P.ocLineas(wb);
   if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
   const enc=P.ocEncabezados(wb);
-  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=!!(e&&e.destino);});
+  const sinED=await cargarSinED();
+  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=P.esED(l.destino,l.comprador||(e&&e.comprador),sinED);});
+  log.msg('   Compradores que reciben en sucursal y mueven al CEDI (no cuentan como entrega directa): '+[...sinED].join(', '));
   log.msg('   '+fmt([...cur.values()].filter(l=>l.entrega_directa).length)+' líneas son de entrega directa a sucursal (no cuentan para OTIF, Target ni vencidas del CEDI)');
   log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
   const prevRows=await todo(()=>sb.from('plan_oc_lineas').select('*').is('cerrada_en',null).order('folio').order('clave'));

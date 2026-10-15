@@ -568,6 +568,12 @@ function asegurarMapaManualOC(cb){
 }
 
 // ── NORMALIZE ORDERS ───────────────────────────────────────────────────────
+// Compradores que reciben en sucursal y mueven la mercancía al CEDI (se configuran en Cálculo diario)
+let SIN_ED=new Set((window.P&&P.R&&P.R.SIN_ED_DEF)||['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA']);
+async function cargarSinED(){
+  try{const sb=window.sbGet();const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
+    if(!error&&data&&Array.isArray(data.valor))SIN_ED=new Set(data.valor.map(normNom));}catch(e){console.warn('plan_config:',e.message);}
+}
 function normalizeOrders(estadoMap){
   allOrders.forEach(o => {
     o._folio    = String(o['Folio']||'').trim();
@@ -577,7 +583,9 @@ function normalizeOrders(estadoMap){
     o._bo       = String(o['Back Order']||'').trim().toUpperCase();
     o._prov     = String(o['Proveedor']||'').trim();
     o._destino  = (window.P&&P.destinoED)?P.destinoED(o['Observaciones']||''):null;   // sucursal de entrega directa (misma regla que Planeación)
-    o._entrega  = o._destino?'ED':'CEDI';
+    // Compradores que reciben en sucursal y mueven al CEDI: no es entrega directa (lista en Cálculo diario)
+    o._recibeSuc= !!o._destino&&SIN_ED.has(normNom(resolverComprador(o)));
+    o._entrega  = o._destino&&!o._recibeSuc?'ED':'CEDI';
     o._comp     = resolverComprador(o);  // comprador de la OC (manual → reporte → capturista)
     // Estado OC: from map (Excel load) or from JSON field
     o._estadoOC = (estadoMap && estadoMap[o._folio])
@@ -1034,7 +1042,7 @@ function renderTable(){
       <td style="text-align:right"><span class="mono">${fmtMoney(o['Importe'])}</span></td>
       <td>${escH(String(o['Plazo Pago']||''))}</td>
       <td>${escH(String(o['Acepta Parciales']||''))}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(String(o['Observaciones']||''))}">${o._destino?`<span class="badge" style="background:#ede9fe;color:#5b21b6;margin-right:4px" title="Entrega directa a sucursal">→ ${escH(o._destino)}</span>`:''}${escH(String(o['Observaciones']||''))}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(String(o['Observaciones']||''))}">${o._destino?(o._recibeSuc?`<span class="badge" style="background:#e0f2fe;color:#075985;margin-right:4px" title="Recibe en sucursal y lo mueve al CEDI: cuenta como entrega en CEDI">⇢ ${escH(o._destino)} → CEDI</span>`:`<span class="badge" style="background:#ede9fe;color:#5b21b6;margin-right:4px" title="Entrega directa a sucursal">→ ${escH(o._destino)}</span>`):''}${escH(String(o['Observaciones']||''))}</td>
     </tr>
     <tr class="detail-row" id="detail-${rid}">
       <td colspan="13"><div class="detail-inner" id="inner-${rid}"></div></td>
@@ -1123,7 +1131,7 @@ function exportToExcel(){
   if(!filtered.length){alert('No hay datos para exportar.');return;}
   const ordRows=filtered.map(o=>({
     'Folio OC':o._folio,'Fecha OC':fmtDate(o._fechaOC),'Proveedor':o._prov,'Comprador':o._comp,
-    'Estado Recepción':o._estadoOC,'Estatus':o._estatus,'Back Order':o._bo,'Tipo de entrega':o._destino?'ENTREGA DIRECTA':'CEDI','Sucursal destino':o._destino||'','Fecha Entrega':fmtDate(o._fechaEnt),
+    'Estado Recepción':o._estadoOC,'Estatus':o._estatus,'Back Order':o._bo,'Tipo de entrega':o._entrega==='ED'?'ENTREGA DIRECTA':(o._recibeSuc?'CEDI (recibe en sucursal)':'CEDI'),'Sucursal destino':o._destino||'','Fecha Entrega':fmtDate(o._fechaEnt),
     'Subtotal':o['Subtotal']||'','IVA':o['Importe IVA']||'','Importe Total':o['Importe']||'',
     'Plazo Pago':o['Plazo Pago']||'','Flete x Cobrar':o['Flete x Cobrar']||'',
     'Transportista':o['Transportista']||'','Acepta Parciales':o['Acepta Parciales']||'',
@@ -1150,7 +1158,7 @@ function exportToExcel(){
 // ── INIT ───────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded',()=>{
   // 1) Carga el mapa de asignaciones manuales, 2) luego los datos de BO
-  cargarMapaManualOC().finally(()=>{
+  Promise.all([cargarMapaManualOC(),cargarSinED()]).finally(()=>{
     sbLoadBO(()=>{ showDashboard(); }, err=>{ console.warn('BO:', err.message); /* splash manual */ });
   });
 });
