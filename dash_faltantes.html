@@ -135,6 +135,19 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
 .semb.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,#fff)}
 .ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .ctl select,.ctl input{padding:6px 9px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:12.5px;font-family:inherit;background:#fff;color:#1a2035}
+.ms{position:relative;display:inline-block}
+.msb{padding:6px 9px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:12.5px;font-family:inherit;background:#fff;color:#475569;cursor:pointer;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.msb b{color:#1a2035;font-weight:600}
+.msb.on{border-color:#1e3a5f;background:#eef3fc}.msb.on b{color:#1e3a5f;font-weight:800}
+.msp{position:absolute;top:calc(100% + 4px);left:0;z-index:80;background:#fff;border:1px solid #c9d4f0;border-radius:9px;box-shadow:0 10px 30px rgba(15,23,42,.18);width:270px;padding:8px;display:none}
+.ms.open .msp{display:block}
+.msq{width:100%;margin-bottom:6px}
+.msa{display:flex;justify-content:space-between;font-size:11.5px;padding:0 4px 6px;border-bottom:1px solid #eef1f6;margin-bottom:4px}
+.msa a{color:#1c4587;cursor:pointer;font-weight:600}
+.msl{max-height:270px;overflow:auto}
+.msl label{display:flex;gap:7px;align-items:center;padding:4px 6px;border-radius:5px;font-size:12px;cursor:pointer;color:#1a2035}
+.msl label:hover{background:#f1f5f9}.msl label.z{color:#a0a9be}
+.msl .n{margin-left:auto;color:#6b7a99;font-size:11px}
 .tglb{padding:6px 11px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:12.5px;background:#fff;cursor:pointer;font-family:inherit;font-weight:600;color:#1e3a5f}
 .tglb.on{background:#e8f0fe;border-color:#1e3a5f}
 .cqw{overflow:auto;max-height:70vh;border:1px solid #e2e6ed;border-radius:10px;background:#fff}
@@ -356,14 +369,15 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
         <select id="cq-fecha" onchange="pintarConsulta(true)" title="Día"></select>
         <select id="cq-regla" onchange="cambiarRegla(this.value)" title="Con qué regla se calcula el estatus"><option value="nueva">Estatus: regla nueva (1.2 / 1.4)</option><option value="excel">Estatus: Excel original</option></select>
         <input type="search" id="cq-q" placeholder="Buscar clave o nombre…" oninput="CQ.lim=200;pintarConsulta()" style="min-width:210px">
-        <select id="cq-comp" data-t="Todos los compradores" onchange="pintarConsulta()"></select>
-        <select id="cq-est" data-t="Estatus: todos" onchange="pintarConsulta()"></select>
-        <select id="cq-estp" data-t="Estatus portal: todos" onchange="pintarConsulta()"></select>
-        <select id="cq-rot" data-t="Todas las rotaciones" onchange="pintarConsulta()"></select>
-        <select id="cq-marca" data-t="Todas las marcas" onchange="pintarConsulta()"></select>
-        <select id="cq-grupo" data-t="Todos los grupos" onchange="pintarConsulta()"></select>
-        <select id="cq-reord" data-t="Pto. reorden: todos" onchange="pintarConsulta()"></select>
-        <select id="cq-sem" data-t="Semáforo: todos" onchange="pintarConsulta()" style="display:none"></select>
+        <div id="cq-comp" data-t="Comprador"></div>
+        <div id="cq-est" data-t="Estatus"></div>
+        <div id="cq-estp" data-t="Estatus portal"></div>
+        <div id="cq-rot" data-t="Rotación"></div>
+        <div id="cq-marca" data-t="Marca"></div>
+        <div id="cq-grupo" data-t="Grupo"></div>
+        <div id="cq-abc" data-t="ABC"></div>
+        <div id="cq-reord" data-t="Pto. reorden"></div>
+        <div id="cq-sem" data-t="Semáforo"></div>
         <button class="tglb" id="cq-pedir" onclick="this.classList.toggle('on');pintarConsulta()" title="Claves con propuesta del portal mayor a cero">🛒 Con propuesta</button>
         <button class="tglb" id="cq-camb" onclick="this.classList.toggle('on');pintarConsulta()" title="El estatus con antecedente y con pronóstico es distinto">⇄ Cambia ant./pron.</button>
         <button class="tglb" onclick="limpiarCQ()">↺ Limpiar</button>
@@ -394,9 +408,12 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
         <label style="font-size:12px;color:#6b7a99">Día A</label><select id="cm-a" onchange="pintarComparativo(true)"></select>
         <button class="tglb" onclick="swapCM()" title="Invertir">⇄</button>
         <label style="font-size:12px;color:#6b7a99">Día B</label><select id="cm-b" onchange="pintarComparativo(true)"></select>
-        <select id="cm-comp" onchange="pintarComparativo()"></select>
-        <select id="cm-rot" onchange="pintarComparativo()"><option value="">Todas las rotaciones</option><option>SAGRADOS</option><option>ALTA ROTACIÓN</option><option>MEDIA ROTACIÓN</option><option>LENTA ROTACIÓN</option><option>NUEVOS</option></select>
+        <div id="cm-comp" data-t="Comprador"></div>
+        <div id="cm-rot" data-t="Rotación"></div>
+        <div id="cm-marca" data-t="Marca"></div>
+        <div id="cm-grupo" data-t="Grupo"></div>
         <input type="search" id="cm-q" placeholder="Buscar clave o nombre…" oninput="pintarComparativo()">
+        <button class="tglb" onclick="limpiarCM()">↺ Limpiar</button>
         <button class="tglb" onclick="excelCM()" style="margin-left:auto">⬇ Excel</button>
       </div>
       <div class="cmcards" id="cm-cards"></div>
@@ -1856,9 +1873,44 @@ function showResNiv(niv,btn){
 }
 
 // ── CONSULTA DE CLAVE ──
-const CQ={rows:[],f:{},lim:200,sort:{k:'sem',d:1},abierto:new Set()};
-const CQF=[['cq-sem','semaforo'],['cq-est','estatus'],['cq-estp','_estP'],['cq-rot','clmov'],['cq-comp','comprador'],['cq-marca','marca'],['cq-grupo','grupo'],['cq-reord','reorden']];
+// ── Filtro de selección múltiple con casillas (cascada: cada lista muestra solo lo que existe con los demás filtros) ──
+const MSX={};
+function msMount(id,on){
+  const el=document.getElementById(id);if(!el||MSX[id])return;el.classList.add('ms');
+  MSX[id]={sel:new Set(),opts:[],lbl:{},t:el.dataset.t||'',on,q:''};
+  el.innerHTML='<button type="button" class="msb"></button><div class="msp"><input type="search" class="msq" placeholder="Buscar…"><div class="msa"><a data-a="all">✓ Marcar visibles</a><a data-a="none">✕ Quitar selección</a></div><div class="msl"></div></div>';
+  el.querySelector('.msb').onclick=e=>{e.stopPropagation();const ab=el.classList.contains('open');document.querySelectorAll('.ms.open').forEach(x=>x.classList.remove('open'));if(!ab){const pp=el.querySelector('.msp'),rc=el.getBoundingClientRect();pp.style.left=rc.left+270>window.innerWidth-8?'auto':'0';pp.style.right=rc.left+270>window.innerWidth-8?'0':'auto';el.classList.add('open');const q=el.querySelector('.msq');q.value=MSX[id].q='';msList(id);if(MSX[id].opts.length>8)q.focus();}};
+  el.querySelector('.msp').onclick=e=>e.stopPropagation();
+  el.querySelector('.msq').oninput=e=>{MSX[id].q=e.target.value;msList(id);};
+  el.querySelector('.msa').onclick=e=>{const a=e.target.dataset.a;if(!a)return;const m=MSX[id];if(a==='none')m.sel.clear();else msVis(id).forEach(o=>m.sel.add(o.v));msBtn(id);m.on();};
+  el.querySelector('.msl').onchange=e=>{const cb=e.target,m=MSX[id];cb.checked?m.sel.add(cb.value):m.sel.delete(cb.value);msBtn(id);m.on();};
+  msBtn(id);
+}
+document.addEventListener('click',()=>document.querySelectorAll('.ms.open').forEach(x=>x.classList.remove('open')));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.ms.open').forEach(x=>x.classList.remove('open'));});
+function msVis(id){const m=MSX[id],q=m.q.trim().toUpperCase();return m.opts.filter(o=>!q||o.t.toUpperCase().includes(q)||o.v.toUpperCase().includes(q));}
+function msList(id){const el=document.getElementById(id),m=MSX[id];el.querySelector('.msq').style.display=m.opts.length>8?'':'none';
+  el.querySelector('.msl').innerHTML=msVis(id).map(o=>'<label class="'+(o.n?'':'z')+'"><input type="checkbox" value="'+escH2(o.v)+'"'+(m.sel.has(o.v)?' checked':'')+'><span>'+escH2(o.t)+'</span><span class="n">'+nf(o.n)+'</span></label>').join('')||'<div class="sm2" style="padding:6px">Sin opciones con los filtros actuales</div>';}
+function msBtn(id){const el=document.getElementById(id),m=MSX[id],s=[...m.sel],b=el.querySelector('.msb');const lab=v=>m.lbl[v]||v||'(sin dato)';
+  b.classList.toggle('on',s.length>0);b.innerHTML=escH2(m.t)+': <b>'+(s.length===0?'Todos':s.length===1?escH2(lab(s[0])):s.length+' selecc.')+'</b> ▾';b.title=s.length?m.t+': '+s.map(lab).join(', '):'Clic para elegir uno o varios';}
+// Opciones en cascada: cnt = Map(valor→claves); las seleccionadas que ya no aparecen se conservan con 0
+function msOpts(id,cnt,lblFn,ordFn){const m=MSX[id];const o=[...cnt].map(([v,n])=>({v,n,t:lblFn?lblFn(v):(v||'(sin dato)')}));
+  m.sel.forEach(v=>{if(!cnt.has(v))o.push({v,n:0,t:m.lbl[v]||(lblFn?lblFn(v):v)});});
+  o.sort(ordFn||((a,b)=>a.t.localeCompare(b.t,'es')));m.opts=o;o.forEach(x=>m.lbl[x.v]=x.t);msBtn(id);if(document.getElementById(id).classList.contains('open'))msList(id);}
+// Aplica filtros multi: F=[[id,fn(row)]]; excl = id que se omite (para su propia cascada)
+const msPasa=(r,F,excl)=>F.every(([id,fn])=>id===excl||!MSX[id].sel.size||MSX[id].sel.has(String(fn(r)??'')));
+function msCascada(base,F,lbls,ords){F.forEach(([id,fn])=>{const cnt=new Map();base.forEach(r=>{if(msPasa(r,F,id)){const v=String(fn(r)??'');cnt.set(v,(cnt.get(v)||0)+1);}});msOpts(id,cnt,lbls&&lbls[id],ords&&ords[id]);});}
+const ORD_ROT=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN','NUEVOS','SIN COMPRA'];
+const ordRot=(a,b)=>((ORD_ROT.indexOf(a.v)+1||99)-(ORD_ROT.indexOf(b.v)+1||99))||a.t.localeCompare(b.t,'es');
+const ORD_EST=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
+const ordEst=(a,b)=>((ORD_EST.indexOf(a.v)+1||99)-(ORD_EST.indexOf(b.v)+1||99))||a.t.localeCompare(b.t,'es');
+
+const CQ={rows:[],lim:200,sort:{k:'sem',d:1},abierto:new Set()};
+const CQF=[['cq-sem',r=>r.semaforo],['cq-est',r=>r.estatus],['cq-estp',r=>r._estP],['cq-rot',r=>r.clmov],['cq-comp',r=>r.comprador],['cq-marca',r=>r.marca],['cq-grupo',r=>r.grupo],['cq-abc',r=>r.clasificacion],['cq-reord',r=>r.reorden]];
+const CQL={'cq-sem':v=>SLBL[v]||v||'(sin dato)','cq-est':v=>ESTL[v]||v||'(sin dato)','cq-estp':v=>v?(ESTL[v]||v):'Sin cálculo del portal'};
+const CQO={'cq-sem':(a,b)=>(SORD[a.v]??9)-(SORD[b.v]??9),'cq-est':ordEst,'cq-estp':ordEst,'cq-rot':ordRot};
 async function initConsulta(){
+  CQF.forEach(([id])=>msMount(id,()=>{CQ.lim=200;pintarConsulta();}));document.getElementById('cq-sem').style.display='none';
   const sel=document.getElementById('cq-fecha');const ds=diasDetalle();
   if(!sel.options.length){sel.innerHTML=ds.slice().reverse().map(f=>'<option value="'+f+'">'+fdl(f)+'</option>').join('');}
   await pintarConsulta(true);
@@ -1870,25 +1922,27 @@ async function pintarConsulta(recargar){
     try{
       const [rows,plan]=await Promise.all([diaDetalle(document.getElementById('cq-fecha').value),cargarPlan()]);
       rows.forEach(r=>{r._p=plan.byClave.get(String(r.clave))||null;r._estP=r._p?r._p.est:null;});
-      CQ.rows=rows;llenarFiltrosCQ();
+      CQ.rows=rows;
+      if(!CQ.ini){CQ.ini=1;const up=usuarioPortal();if(up&&rows.some(r=>r.comprador===up))MSX['cq-comp'].sel.add(up);}
       document.getElementById('cq-regla').value=REGLA;
       document.getElementById('cq-plan').innerHTML=plan.err?'⚠️ Sin cálculo del portal ('+escH2(plan.err)+'): no se muestran antecedente, pronóstico ni propuesta.':'Antecedente, pronóstico, estatus del portal y propuesta: cálculo del portal al <b>'+fdl(plan.fecha)+'</b>.';
     }catch(e){body.innerHTML='<tr><td colspan="24" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
-  const f={};CQF.forEach(([id,k])=>{const v=document.getElementById(id).value;if(v)f[k]=v;});
   const q=document.getElementById('cq-q').value.trim().toUpperCase();
   const solo=document.getElementById('cq-pedir').classList.contains('on'),camb=document.getElementById('cq-camb').classList.contains('on');
-  let rows=CQ.rows.filter(r=>Object.keys(f).every(k=>String(r[k]||'')===f[k])&&(!q||String(r.clave).toUpperCase().startsWith(q)||String(r.nombre).toUpperCase().includes(q))
+  const base=CQ.rows.filter(r=>(!q||String(r.clave).toUpperCase().startsWith(q)||String(r.nombre).toUpperCase().includes(q))
     &&(!solo||(r._p&&(r._p.s||0)>0))&&(!camb||(r._p&&estPlan(r._p,'A')!==estPlan(r._p,'P'))));
-  // Semáforo como leyenda que filtra
-  const cs={};CQ.rows.filter(r=>!f.comprador||r.comprador===f.comprador).forEach(r=>cs[r.semaforo]=(cs[r.semaforo]||0)+1);
-  document.getElementById('cq-semleg').innerHTML=Object.keys(SEMC).map(s=>'<button class="semb'+(f.semaforo===s?' on':'')+'" style="--c:'+SEMC[s]+'" title="'+SEMD[s]+'" onclick="document.getElementById(\'cq-sem\').value=document.getElementById(\'cq-sem\').value===\''+s+'\'?\'\':\''+s+'\';pintarConsulta()"><i></i>'+SLBL[s]+' <b>'+nf(cs[s]||0)+'</b></button>').join('');
+  msCascada(base,CQF,CQL,CQO);
+  let rows=base.filter(r=>msPasa(r,CQF,null));
+  // Semáforo como leyenda que filtra (selección múltiple; cuenta con los demás filtros)
+  const ss=MSX['cq-sem'].sel,cs={};MSX['cq-sem'].opts.forEach(o=>cs[o.v]=o.n);
+  document.getElementById('cq-semleg').innerHTML=Object.keys(SEMC).map(s=>'<button class="semb'+(ss.has(s)?' on':'')+'" style="--c:'+SEMC[s]+'" title="'+SEMD[s]+' · clic para agregar o quitar" onclick="cqSem(\''+s+'\')"><i></i>'+SLBL[s]+' <b>'+nf(cs[s]||0)+'</b></button>').join('');
   const SO={sem:r=>SORD[r.semaforo]??9,clave:r=>+r.clave||0,nombre:r=>r.nombre,exist:r=>r.existencias,bo:r=>r.bo,mi:r=>r.meses_inv??-1,mib:r=>r.mib??-1,est:r=>r.estatus,estp:r=>r._estP||'',ant:r=>r._p?r._p.A??-1:-1,pron:r=>r._p?r._p.P??-1:-1,dem:r=>r._p?r._p.D??-1:-1,prop:r=>r._p?r._p.s??-1:-1,comp:r=>r.comprador,marca:r=>r.marca};
   const{k,d}=CQ.sort;const fn=SO[k]||SO.sem;
   rows.sort((a,b)=>{const x=fn(a),y=fn(b);return(typeof x==='string'?String(x).localeCompare(String(y),'es'):x-y)*d||(+a.clave-+b.clave);});
   CQ.vis=rows;
   document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+' claves';
-  const rr=resumenRegla(f.comprador||'');const rb=document.getElementById('cq-regla-res');rb.innerHTML=rr;rb.style.display=rr?'':'none';
+  const scq=[...MSX['cq-comp'].sel];const rr=resumenRegla(scq.length===1?scq[0]:'');const rb=document.getElementById('cq-regla-res');rb.innerHTML=rr;rb.style.display=rr?'':'none';
   document.querySelectorAll('#cq-head th[data-k]').forEach(th=>{th.querySelector('.si').textContent=th.dataset.k===k?(d>0?'▲':'▼'):'';});
   const cp=v=>v==null?'—':v>0?'<b style="color:#047857">'+nf(v)+'</b>':'<span style="color:#a0a9be">0</span>';
   let h='';
@@ -1907,12 +1961,7 @@ async function pintarConsulta(recargar){
   document.querySelectorAll('#cq-body tr.cqr').forEach(tr=>tr.onclick=()=>{const c=tr.dataset.c;CQ.abierto.has(c)?CQ.abierto.delete(c):CQ.abierto.add(c);pintarConsulta();});
   CQ.abierto.forEach(c=>{if(document.getElementById('cqx-'+c))pintarFicha(c);});
 }
-function llenarFiltrosCQ(){
-  const up=usuarioPortal();
-  CQF.forEach(([id,k])=>{const el=document.getElementById(id);const v=el.value;const vals=[...new Set(CQ.rows.map(r=>r[k]).filter(Boolean))].sort((a,b)=>k==='semaforo'?SORD[a]-SORD[b]:String(a).localeCompare(String(b),'es'));
-    el.innerHTML='<option value="">'+el.dataset.t+'</option>'+vals.map(x=>'<option value="'+escH2(x)+'">'+escH2(k==='semaforo'?SLBL[x]:k==='_estP'||k==='estatus'?(ESTL[x]||x):x)+'</option>').join('');
-    el.value=vals.includes(v)?v:(k==='comprador'&&!el.dataset.ini&&vals.includes(up)?up:'');if(k==='comprador')el.dataset.ini='1';});
-}
+function cqSem(v){const m=MSX['cq-sem'];m.sel.has(v)?m.sel.delete(v):m.sel.add(v);msBtn('cq-sem');CQ.lim=200;pintarConsulta();}
 async function pintarFicha(c){
   const el=document.getElementById('cqx-'+c);if(!el)return;
   try{
@@ -1924,7 +1973,7 @@ async function pintarFicha(c){
   }catch(e){el.innerHTML='<span style="color:#c0392b">No se pudo cargar la ficha: '+escH2(e.message||e)+'</span>';}
 }
 function srtCQ(k){CQ.sort=CQ.sort.k===k?{k,d:-CQ.sort.d}:{k,d:1};pintarConsulta();}
-function limpiarCQ(){CQF.forEach(([id])=>document.getElementById(id).value='');document.getElementById('cq-q').value='';['cq-pedir','cq-camb'].forEach(id=>document.getElementById(id).classList.remove('on'));CQ.lim=200;pintarConsulta();}
+function limpiarCQ(){CQF.forEach(([id])=>{MSX[id].sel.clear();msBtn(id);});document.getElementById('cq-q').value='';['cq-pedir','cq-camb'].forEach(id=>document.getElementById(id).classList.remove('on'));CQ.lim=200;pintarConsulta();}
 function excelCQ(){
   const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (sin BO)':r.meses_inv,'Meses inv con BO':r.mib,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,['Estatus ('+(REGLA==='nueva'?'regla nueva':'Excel')+')']:r.estatus,'Estatus Excel original':r.estatusExcel,'Pto. reorden':r.reorden,
     'Consumo antecedente':p?p.A:'','Meses antecedente':p?mesesPlan(p,'A'):'','Estatus antecedente':p?estPlan(p,'A'):'','Consumo pronóstico':p?p.P:'','Meses pronóstico':p?mesesPlan(p,'P'):'','Estatus pronóstico':p?estPlan(p,'P'):'',
@@ -1959,7 +2008,9 @@ function calcComparativo(rowsA,rowsB){
   return out;
 }
 const CM={tipo:'',rows:[],sort:{k:'t',d:1}};
+const CMF=[['cm-comp',x=>x.r.comprador],['cm-rot',x=>x.r.clmov],['cm-marca',x=>x.r.marca],['cm-grupo',x=>x.r.grupo]];
 async function initComparativo(){
+  CMF.forEach(([id])=>msMount(id,()=>pintarComparativo()));
   const ds=diasDetalle();const sa=document.getElementById('cm-a'),sbx=document.getElementById('cm-b');
   if(!sbx.options.length){const o=ds.slice().reverse().map(f=>'<option value="'+f+'">'+fdl(f)+'</option>').join('');sa.innerHTML=o;sbx.innerHTML=o;sbx.value=ds[ds.length-1]||'';sa.value=ds[ds.length-2]||ds[0]||'';}
   await pintarComparativo(true);
@@ -1969,12 +2020,13 @@ async function pintarComparativo(recargar){
   if(recargar){
     document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load">⏳ Comparando '+fdl(fa)+' contra '+fdl(fb)+'…</td></tr>';
     try{const[a,b]=await Promise.all([diaDetalle(fa),diaDetalle(fb)]);CM.rows=calcComparativo(a,b);CM.fa=fa;CM.fb=fb;
-      const comps=[...new Set(CM.rows.map(x=>x.r.comprador))].sort();const sc=document.getElementById('cm-comp');const v=sc.value;const up=usuarioPortal();
-      sc.innerHTML='<option value="">Todos los compradores</option>'+comps.map(c=>'<option>'+escH2(c)+'</option>').join('');sc.value=comps.includes(v)?v:(!sc.dataset.ini&&comps.includes(up)?up:'');sc.dataset.ini='1';
+      if(!CM.ini){CM.ini=1;const up=usuarioPortal();if(up&&CM.rows.some(x=>x.r.comprador===up))MSX['cm-comp'].sel.add(up);}
     }catch(e){document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
-  const comp=document.getElementById('cm-comp').value,rot=document.getElementById('cm-rot').value,q=document.getElementById('cm-q').value.trim().toUpperCase();
-  const base=CM.rows.filter(x=>(!comp||x.r.comprador===comp)&&(!rot||x.r.clmov===rot)&&(!q||x.clave.startsWith(q)||String(x.r.nombre).toUpperCase().includes(q)));
+  const q=document.getElementById('cm-q').value.trim().toUpperCase();
+  const base0=CM.rows.filter(x=>!q||x.clave.startsWith(q)||String(x.r.nombre).toUpperCase().includes(q));
+  msCascada(base0,CMF,null,{'cm-rot':ordRot});
+  const base=base0.filter(x=>msPasa(x,CMF,null));
   const cnt={};base.forEach(x=>cnt[x.t]=(cnt[x.t]||0)+1);
   document.getElementById('cm-cards').innerHTML=Object.keys(CMPT).map(t=>{const o=CMPT[t];return '<div class="cmc'+(CM.tipo===t?' on':'')+'" style="--c:'+o.c+'" onclick="CM.tipo=CM.tipo===\''+t+'\'?\'\':\''+t+'\';pintarComparativo()" title="'+o.d+'"><div class="t">'+o.i+' '+o.t+'</div><div class="n">'+nf(cnt[t]||0)+'</div><div class="d">'+o.d+'</div></div>';}).join('');
   document.getElementById('cm-regla').value=REGLA;
@@ -1988,6 +2040,7 @@ async function pintarComparativo(recargar){
   document.getElementById('cm-body').innerHTML=rows.slice(0,1500).map(x=>{const o=CMPT[x.t];return '<tr><td><span class="cmt" style="--c:'+o.c+'">'+o.i+' '+o.t+'</span></td><td><b>'+escH2(x.clave)+'</b></td><td class="nm">'+escH2(x.r.nombre)+'</td><td>'+escH2(x.r.marca)+'</td><td>'+escH2(S2N(x.r.comprador))+'</td><td>'+escH2((x.r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
     +'<td>'+estTag(x.a&&x.a.estatus)+' → '+estTag(x.b&&x.b.estatus)+'</td><td class="num">'+(x.a?nf(x.a.existencias):'—')+' → <b>'+(x.b?nf(x.b.existencias):'—')+'</b></td><td class="num">'+(x.b?nf(x.b.bo):'—')+'</td><td class="num">'+(x.b&&x.b.meses_inv!=null?nf(x.b.meses_inv,1):'—')+'</td><td class="num sm2">'+(x.b&&x.b.mib!=null?nf(x.b.mib,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.t_entrega,1):'—')+'</td><td class="num">'+(x.b?nf(x.b.obj_meses,1):'—')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="cq-load">Sin cambios con estos filtros. ✅</td></tr>';
 }
+function limpiarCM(){CMF.forEach(([id])=>{MSX[id].sel.clear();msBtn(id);});document.getElementById('cm-q').value='';CM.tipo='';pintarComparativo();}
 function srtCM(k){CM.sort=CM.sort.k===k?{k,d:-CM.sort.d}:{k,d:1};pintarComparativo();}
 function swapCM(){const a=document.getElementById('cm-a'),b=document.getElementById('cm-b');const t=a.value;a.value=b.value;b.value=t;pintarComparativo(true);}
 function excelCM(){

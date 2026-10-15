@@ -154,22 +154,22 @@
     <div class="topbar-title">Portal de Compras<span>Supply Chain Dashboards</span></div>
   </div>
   <div class="topbar-right">
+    <button id="btn-admin" onclick="switchTab(6)" title="Administración (carga del Excel y Cálculo diario)" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">⚙️</button>
     <div class="user-chip" id="user-chip"><span id="user-name"></span><button onclick="doLogout()" title="Cerrar sesión">✕ Salir</button></div>
     <span id="clock"></span>
   </div>
 </div>
 
 <div class="tabs-bar">
-  <div class="tab active" onclick="switchTab(0)"><span class="tab-icon">🏠</span>Mi Resumen</div>
-  <div class="tab" onclick="switchTab(1)"><span class="tab-icon">📉</span>Histórico Faltantes</div>
-  <div class="tab" onclick="switchTab(2)"><span class="tab-icon">📦</span>Monitor de Inventario</div>
-  <div class="tab" onclick="switchTab(3)"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
-  <div class="tab" onclick="switchTab(4)"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
-  <div class="tab" onclick="switchTab(5)"><span class="tab-icon">🔁</span>Incidencias</div>
-  <div class="tab" onclick="switchTab(6)" id="tab-admin" style="order:10"><span class="tab-icon">⚙️</span>Admin</div>
-  <div class="tab" onclick="switchTab(7)" id="tab-oc"><span class="tab-icon">📅</span>Compromiso OCs</div>
-  <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none;order:9"><span class="tab-icon">🧮</span>Cálculo diario</div>
-  <div class="tab" onclick="switchTab(9)" id="tab-xl" title="Indicadores del Excel: se conservan durante el paralelo de noviembre"><span class="tab-icon">📑</span>Indicadores (Excel)</div>
+  <div class="tab active" onclick="switchTab(0)" style="order:1"><span class="tab-icon">🏠</span>Mi Resumen</div>
+  <div class="tab" onclick="switchTab(1)" style="order:2"><span class="tab-icon">📉</span>Histórico Faltantes</div>
+  <div class="tab" onclick="switchTab(2)" style="order:6"><span class="tab-icon">📦</span>Monitor de Inventario</div>
+  <div class="tab" onclick="switchTab(3)" style="order:5"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
+  <div class="tab" onclick="switchTab(4)" style="order:3"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
+  <div class="tab" onclick="switchTab(5)" style="order:7"><span class="tab-icon">🔁</span>Incidencias</div>
+  <div class="tab" onclick="switchTab(6)" id="tab-admin" style="display:none"><span class="tab-icon">⚙️</span>Admin</div>
+  <div class="tab" onclick="switchTab(7)" id="tab-oc" style="order:4"><span class="tab-icon">📅</span>Compromiso OCs</div>
+  <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none"><span class="tab-icon">🧮</span>Cálculo diario</div>
 </div>
 
 <div class="frames">
@@ -233,6 +233,10 @@
       </div>
 
       <div id="adm-open" style="display:none">
+        <div class="admin-card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px"><h2 style="margin-bottom:4px">🧮 Cálculo diario</h2><p class="desc" style="margin:0">Carga de ventas, existencias, OCs y recepciones; recalcula estatus, alarmas y pedidos propuestos.</p></div>
+          <button class="abtn" style="margin-top:0" onclick="switchTab(8)">Abrir Cálculo diario →</button>
+        </div>
         <div class="admin-card">
           <h2>📤 Cargar Excel maestro</h2>
           <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los 4 dashboards y las alarmas: Histórico Faltantes (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
@@ -372,10 +376,6 @@
     <div class="loader" id="ld-8"><div class="spinner"></div><p>Cargando cálculo diario…</p></div>
     <iframe id="fr-8" onload="window.hideLd&&window.hideLd(8)"></iframe>
   </div>
-  <div class="frame-wrap" id="fw-9">
-    <div class="loader" id="ld-9"><div class="spinner"></div><p>Cargando indicadores del Excel…</p></div>
-    <iframe id="fr-9" onload="window.hideLd&&window.hideLd(9)"></iframe>
-  </div>
 </div>
 
 <script>
@@ -463,7 +463,7 @@ function loadTab(i){ // i = 1..5 (iframes)
   if(i>=1&&i<=5&&!loadedTabs[k]){loadedTabs[k]=true;document.getElementById('fr-'+i).src=SRCS[k];}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
-const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'dash_otif.html'};
+const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html'};
 function switchTab(i){
   if(i===8&&!esAdmin)i=0;
   if(SRCS_PLAN[i]){const fr=document.getElementById('fr-'+i);if(!fr.getAttribute('src'))fr.src=SRCS_PLAN[i];}
@@ -500,7 +500,7 @@ async function actualizarTodo(){
   try{
     await cargarResumen();
     // marcar los 4 dashboards para que recarguen sus datos al abrirse de nuevo
-    for(const i of [7,8,9]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
+    for(const i of [7,8]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
     for(let i=1;i<=4;i++){
       loadedTabs[i-1]=false;   // forzar recarga la próxima vez que se abra la pestaña
       const fr=document.getElementById('fr-'+i);
@@ -514,8 +514,6 @@ async function actualizarTodo(){
 }
 // Mostrar el botón de cargar Excel solo al administrador
 function ajustarBotonesResumen(){
-  const tp=document.getElementById('tab-plan');
-  if(tp)tp.style.display=(typeof esAdmin!=='undefined'&&esAdmin)?'':'none';
   const up=document.getElementById('res-upload');
   if(up)up.style.display=(typeof esAdmin!=='undefined'&&esAdmin)?'':'none';
   const tg=document.getElementById('res-tg');
