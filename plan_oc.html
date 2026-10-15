@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fecha compromiso OCs</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700}
+header .tag{background:#f4a261;color:#1a2035;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px}
+header .ses{margin-left:auto;font-size:12px;opacity:.9}
+header select{padding:5px 8px;border-radius:6px;border:none;font-size:12.5px;font-family:inherit}
+main{max-width:1200px;margin:0 auto;padding:18px 16px 60px}
+.card{background:var(--sf);border:1px solid var(--brd);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:6px}
+.d{color:var(--tx2);font-size:12.5px;line-height:1.45}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input,select{padding:8px 10px;border:1.5px solid #c9d4f0;border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
+button{background:var(--navy2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+button.sm{padding:5px 10px;font-size:12px}
+button:disabled{opacity:.45;cursor:not-allowed}
+#lock{max-width:420px;margin:60px auto}
+.err{color:var(--err);font-size:12.5px;margin-top:8px;display:none}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.kpi{border:1px solid var(--brd);border-radius:10px;padding:8px 14px;min-width:150px}
+.kpi b{display:block;font-size:18px;color:var(--navy)}
+.kpi span{font-size:11.5px;color:var(--tx2)}
+.scroll{overflow:auto;max-height:68vh;border:1px solid var(--brd);border-radius:10px;background:#fff}
+table{border-collapse:collapse;font-size:12.5px;width:100%}
+th,td{border-bottom:1px solid var(--brd);padding:6px 8px;text-align:left;white-space:nowrap;vertical-align:middle}
+th{background:#f0f4ff;color:var(--navy);position:sticky;top:0;z-index:1}
+td.num{text-align:right}
+tr.vencida td{background:#fff6f5}
+.chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block}
+.c-ok{background:var(--okbg);color:var(--ok)}.c-no{background:var(--warnbg);color:#6b5200}.c-v{background:var(--errbg);color:var(--err)}
+td input[type=date]{padding:4px 6px;font-size:12px}
+td input[type=text]{padding:4px 6px;font-size:12px;width:180px}
+.who{font-size:11px;color:var(--tx2)}
+.lines td{background:#fafbff;font-size:11.5px;color:var(--tx2)}
+a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1a2035;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <h1>Fecha compromiso de proveedor · OCs abiertas</h1><span class="tag">VERSIÓN DE PRUEBA</span>
+  <span class="ses" id="ses"></span>
+</header>
+
+<div id="lock" class="card">
+  <h2>Acceso</h2>
+  <p class="d" style="margin-bottom:10px">Usa la contraseña del portal.</p>
+  <div class="row"><input type="password" id="pw" placeholder="Contraseña" style="flex:1" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()">Entrar</button></div>
+  <div class="err" id="pw-err"></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="card">
+    <h2>¿Quién captura?</h2>
+    <div class="row"><select id="quien" onchange="setQuien()"></select><span class="d">Tu nombre queda registrado en cada fecha que guardes.</span></div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <select id="f-comp" onchange="pintar()"><option value="">Todos los compradores</option></select>
+      <input type="text" id="f-prov" placeholder="Proveedor…" oninput="pintar()">
+      <input type="text" id="f-folio" placeholder="Folio OC…" oninput="pintar()" style="width:130px">
+      <label class="d"><input type="checkbox" id="f-sin" onchange="pintar()"> Solo sin compromiso</label>
+      <button class="sm" onclick="cargar()" style="margin-left:auto">↻ Actualizar</button>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  </div>
+  <div class="scroll"><table id="tb"></table></div>
+  <p class="d" style="margin-top:8px">La fecha compromiso es la que confirmó el proveedor. El OTIF mide el "a tiempo" contra ella; si una OC no la tiene, se mide contra la fecha de entrega que se puso en la OC.</p>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+/*LOGIC-START*/
+// Agrupa líneas abiertas por folio
+function agruparOC(lineas,comp){
+  const m=new Map();
+  const d10=v=>v==null||v===''?null:String(v).slice(0,10);
+  lineas.forEach(l=>{
+    l={...l,fecha_oc:d10(l.fecha_oc),fecha_entrega:d10(l.fecha_entrega)};
+    const f=Number(l.folio);let o=m.get(f);
+    if(!o){o={folio:f,proveedor:l.proveedor||'',fecha_oc:l.fecha_oc,entrega:l.fecha_entrega,compradores:{},claves:[],pend:0};m.set(f,o);}
+    if(l.fecha_entrega&&(!o.entrega||l.fecha_entrega<o.entrega))o.entrega=l.fecha_entrega;
+    if(l.fecha_oc&&(!o.fecha_oc||l.fecha_oc<o.fecha_oc))o.fecha_oc=l.fecha_oc;
+    const c=l.comprador||'';o.compradores[c]=(o.compradores[c]||0)+1;
+    o.claves.push(l);o.pend+=Number(l.cantidad_pend)||0;
+  });
+  return[...m.values()].map(o=>{
+    o.comprador=Object.entries(o.compradores).sort((a,b)=>b[1]-a[1])[0][0];
+    const c=comp.get(o.folio);o.compromiso=c&&c.fecha?String(c.fecha).slice(0,10):null;o.comentario=c?c.comentario:'';o.usuario=c?c.usuario:'';o.cuando=c?c.actualizado_en:null;o.anterior=c?c.fecha_anterior:null;
+    return o;
+  });
+}
+function filtrarOC(ocs,f,hoy){
+  return ocs.filter(o=>(!f.comp||o.comprador===f.comp)&&(!f.prov||o.proveedor.toUpperCase().includes(f.prov.toUpperCase()))&&(!f.folio||String(o.folio).includes(f.folio))&&(!f.sin||!o.compromiso))
+    .sort((a,b)=>(a.compromiso||a.entrega||'9')<(b.compromiso||b.entrega||'9')?-1:1);
+}
+/*LOGIC-END*/
+const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
+const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+const EMAIL_EQUIPO="equipo@portalcompras.app",EMAIL_ADMIN="admin@portalcompras.app";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+const COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+let OCS=[],ABIERTO=new Set();
+const hoy=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtF=f=>f?String(f).slice(8,10)+'/'+String(f).slice(5,7)+'/'+String(f).slice(2,4):'—';
+function toast(t){const el=document.getElementById('toast');el.textContent=t;el.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>el.style.display='none',2200);}
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+
+async function entrar(){
+  const pw=document.getElementById('pw').value,err=document.getElementById('pw-err');err.style.display='none';
+  let r=await sb.auth.signInWithPassword({email:EMAIL_EQUIPO,password:pw});
+  if(r.error)r=await sb.auth.signInWithPassword({email:EMAIL_ADMIN,password:pw});
+  if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
+  abrir();
+}
+async function abrir(){
+  document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';
+  const q=document.getElementById('quien');
+  q.innerHTML='<option value="">— Elige tu nombre —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
+  q.value=lsGet('plan_oc_quien')||'';setQuien(true);
+  await cargar();
+}
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session)abrir();})();
+function setQuien(inicial){
+  const v=document.getElementById('quien').value;lsSet('plan_oc_quien',v);
+  document.getElementById('ses').textContent=v?'Capturando como: '+v:'Elige tu nombre para capturar';
+  if(!inicial||v){const fc=document.getElementById('f-comp');if(COMPRADORES.includes(v))fc.value=v;}
+  pintar();
+}
+async function todo(q){let out=[];for(let i=0;i<100;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
+async function cargar(){
+  document.getElementById('tb').innerHTML='<tr><td class="d">Cargando…</td></tr>';
+  try{
+    const [lin,cmp]=await Promise.all([
+      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,cantidad_pend,fecha_entrega').is('cerrada_en',null).order('folio').order('clave')),
+      todo(()=>sb.from('plan_oc_compromiso').select('*').order('folio'))]);
+    OCS=agruparOC(lin,new Map(cmp.map(c=>[Number(c.folio),c])));
+    const fc=document.getElementById('f-comp');const sel=fc.value;
+    const cs=[...new Set(OCS.map(o=>o.comprador).filter(Boolean))].sort();
+    fc.innerHTML='<option value="">Todos los compradores</option>'+cs.map(c=>'<option>'+esc(c)+'</option>').join('');fc.value=cs.includes(sel)?sel:'';
+    if(!fc.value){const q=document.getElementById('quien').value;if(cs.includes(q))fc.value=q;}
+    pintar();
+  }catch(e){document.getElementById('tb').innerHTML='<tr><td style="color:var(--err)">❌ '+esc(e.message)+'</td></tr>';}
+}
+function pintar(){
+  if(!OCS)return;
+  const f={comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
+  const v=filtrarOC(OCS,f,hoy());const h=hoy();
+  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>(o.compromiso||o.entrega)&&(o.compromiso||o.entrega)<h).length;
+  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con fecha compromiso</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div>';
+  const puede=!!document.getElementById('quien').value;
+  let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega en OC</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
+  v.slice(0,800).forEach(o=>{
+    const ref=o.compromiso||o.entrega;const vencida=ref&&ref<h;
+    html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega)+(o.entrega&&o.fecha_oc&&o.entrega<=o.fecha_oc?' <span class="chip c-v" title="La fecha de entrega es igual o anterior a la fecha de la OC: se usará una fecha estimada (OC + meses de entrega) hasta que se capture la fecha compromiso">no válida</span>':'')+'</td>'
+      +'<td class="num">'+o.claves.length+'</td><td class="num">'+o.pend.toLocaleString('es-MX')+'</td>'
+      +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida':'ok')+'</span>':'<span class="chip c-no">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
+      +'<td><input type="text" id="c-'+o.folio+'" value="'+esc(o.comentario||'')+'" placeholder="opcional"'+(puede?'':' disabled')+'></td>'
+      +'<td><button class="sm" onclick="guardar('+o.folio+')"'+(puede?'':' disabled')+'>Guardar</button></td>'
+      +'<td class="who">'+(o.usuario?esc(o.usuario)+'<br>'+new Date(o.cuando).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'}):'')+'</td></tr>';
+    if(ABIERTO.has(o.folio))html+=o.claves.map(l=>'<tr class="lines"><td></td><td colspan="4">Clave '+l.clave+'</td><td></td><td class="num">'+Number(l.cantidad_pend).toLocaleString('es-MX')+' de '+Number(l.cantidad_ped).toLocaleString('es-MX')+'</td><td colspan="4">Entrega en OC: '+fmtF(l.fecha_entrega)+'</td></tr>').join('');
+  });
+  if(v.length>800)html+='<tr><td colspan="11" class="d">Se muestran 800 de '+v.length+'. Usa los filtros para ver el resto.</td></tr>';
+  if(!v.length)html+='<tr><td colspan="11" class="d">No hay OCs con esos filtros.</td></tr>';
+  document.getElementById('tb').innerHTML=html;
+}
+function toggle(f){ABIERTO.has(f)?ABIERTO.delete(f):ABIERTO.add(f);pintar();}
+async function guardar(folio){
+  const quien=document.getElementById('quien').value;if(!quien){toast('Primero elige tu nombre');return;}
+  const fecha=document.getElementById('d-'+folio).value||null,com=document.getElementById('c-'+folio).value.trim()||null;
+  const o=OCS.find(x=>x.folio===folio);
+  if(fecha&&o.fecha_oc&&fecha<o.fecha_oc){toast('La fecha compromiso no puede ser antes de la fecha de la OC');return;}
+  const fila={folio,fecha,comentario:com,fecha_anterior:o.compromiso&&o.compromiso!==fecha?o.compromiso:(o.anterior||null),usuario:quien,actualizado_en:new Date().toISOString()};
+  const{error}=await sb.from('plan_oc_compromiso').upsert(fila,{onConflict:'folio'});
+  if(error){toast('❌ No se guardó: '+error.message);return;}
+  Object.assign(o,{compromiso:fecha,comentario:com,anterior:fila.fecha_anterior,usuario:quien,cuando:fila.actualizado_en});
+  toast('✓ OC '+folio+' guardada');pintar();
+}
+</script>
+</body>
+</html>

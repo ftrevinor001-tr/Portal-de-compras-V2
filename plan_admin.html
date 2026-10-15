@@ -452,13 +452,14 @@ P.diffOC=(prev,cur,enc,fecha)=>{
   });
   return{upserts,recep,cerradas:comp,canceladas:canc};
 };
-P.dias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+P.d10=v=>v==null||v===''?null:String(v).slice(0,10);   // timestamptz de Supabase → 'AAAA-MM-DD'
+P.dias=(a,b)=>Math.round((new Date(P.d10(b)+'T12:00:00')-new Date(P.d10(a)+'T12:00:00'))/864e5);
 // Target de una alarma. ocs: líneas de esa clave {folio,fecha_oc,cantidad_pend,cerrada_en,cancelada}
 P.R.T_ANTES=15;P.R.T_ANTES_PCT=0.10;P.R.T_DESPUES=5;P.R.T_VIEJA=60;P.R.DIAS_MES=30;P.R.MF_MESES_REV=8;
 // Margen para considerar una OC anticipada: 15 días o el 10% del tiempo de entrega, lo que sea mayor
 P.margen=lt=>Math.max(P.R.T_ANTES,Math.round((Number(lt)||0)*P.R.DIAS_MES*P.R.T_ANTES_PCT));
 P.target=(al,ocs,hoy)=>{
-  const fa=al.fecha_alarma;const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada).map(o=>({...o,d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
+  const fa=P.d10(al.fecha_alarma);const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada).map(o=>({...o,fecha_oc:P.d10(o.fecha_oc),d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
   const mg=P.margen(al.t_entrega),vieja0=Math.max(P.R.T_VIEJA,Math.round((Number(al.t_entrega)||0)*P.R.DIAS_MES));
   const enRango=vs.find(o=>o.d>=-mg&&o.d<=P.R.T_DESPUES);
   const res=(r,o)=>({resultado_target:r,oc_folio:o?Number(o.folio):null,fecha_oc:o?o.fecha_oc:null,dias_dif:o?o.d:null});
@@ -699,7 +700,8 @@ async function procesarOCs(wb,fecha,log,res){
   log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
   const prevRows=await todo(()=>sb.from('plan_oc_lineas').select('*').is('cerrada_en',null).order('folio').order('clave'));
   const{count:tot}=await sb.from('plan_oc_lineas').select('*',{count:'exact',head:true});
-  const prev=new Map(prevRows.map(r=>[Number(r.folio)+'|'+Number(r.clave),r]));
+  const normOC=r=>({...r,fecha_oc:P.d10(r.fecha_oc),fecha_entrega:P.d10(r.fecha_entrega),cerrada_en:P.d10(r.cerrada_en),primera_foto:P.d10(r.primera_foto)});
+  const prev=new Map(prevRows.map(r=>[Number(r.folio)+'|'+Number(r.clave),normOC(r)]));
   if(!tot){
     log.msg('📍 Primera foto de OCs: se guardan como punto de partida (sin recepciones).');
     await enLotes('plan_oc_lineas',[...cur.values()].map(l=>({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
@@ -716,10 +718,10 @@ async function procesarOCs(wb,fecha,log,res){
   const claves=[...new Set(al.map(a=>Number(a.clave)))];const ocs=new Map();
   for(let i=0;i<claves.length;i+=200){
     const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,cerrada_en,cancelada').in('clave',claves.slice(i,i+200)).order('folio'));
-    rs.forEach(o=>{const k=Number(o.clave);if(!ocs.has(k))ocs.set(k,[]);ocs.get(k).push(o);});
+    rs.forEach(o=>{o=normOC(o);const k=Number(o.clave);if(!ocs.has(k))ocs.set(k,[]);ocs.get(k).push(o);});
   }
   const cambios=[];
-  al.forEach(a=>{const t=P.target(a,ocs.get(Number(a.clave))||[],fecha);if(t&&(t.resultado_target!==a.resultado_target||t.oc_folio!==(a.oc_folio==null?null:Number(a.oc_folio))))cambios.push({...a,...t});});
+  al.forEach(a=>{a.fecha_alarma=P.d10(a.fecha_alarma);a.fecha_fin=P.d10(a.fecha_fin);const t=P.target(a,ocs.get(Number(a.clave))||[],fecha);if(t&&(t.resultado_target!==a.resultado_target||t.oc_folio!==(a.oc_folio==null?null:Number(a.oc_folio))))cambios.push({...a,...t});});
   if(cambios.length)await enLotes('plan_alarmas',cambios,log,{onConflict:'id'});
   log.msg('🎯 Target: '+fmt(al.length)+' alarmas por evaluar · '+fmt(cambios.length)+' con resultado nuevo');
   // Resumen del mes: Target por comprador y OTIF por proveedor
@@ -729,10 +731,10 @@ async function procesarOCs(wb,fecha,log,res){
   const tg={};am.forEach(a=>{const o=tg[a.comprador]||(tg[a.comprador]={n:0,ok:0,pend:0});if(!a.resultado_target){o.pend++;return;}if(!cuentaT(a))return;o.n++;if(['EN TIEMPO','ANTICIPADA'].includes(a.resultado_target))o.ok++;});
   const tRows=Object.entries(tg).map(([c,o])=>({nombre:c,evaluadas:o.n,cumplen:o.ok,target:o.n?o.ok/o.n:null,pendientes:o.pend})).sort((a,b)=>a.nombre<b.nombre?-1:1);
   const tN=tRows.reduce((t,r)=>t+r.evaluadas,0),tOk=tRows.reduce((t,r)=>t+r.cumplen,0);
-  const cer=await todo(()=>sb.from('plan_oc_lineas').select('*').gte('cerrada_en',mes).order('folio').order('clave'));
+  const cer=(await todo(()=>sb.from('plan_oc_lineas').select('*').gte('cerrada_en',mes).order('folio').order('clave'))).map(normOC);
   const folios=[...new Set(cer.map(l=>Number(l.folio)))];const rec=new Map();
-  for(let i=0;i<folios.length;i+=200){(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio'))).forEach(r=>{const k=Number(r.folio)+'|'+Number(r.clave);if(!rec.has(k))rec.set(k,[]);rec.get(k).push(r);});}
-  const comp=new Map((await todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))).filter(c=>c.fecha).map(c=>[Number(c.folio),c.fecha]));
+  for(let i=0;i<folios.length;i+=200){(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio'))).forEach(r=>{r={...r,fecha:P.d10(r.fecha)};const k=Number(r.folio)+'|'+Number(r.clave);if(!rec.has(k))rec.set(k,[]);rec.get(k).push(r);});}
+  const comp=new Map((await todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))).filter(c=>c.fecha).map(c=>[Number(c.folio),P.d10(c.fecha)]));
   const oLin=cer.map(l=>P.otifLinea(l,rec.get(Number(l.folio)+'|'+Number(l.clave)),comp,ltMap.get(Number(l.clave)))).filter(Boolean);
   const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;
   log.msg('🚚 OTIF del mes: '+fmt(oLin.length)+' líneas cerradas evaluables'+(oGen?' · OTIF '+(oGen.otif==null?'— (sin líneas con fecha válida)':(oGen.otif*100).toFixed(1)+'%'):''));
