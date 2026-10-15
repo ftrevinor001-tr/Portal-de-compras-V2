@@ -94,6 +94,14 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-ed"></div>
   </div>
 
+  <div class="card" style="border:2px solid var(--navy2)">
+    <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
+    <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (promedio de los dos), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
+    <div class="row"><input type="file" id="f-calc" accept=".xlsx,.xlsm"><button onclick="run('calc')">Calcular</button><button class="sec" id="btn-xl" style="display:none" onclick="descargarCalc()">⬇ Descargar resultado (Excel)</button></div>
+    <div class="log" id="log-calc"></div>
+    <div id="calc-res"></div>
+  </div>
+
   <div class="card">
     <h2><span class="n">✓</span>Verificación</h2>
     <p class="d">Lo que quedó guardado en la base para las claves que escribas (separadas por coma).</p>
@@ -264,6 +272,117 @@ P.comprasED=wb=>{
   const rows=[];acc.forEach((q,key)=>{const [c,m]=key.split('|');rows.push({clave:+c,mes:m,cantidad:Math.round(q*10000)/10000});});
   return{rows,meses:[...meses].sort()};
 };
+// 6. Detalle del maestro diario: rows por fecha
+P.detalle=wb=>{
+  const ws=P.hoja(wb,['Detalle']);if(!ws)throw new Error('No se encontró la hoja Detalle.');
+  const aoa=P.aoa(ws);
+  const req=['FECHA','CLAVE','EXISTENCIAS','COMPRADOR','CLASIFICACION POR MOVIMIENTO','TIEMPO DE ENTREGA','OBJETIVO_MESES DE INVENTARIO','BACK ORDER'];
+  const h=P.header(aoa,req);if(!h)throw new Error('La hoja Detalle no trae las columnas esperadas: '+req.join(', '));
+  const c=n=>h.cols.indexOf(n);
+  const iN=c('NOMBRE'),iU=c('UNIDAD'),iG=c('GRUPO'),iE=c('CLASIFICACION_ESTATUS DE INVENTARIO');
+  const porFecha=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){
+    const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);const f=P.fecha(r[h.idx.FECHA]);if(k==null||!f)continue;
+    if(!porFecha.has(f))porFecha.set(f,new Map());
+    porFecha.get(f).set(k,{clave:k,nombre:iN>=0?String(r[iN]).trim():'',unidad:iU>=0?P.norm(r[iU]):'',grupo:iG>=0?String(r[iG]).trim():'',
+      comprador:P.norm(r[h.idx.COMPRADOR]),rot:P.norm(r[h.idx['CLASIFICACION POR MOVIMIENTO']]),
+      lt:P.num(r[h.idx['TIEMPO DE ENTREGA']]),pm:P.num(r[h.idx['OBJETIVO_MESES DE INVENTARIO']]),
+      ex:P.num(r[h.idx.EXISTENCIAS])||0,bo:P.num(r[h.idx['BACK ORDER']])||0,estX:iE>=0?P.norm(r[iE]):''});
+  }
+  return porFecha;
+};
+
+// ── Reglas de cálculo (acordadas con Compras, oct-2026) ──
+P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:10,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
+     FACT_ENTREGA:1.4,FACT_MAX:1.4,EXCLUIR_ROT:['SIN COMPRA','NUEVOS']};
+P.ym=(ym,k)=>{let[y,m]=ym.split('-').map(Number);m+=k;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}return y+'-'+P.pad(m);};
+// Serie de ventas de una clave ya limpia de entregas directas (solo 2025, nunca negativa)
+P.serie=(meses,ed)=>{
+  const s=Object.assign({},meses||{});const notas=[];
+  if(ed)Object.keys(ed).forEach(m=>{if(m>=P.R.ED_DESDE&&m<=P.R.ED_HASTA&&s[m]!=null&&s[m]>=ed[m]){s[m]=s[m]-ed[m];notas.push(m);}});
+  return{s,ed:notas};
+};
+// Valor de un mes después de la regla de atípicos: null = descartado
+P.valor=(s,m)=>{
+  const x=Math.max(0,s[m]||0);
+  const w=[];for(let i=1;i<=12;i++){const v=s[P.ym(m,-i)];if(v>0)w.push(v);}
+  if(w.length<P.R.MIN_MESES_MEDIANA)return{v:x};
+  w.sort((a,b)=>a-b);const med=w.length%2?w[(w.length-1)/2]:(w[w.length/2-1]+w[w.length/2])/2;
+  if(x<=P.R.ATIPICO*med)return{v:x};
+  return m<P.R.ANIO_LIMPIO?{v:null,at:'descartado'}:{v:P.R.ATIPICO*med,at:'topado'};
+};
+// Antecedente y pronóstico de una serie para el mes de referencia
+P.antPron=(s,ref,N,agot,ultimo)=>{
+  const notas=[];const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
+  if(fin!==P.ym(ref,-1))notas.push('ventas cargadas solo hasta '+fin);
+  const a=[];for(let i=0;i<P.R.VENTANA_ATRAS&&a.length<N;i++){const m=P.ym(fin,-i);if(agot(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;a.push(r.v);}
+  const p=[];for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;if(agot(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;p.push(r.v);}
+  const avg=x=>x.length?x.reduce((t,v)=>t+v,0)/x.length:null;
+  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,notas};
+};
+P.estatus=(rot,ex,D,lt,pm)=>{
+  if(rot==='SIN COMPRA')return'SIN COMPRA';
+  if(ex<=0)return'FALTANTE';
+  if(!D)return'RIESGO';
+  const mi=ex/D;
+  if(mi>=lt*P.R.FACT_ENTREGA&&mi<=pm*P.R.FACT_MAX)return'OPTIMO';
+  return mi<lt*P.R.FACT_ENTREGA?'RIESGO':'SOBRE INVENTARIO';
+};
+// Redondeo a empaque: ≥1 MASTER → múltiplo de MASTER más cercano; menor → hacia arriba al INNER
+P.empaque=(q,e,unidad)=>{
+  if(!q||!e||e.validacion!=='VALIDO')return{q,ok:false};
+  let f=1;if(P.norm(e.uni_compra)!==P.norm(unidad)){if(!e.factor_conv)return{q,ok:false,nota:'empaque en otra unidad sin factor'};f=e.factor_conv;}
+  const inn=(e.inner_cant||0)*f,mas=(e.master_cant||0)*f;
+  if(mas>0&&q>=mas)return{q:Math.max(mas,Math.round(q/mas)*mas),ok:true,tipo:'MASTER'};
+  if(inn>0)return{q:Math.ceil(q/inn)*inn,ok:true,tipo:'INNER'};
+  if(mas>0)return{q:mas,ok:true,tipo:'MASTER'};
+  return{q,ok:false};
+};
+// Cálculo de un día completo. ctx: {ventas:{SANVER:Map,MF:Map}, ed:Map, agot:Set('EMP|clave|AAAA-MM'), invMF:Map, emp:Map, ultimo:{SANVER,MF}}
+P.calcularDia=(fecha,filas,ctx)=>{
+  const ref=fecha.slice(0,7);const out=[];
+  filas.forEach(d=>{
+    const k=d.clave;const lt=d.lt||0,pm=d.pm||0;const N=Math.max(1,Math.ceil(pm||1));
+    const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
+    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER);
+    const D=ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0);
+    const est=P.estatus(d.rot,d.ex,D,lt,pm);
+    const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+d.bo)));
+    const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
+    // MF
+    const smf=P.serie(ctx.ventas.MF.get(k),null);
+    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),ctx.ultimo.MF);
+    const Dm=apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0);
+    const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
+    const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&pm>0&&mm>pm;
+    const r1=x=>x==null?null:Math.round(x*10)/10;
+    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.P==null?['sin año anterior: se usa antecedente']:[]),...(e.nota?[e.nota]:[])];
+    out.push({c:k,n:d.nombre,comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo:d.bo,
+      A:r1(ap.A),P:r1(ap.P),D:r1(D),mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
+      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
+      mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
+      mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nt:notas.join(' · ')});
+  });
+  return out;
+};
+const EN_RIESGO=['RIESGO','FALTANTE'];
+// Compara contra el día anterior: claves que ENTRAN a riesgo (alarma) y las que salen (cierre)
+P.alarmas=(prev,prevEst,res,fecha,restr)=>{
+  const nuevas=[],cierres=[],set=[];
+  res.forEach(r=>{
+    const enR=EN_RIESGO.includes(r.est);if(enR)set.push(r.c);
+    if(enR&&!prev.has(r.c)){
+      if(P.R.EXCLUIR_ROT.includes(r.rot)||!r.D)return;
+      const directo=r.est==='FALTANTE';
+      nuevas.push({clave:r.c,comprador:r.comp,rotacion:r.rot,fecha_alarma:fecha,tipo:directo?'FALTANTE_DIRECTO':'RIESGO',
+        n_meses:r.N,t_entrega:r.lt,objetivo_meses:r.pm,antecedente:r.A,pronostico:r.P,demanda:r.D,existencias:r.ex,bo:r.bo,meses_inv:r.mi,
+        sugerida:r.s,sugerida_empaque:r.sE,resultado_target:restr.has(r.c+'|'+r.comp)?'EXCLUIDA':null,
+        nota:[directo?'Posible venta atípica (pasó directo a FALTANTE)':'',restr.has(r.c+'|'+r.comp)?'Clave restringida':''].filter(Boolean).join(' · ')||null});
+    }
+  });
+  const cur=new Set(set);prev.forEach(k=>{if(!cur.has(k))cierres.push(k);});
+  return{nuevas,cierres,set};
+};
 /*PARSE-END*/
 
 // ══════════ CONEXIÓN Y CARGA ══════════
@@ -322,6 +441,7 @@ async function run(tipo){
     if(tipo==='emp')await cargaEmp(log);
     if(tipo==='hist')await cargaHist(log);
     if(tipo==='ed')await cargaED(log);
+    if(tipo==='calc')await cargaCalc(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -386,6 +506,106 @@ async function cargaED(log){
   for(const m of r.meses){const{error}=await sb.from('plan_compras_ed').delete().eq('mes',m);if(error)throw new Error('borrando '+m+': '+error.message);}
   await enLotes('plan_compras_ed',r.rows,log);
   log.msg('🎉 Listo.');
+}
+
+// ══════════ CÁLCULO DIARIO ══════════
+let ULTIMO_CALC=null;
+async function contexto(log){
+  log.msg('📥 Leyendo ventas, compras ED, agotados, existencias MF, empaques y restricciones…');
+  const [ven,ed,ag,mf,em,rs]=await Promise.all([
+    todo(()=>sb.from('plan_ventas').select('empresa,clave,meses').order('empresa').order('clave')),
+    todo(()=>sb.from('plan_compras_ed').select('clave,mes,cantidad').order('clave').order('mes')),
+    todo(()=>sb.from('plan_agotados_mes').select('empresa,clave,mes,dias_agotado').gte('dias_agotado',P.R.DIAS_AGOTADO).order('clave').order('mes')),
+    todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').order('clave')),
+    todo(()=>sb.from('plan_empaques').select('*').order('clave')),
+    todo(()=>sb.from('claves_restringidas').select('clave,comprador,activa,autorizado_en').eq('activa',true).order('clave'))]);
+  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),ultimo:{SANVER:null,MF:null}};
+  ven.forEach(r=>{const k=Number(r.clave);ctx.ventas[r.empresa].set(k,r.meses||{});Object.keys(r.meses||{}).forEach(m=>{if(!ctx.ultimo[r.empresa]||m>ctx.ultimo[r.empresa])ctx.ultimo[r.empresa]=m;});});
+  ed.forEach(r=>{const k=Number(r.clave);if(!ctx.ed.has(k))ctx.ed.set(k,{});ctx.ed.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad);});
+  ag.forEach(r=>ctx.agot.add(r.empresa+'|'+Number(r.clave)+'|'+String(r.mes).slice(0,7)));
+  mf.forEach(r=>ctx.invMF.set(Number(r.clave),Number(r.existencia)));
+  em.forEach(r=>ctx.emp.set(Number(r.clave),{...r,inner_cant:r.inner_cant==null?null:Number(r.inner_cant),master_cant:r.master_cant==null?null:Number(r.master_cant),factor_conv:r.factor_conv==null?null:Number(r.factor_conv)}));
+  const restr=new Set();rs.forEach(x=>{if(x.autorizado_en){const d=(Date.now()-new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'))/864e5;if(d>=30)return;}restr.add(Number(x.clave)+'|'+P.norm(x.comprador));});
+  log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · restringidas '+restr.size);
+  if(!ctx.ventas.SANVER.size)throw new Error('No hay ventas cargadas. Primero usa la sección 1.');
+  return{ctx,restr};
+}
+async function cargaCalc(log){
+  const wb=await leerLibro('f-calc',['Detalle'],log);
+  const porFecha=P.detalle(wb);
+  const fechas=[...porFecha.keys()].sort();
+  if(!fechas.length)throw new Error('La hoja Detalle no trae fechas válidas.');
+  log.msg('⚙️ Detalle: '+fechas.length+' día(s), del '+fechas[0]+' al '+fechas[fechas.length-1]);
+  // 1. días agotados de SANVER desde el Detalle
+  const ag=[];porFecha.forEach((m,f)=>m.forEach(d=>{if(d.ex<=0)ag.push({empresa:'SANVER',clave:d.clave,fecha:f,dias:1});}));
+  log.msg('💾 Guardando '+fmt(ag.length)+' días-clave en existencia 0…');
+  await enLotes('plan_agotados_dia',ag,log,{onConflict:'empresa,clave,fecha',ignoreDuplicates:true});
+  // 2. estado anterior
+  const{data:pub,error:ep}=await sb.from('plan_publicacion').select('fecha,en_riesgo').eq('id','estado').maybeSingle();
+  if(ep)throw new Error('plan_publicacion: '+ep.message);
+  let prev=pub?new Set((pub.en_riesgo||[]).map(Number)):null;
+  let pendientes=fechas.filter(f=>!pub||f>pub.fecha);
+  let soloPublicar=false;
+  if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
+  const{ctx,restr}=await contexto(log);
+  let res=null,totN=0,totC=0;const nuevasDia=[];
+  for(const f of pendientes){
+    await pausa();
+    res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
+    if(soloPublicar)break;
+    if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
+    const a=P.alarmas(prev,null,res,f,restr);
+    if(a.nuevas.length)await enLotes('plan_alarmas',a.nuevas,log,{onConflict:'clave,fecha_alarma',ignoreDuplicates:true});
+    for(let i=0;i<a.cierres.length;i+=200){
+      const{error}=await sb.from('plan_alarmas').update({fecha_fin:f}).in('clave',a.cierres.slice(i,i+200)).is('fecha_fin',null);
+      if(error)throw new Error('cerrando alarmas: '+error.message);
+    }
+    log.msg('   '+f+': '+a.nuevas.length+' alarmas nuevas · '+a.cierres.length+' claves salieron de riesgo');
+    totN+=a.nuevas.length;totC+=a.cierres.length;nuevasDia.push(...a.nuevas);
+    prev=new Set(a.set);
+  }
+  const fUlt=pendientes[pendientes.length-1];
+  if(soloPublicar)prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));
+  // 3. publicar
+  log.msg('🗜️ Publicando el cálculo del '+fUlt+'…');
+  const cuenta=(arr,k)=>arr.reduce((o,r)=>{o[r[k]]=(o[r[k]]||0)+1;return o;},{});
+  const payload={fecha:fUlt,generado:new Date().toISOString(),reglas:P.R,claves:res};
+  const js=JSON.stringify(payload);let body=new Blob([js],{type:'application/json'}),ruta='plan/estado.json';
+  if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
+  const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
+  if(up.error)throw new Error('Storage: '+up.error.message);
+  const resumen={claves:res.length,estatus_portal:cuenta(res,'est'),estatus_excel:cuenta(res,'estX'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
+  const{error:eu}=await sb.from('plan_publicacion').upsert({id:'estado',fecha:fUlt,ruta,version:Date.now().toString(),resumen,en_riesgo:[...prev],actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(eu)throw new Error('plan_publicacion: '+eu.message);
+  ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia};
+  document.getElementById('btn-xl').style.display='';
+  pintarCalc(resumen,nuevasDia);
+  log.msg('🎉 Listo. '+fmt(res.length)+' claves calculadas al '+fUlt+' · '+totN+' alarmas nuevas.');
+}
+function pintarCalc(r,nuevas){
+  const est=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
+  const porComp={};nuevas.forEach(a=>{porComp[a.comprador]=(porComp[a.comprador]||0)+1;});
+  document.getElementById('calc-res').innerHTML=
+   '<div class="kpis">'+est.map(e=>'<div class="kpi"><b>'+fmt(r.estatus_portal[e]||0)+'</b><span>'+e+' portal · Excel '+fmt(r.estatus_excel[e]||0)+'</span></div>').join('')
+   +'<div class="kpi"><b>'+fmt(r.alarmas_nuevas)+'</b><span>Alarmas nuevas</span></div><div class="kpi"><b>'+fmt(r.bandera_mf)+'</b><span>Revisar con gerencia (MF)</span></div></div>'
+   +(nuevas.length?'<div class="scroll" style="max-height:220px"><table><tr><th>Comprador</th><th>Alarmas nuevas</th></tr>'+Object.entries(porComp).sort((a,b)=>b[1]-a[1]).map(([c,n])=>'<tr><td>'+c+'</td><td>'+n+'</td></tr>').join('')+'</table></div>':'');
+}
+async function descargarCalc(){
+  if(!ULTIMO_CALC)return;
+  let abiertas=[];
+  try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
+  const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
+    ['ex','Existencias SANVER'],['bo','BO'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
+    ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
+    ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
+  const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Planeación');
+  const alH={clave:'Clave',comprador:'Comprador',rotacion:'Rotación',fecha_alarma:'Fecha alarma',tipo:'Tipo',n_meses:'N meses',antecedente:'Antecedente',pronostico:'Pronóstico',demanda:'Demanda portal',
+    existencias:'Existencias',bo:'BO',meses_inv:'Meses inv',sugerida:'Sugerencia',sugerida_empaque:'Sugerencia con empaque',resultado_target:'Target',nota:'Nota'};
+  const tr=a=>{const o={};Object.keys(alH).forEach(k=>o[alH[k]]=a[k]);return o;};
+  if(abiertas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(abiertas.map(tr)),'Alarmas abiertas');
+  if(ULTIMO_CALC.nuevas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ULTIMO_CALC.nuevas.map(tr)),'Alarmas nuevas (esta carga)');
+  XLSX.writeFile(wb,'Planeacion_'+ULTIMO_CALC.fecha+'.xlsx');
 }
 
 // ══════════ VERIFICACIÓN ══════════
