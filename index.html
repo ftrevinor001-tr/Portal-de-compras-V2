@@ -311,14 +311,36 @@ P.valor=(s,m)=>{
   if(x<=P.R.ATIPICO*med)return{v:x};
   return m<P.R.ANIO_LIMPIO?{v:null,at:'descartado'}:{v:P.R.ATIPICO*med,at:'topado'};
 };
-// Antecedente y pronóstico de una serie para el mes de referencia
-P.antPron=(s,ref,N,agot,ultimo)=>{
+// ¿Mes de 2025 sospechoso de agotado? (sin datos de existencia antes de abr-2026)
+// Clave regular (vendió ≥10 de los 12 meses previos) con una racha de ≥2 meses en cero.
+P.R.AGOT_DESDE='2026-04';P.R.REGULAR=10;P.R.RACHA=2;P.R.INTERMITENTE=6;
+P.sospechoso=(s,m,lo,hi)=>{
+  if(m>=P.R.AGOT_DESDE||(s[m]||0)>0)return false;
+  let n=0;for(let i=1;i<=12;i++){const x=P.ym(m,-i);if(lo&&x<lo)break;if((s[x]||0)>0)n++;}
+  if(n<P.R.REGULAR)return false;
+  let r=1;
+  for(let x=P.ym(m,-1);(!lo||x>=lo)&&!((s[x]||0)>0);x=P.ym(x,-1))r++;
+  for(let x=P.ym(m,1);(!hi||x<=hi)&&!((s[x]||0)>0);x=P.ym(x,1)){r++;if(r>40)break;}
+  return r>=P.R.RACHA;
+};
+// Antecedente y pronóstico de una serie para el mes de referencia.
+// Un mes NO cuenta si: estuvo agotado (≥10 días), es anterior a la primera venta de la clave,
+// o es un mes de 2025 sospechoso de agotado. Si una ventana queda sin meses válidos → null
+// (la demanda usa solo la otra; nunca se promedia contra un cero falso).
+P.antPron=(s,ref,N,agot,ultimo,primero)=>{
   const notas=[];const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
   if(fin!==P.ym(ref,-1))notas.push('ventas cargadas solo hasta '+fin);
-  const a=[];for(let i=0;i<P.R.VENTANA_ATRAS&&a.length<N;i++){const m=P.ym(fin,-i);if(agot(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;a.push(r.v);}
-  const p=[];for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;if(agot(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;p.push(r.v);}
+  const conVenta=Object.keys(s).filter(m=>s[m]>0).sort();const ini=conVenta[0]||null;
+  const hi=ultimo||fin;const ok=m=>ini!=null&&m>=ini&&!agot(m)&&!P.sospechoso(s,m,primero,hi);
+  const a=[];for(let i=0;i<P.R.VENTANA_ATRAS&&a.length<N;i++){const m=P.ym(fin,-i);if(!ok(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;a.push(r.v);}
+  const p=[];for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;if(!ok(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;p.push(r.v);}
   const avg=x=>x.length?x.reduce((t,v)=>t+v,0)/x.length:null;
-  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,notas};
+  // Intermitente: en los 12 meses previos válidos vendió en ≤6 → la demanda usa el promedio de esos 12 meses
+  const w=[];let nv=0;for(let i=1;i<=12;i++){const m=P.ym(ref,-i);if(ultimo&&m>ultimo)continue;if(!ok(m))continue;const r=P.valor(s,m);if(r.v==null)continue;w.push(r.v);if(r.v>0)nv++;}
+  const inter=w.length>=6&&nv<=P.R.INTERMITENTE;
+  if(ini==null)notas.push('sin ventas en el historial');
+  else if(ini>P.ym(ref,-12))notas.push('primera venta '+ini);
+  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,I:inter?avg(w):null,notas};
 };
 P.estatus=(rot,ex,D,lt,pm)=>{
   if(rot==='SIN COMPRA')return'SIN COMPRA';
@@ -344,21 +366,21 @@ P.calcularDia=(fecha,filas,ctx)=>{
   filas.forEach(d=>{
     const k=d.clave;const lt=d.lt||0,pm=d.pm||0;const N=Math.max(1,Math.ceil(pm||1));
     const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
-    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER);
-    const D=ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0);
+    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
+    const D=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
     const est=P.estatus(d.rot,d.ex,D,lt,pm);
     const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+d.bo)));
     const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
     // MF
     const smf=P.serie(ctx.ventas.MF.get(k),null);
-    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),ctx.ultimo.MF);
-    const Dm=apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0);
+    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),ctx.ultimo.MF,ctx.primero&&ctx.primero.MF);
+    const Dm=apm.I!=null?apm.I:(apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0));
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&pm>0&&mm>pm;
     const r1=x=>x==null?null:Math.round(x*10)/10;
-    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.P==null?['sin año anterior: se usa antecedente']:[]),...(e.nota?[e.nota]:[])];
+    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
     out.push({c:k,n:d.nombre,comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo:d.bo,
-      A:r1(ap.A),P:r1(ap.P),D:r1(D),mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
+      A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nt:notas.join(' · ')});
@@ -376,12 +398,93 @@ P.alarmas=(prev,prevEst,res,fecha,restr)=>{
       const directo=r.est==='FALTANTE';
       nuevas.push({clave:r.c,comprador:r.comp,rotacion:r.rot,fecha_alarma:fecha,tipo:directo?'FALTANTE_DIRECTO':'RIESGO',
         n_meses:r.N,t_entrega:r.lt,objetivo_meses:r.pm,antecedente:r.A,pronostico:r.P,demanda:r.D,existencias:r.ex,bo:r.bo,meses_inv:r.mi,
-        sugerida:r.s,sugerida_empaque:r.sE,resultado_target:restr.has(r.c+'|'+r.comp)?'EXCLUIDA':null,
-        nota:[directo?'Posible venta atípica (pasó directo a FALTANTE)':'',restr.has(r.c+'|'+r.comp)?'Clave restringida':''].filter(Boolean).join(' · ')||null});
+        sugerida:r.s,sugerida_empaque:r.sE,resultado_target:restr.has(r.c+'|'+r.comp)?'EXCLUIDA':(r.mfF?'EN REVISION GERENCIA':null),
+        nota:[directo?'Posible venta atípica (pasó directo a FALTANTE)':'',restr.has(r.c+'|'+r.comp)?'Clave restringida':'',r.mfF?'MF sobre objetivo: revisar redistribución con gerencia':''].filter(Boolean).join(' · ')||null});
     }
   });
   const cur=new Set(set);prev.forEach(k=>{if(!cur.has(k))cierres.push(k);});
   return{nuevas,cierres,set};
+};
+// ══ OCs ══
+// Líneas pendientes de "Productos Incluidos en" → Map 'folio|clave' → línea
+P.ocLineas=wb=>{
+  const ws=P.hoja(wb,['Productos Incluidos en']);if(!ws)return null;
+  const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO OC','FECHA OC','CLAVE','CANTIDAD PED','CANTIDAD PEND','FECHA ENTREGA']);
+  if(!h)throw new Error('La hoja Productos Incluidos en no trae FOLIO OC, FECHA OC, CLAVE, CANTIDAD PED, CANTIDAD PEND y FECHA ENTREGA.');
+  const iP=h.cols.indexOf('PROVEEDOR'),iC=h.cols.indexOf('COMPRADOR'),iE=h.cols.indexOf('ESTADO OC');
+  const m=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){
+    const r=aoa[i];const f=P.clave(r[h.idx['FOLIO OC']]),k=P.clave(r[h.idx.CLAVE]);if(f==null||k==null)continue;
+    const key=f+'|'+k;const ped=P.num(r[h.idx['CANTIDAD PED']])||0,pend=P.num(r[h.idx['CANTIDAD PEND']])||0;
+    const prev=m.get(key);
+    if(prev){prev.cantidad_ped+=ped;prev.cantidad_pend+=pend;continue;}   // misma clave repetida en la OC: se suma
+    m.set(key,{folio:f,clave:k,fecha_oc:P.fecha(r[h.idx['FECHA OC']]),proveedor:iP>=0?String(r[iP]).trim():null,comprador:iC>=0?P.norm(r[iC]):null,
+      cantidad_ped:ped,cantidad_pend:pend,fecha_entrega:P.fecha(r[h.idx['FECHA ENTREGA']]),estado_oc:iE>=0?P.norm(r[iE]):null});
+  }
+  return m;
+};
+// Encabezados de OC (RP01-23): Map folio → {estatus, estado}
+P.ocEncabezados=wb=>{
+  const ws=P.hoja(wb,['RP01-23 Ordenes de Compra']);if(!ws)return new Map();
+  const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO','ESTATUS']);if(!h)return new Map();
+  const iE=h.cols.indexOf('ESTADO OC');const m=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):''});}
+  return m;
+};
+// Compara la foto anterior (líneas abiertas en la base) con la de hoy
+P.diffOC=(prev,cur,enc,fecha)=>{
+  const upserts=[],recep=[],r4=x=>Math.round(x*10000)/10000;
+  cur.forEach((l,key)=>{
+    const p=prev.get(key);
+    if(!p){upserts.push({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null});return;}
+    const baja=Number(p.cantidad_pend)-l.cantidad_pend;
+    if(baja>1e-9)recep.push({folio:l.folio,clave:l.clave,fecha,cantidad:r4(baja),fecha_entrega:l.fecha_entrega});
+    upserts.push({...l,primera_foto:p.primera_foto,pend_inicial:p.pend_inicial,cancelada:false,cerrada_en:null});
+  });
+  let canc=0,comp=0;
+  prev.forEach((p,key)=>{
+    if(cur.has(key))return;
+    const e=enc.get(Number(p.folio));const cancel=!!(e&&e.estatus==='CANCELADO');
+    if(cancel)canc++;else{comp++;if(Number(p.cantidad_pend)>0)recep.push({folio:Number(p.folio),clave:Number(p.clave),fecha,cantidad:r4(Number(p.cantidad_pend)),fecha_entrega:p.fecha_entrega});}
+    upserts.push({folio:Number(p.folio),clave:Number(p.clave),fecha_oc:p.fecha_oc,proveedor:p.proveedor,comprador:p.comprador,cantidad_ped:Number(p.cantidad_ped),
+      cantidad_pend:cancel?Number(p.cantidad_pend):0,fecha_entrega:p.fecha_entrega,estado_oc:cancel?'CANCELADO':'RECIBIDO TOTALMENTE',
+      primera_foto:p.primera_foto,pend_inicial:p.pend_inicial,cancelada:cancel,cerrada_en:fecha});
+  });
+  return{upserts,recep,cerradas:comp,canceladas:canc};
+};
+P.dias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+// Target de una alarma. ocs: líneas de esa clave {folio,fecha_oc,cantidad_pend,cerrada_en,cancelada}
+P.R.T_ANTES=7;P.R.T_DESPUES=5;P.R.T_VIEJA=60;
+P.target=(al,ocs,hoy)=>{
+  const fa=al.fecha_alarma;const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada).map(o=>({...o,d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
+  const enRango=vs.find(o=>o.d>=-P.R.T_ANTES&&o.d<=P.R.T_DESPUES);
+  const res=(r,o)=>({resultado_target:r,oc_folio:o?Number(o.folio):null,fecha_oc:o?o.fecha_oc:null,dias_dif:o?o.d:null});
+  if(enRango)return res(enRango.d<0?'ANTICIPADA':'EN TIEMPO',enRango);
+  const vieja=vs.filter(o=>o.d<-P.R.T_ANTES&&o.d>=-P.R.T_VIEJA&&(!o.cerrada_en||o.cerrada_en>=fa)).pop();
+  if(vieja)return res('ANTICIPACION EXCESIVA',vieja);
+  const tarde=vs.find(o=>o.d>P.R.T_DESPUES);
+  if(tarde)return res('TARDE',tarde);
+  if(al.fecha_fin&&P.dias(fa,al.fecha_fin)<=P.R.T_DESPUES)return res('SIN NECESIDAD',null);
+  if(P.dias(fa,hoy)>P.R.T_DESPUES)return res('SIN OC',null);   // provisional: cambia a TARDE si llega la OC
+  return null;   // todavía dentro del plazo
+};
+// OTIF por línea cerrada. compromisos: Map folio → fecha
+P.otifLinea=(l,recs,compromisos)=>{
+  if(l.cancelada&&!(recs&&recs.length))return null;              // cancelada sin recibir: no cuenta
+  if(Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null; // ya traía recepciones antes de la primera foto
+  const rec=(recs||[]).slice().sort((a,b)=>a.fecha<b.fecha?-1:1);if(!rec.length)return null;
+  // Fecha de referencia: compromiso del proveedor; si no hay, la fecha de entrega de la OC solo si es posterior a la fecha de la OC
+  let ref=null,base='SIN FECHA VALIDA';
+  if(compromisos.has(Number(l.folio))){ref=compromisos.get(Number(l.folio));base='COMPROMISO';}
+  else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='SOLICITADA';}
+  const tot=rec.reduce((t,r)=>t+Number(r.cantidad),0);const ult=rec[rec.length-1].fecha;
+  return{folio:Number(l.folio),clave:Number(l.clave),proveedor:l.proveedor,comprador:l.comprador,mes:ult.slice(0,7),ref,base,
+    on_time:ref?ult<=ref:null,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
+};
+P.otifResumen=(lineas,clave)=>{
+  // On Time solo sobre líneas con fecha de referencia válida; In Full sobre todas. OTIF = promedio de los dos.
+  const g={};lineas.forEach(x=>{const k=x[clave]||'(sin dato)';const o=g[k]||(g[k]={n:0,nOT:0,ot:0,inf:0,comp:0});o.n++;if(x.on_time!=null){o.nOT++;if(x.on_time)o.ot++;}if(x.in_full)o.inf++;if(x.base==='COMPROMISO')o.comp++;});
+  return Object.entries(g).map(([k,o])=>{const ot=o.nOT?o.ot/o.nOT:null,inf=o.inf/o.n;return{nombre:k,lineas:o.n,con_fecha:o.nOT,on_time:ot,in_full:inf,otif:ot==null?null:(ot+inf)/2,con_compromiso:o.comp/o.n};}).sort((a,b)=>b.lineas-a.lineas);
 };
 /*PARSE-END*/
 
@@ -519,8 +622,8 @@ async function contexto(log){
     todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').order('clave')),
     todo(()=>sb.from('plan_empaques').select('*').order('clave')),
     todo(()=>sb.from('claves_restringidas').select('clave,comprador,activa,autorizado_en').eq('activa',true).order('clave'))]);
-  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),ultimo:{SANVER:null,MF:null}};
-  ven.forEach(r=>{const k=Number(r.clave);ctx.ventas[r.empresa].set(k,r.meses||{});Object.keys(r.meses||{}).forEach(m=>{if(!ctx.ultimo[r.empresa]||m>ctx.ultimo[r.empresa])ctx.ultimo[r.empresa]=m;});});
+  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),ultimo:{SANVER:null,MF:null},primero:{SANVER:null,MF:null}};
+  ven.forEach(r=>{const k=Number(r.clave);ctx.ventas[r.empresa].set(k,r.meses||{});Object.keys(r.meses||{}).forEach(m=>{if(!ctx.ultimo[r.empresa]||m>ctx.ultimo[r.empresa])ctx.ultimo[r.empresa]=m;if(!ctx.primero[r.empresa]||m<ctx.primero[r.empresa])ctx.primero[r.empresa]=m;});});
   ed.forEach(r=>{const k=Number(r.clave);if(!ctx.ed.has(k))ctx.ed.set(k,{});ctx.ed.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad);});
   ag.forEach(r=>ctx.agot.add(r.empresa+'|'+Number(r.clave)+'|'+String(r.mes).slice(0,7)));
   mf.forEach(r=>ctx.invMF.set(Number(r.clave),Number(r.existencia)));
@@ -531,7 +634,7 @@ async function contexto(log){
   return{ctx,restr};
 }
 async function cargaCalc(log){
-  const wb=await leerLibro('f-calc',['Detalle'],log);
+  const wb=await leerLibro('f-calc',['Detalle','Productos Incluidos en','RP01-23 Ordenes de Compra'],log);
   const porFecha=P.detalle(wb);
   const fechas=[...porFecha.keys()].sort();
   if(!fechas.length)throw new Error('La hoja Detalle no trae fechas válidas.');
@@ -566,6 +669,8 @@ async function cargaCalc(log){
   }
   const fUlt=pendientes[pendientes.length-1];
   if(soloPublicar)prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));
+  // OCs, Target y OTIF
+  const ocx=await procesarOCs(wb,fUlt,log);
   // 3. publicar
   log.msg('🗜️ Publicando el cálculo del '+fUlt+'…');
   const cuenta=(arr,k)=>arr.reduce((o,r)=>{o[r[k]]=(o[r[k]]||0)+1;return o;},{});
@@ -574,28 +679,80 @@ async function cargaCalc(log){
   if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
   const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
   if(up.error)throw new Error('Storage: '+up.error.message);
-  const resumen={claves:res.length,estatus_portal:cuenta(res,'est'),estatus_excel:cuenta(res,'estX'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
+  const resumen={target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),estatus_excel:cuenta(res,'estX'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
   const{error:eu}=await sb.from('plan_publicacion').upsert({id:'estado',fecha:fUlt,ruta,version:Date.now().toString(),resumen,en_riesgo:[...prev],actualizado_en:new Date().toISOString()},{onConflict:'id'});
   if(eu)throw new Error('plan_publicacion: '+eu.message);
-  ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia};
+  ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia,oc:ocx};
   document.getElementById('btn-xl').style.display='';
-  pintarCalc(resumen,nuevasDia);
+  pintarCalc(resumen,nuevasDia,ocx);
   log.msg('🎉 Listo. '+fmt(res.length)+' claves calculadas al '+fUlt+' · '+totN+' alarmas nuevas.');
 }
-function pintarCalc(r,nuevas){
+async function procesarOCs(wb,fecha,log){
+  const cur=P.ocLineas(wb);
+  if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
+  const enc=P.ocEncabezados(wb);
+  log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
+  const prevRows=await todo(()=>sb.from('plan_oc_lineas').select('*').is('cerrada_en',null).order('folio').order('clave'));
+  const{count:tot}=await sb.from('plan_oc_lineas').select('*',{count:'exact',head:true});
+  const prev=new Map(prevRows.map(r=>[Number(r.folio)+'|'+Number(r.clave),r]));
+  if(!tot){
+    log.msg('📍 Primera foto de OCs: se guardan como punto de partida (sin recepciones).');
+    await enLotes('plan_oc_lineas',[...cur.values()].map(l=>({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
+  }else{
+    const d=P.diffOC(prev,cur,enc,fecha);
+    await enLotes('plan_oc_lineas',d.upserts.map(u=>({...u,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
+    if(d.recep.length)await enLotes('plan_recepciones',d.recep,log,{onConflict:'folio,clave,fecha'});
+    log.msg('   '+fmt(d.recep.length)+' recepciones detectadas · '+fmt(d.cerradas)+' líneas completadas · '+fmt(d.canceladas)+' canceladas');
+  }
+  // Target: alarmas por evaluar (sin resultado o "SIN OC" provisional) de los últimos 120 días
+  const desde=new Date(new Date(fecha+'T12:00:00')-120*864e5).toISOString().slice(0,10);
+  const al=[...await todo(()=>sb.from('plan_alarmas').select('*').is('resultado_target',null).gte('fecha_alarma',desde).order('id')),
+            ...await todo(()=>sb.from('plan_alarmas').select('*').eq('resultado_target','SIN OC').gte('fecha_alarma',desde).order('id'))];
+  const claves=[...new Set(al.map(a=>Number(a.clave)))];const ocs=new Map();
+  for(let i=0;i<claves.length;i+=200){
+    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,cerrada_en,cancelada').in('clave',claves.slice(i,i+200)).order('folio'));
+    rs.forEach(o=>{const k=Number(o.clave);if(!ocs.has(k))ocs.set(k,[]);ocs.get(k).push(o);});
+  }
+  const cambios=[];
+  al.forEach(a=>{const t=P.target(a,ocs.get(Number(a.clave))||[],fecha);if(t&&(t.resultado_target!==a.resultado_target||t.oc_folio!==(a.oc_folio==null?null:Number(a.oc_folio))))cambios.push({...a,...t});});
+  if(cambios.length)await enLotes('plan_alarmas',cambios,log,{onConflict:'id'});
+  log.msg('🎯 Target: '+fmt(al.length)+' alarmas por evaluar · '+fmt(cambios.length)+' con resultado nuevo');
+  // Resumen del mes: Target por comprador y OTIF por proveedor
+  const mes=fecha.slice(0,7)+'-01';
+  const am=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,fecha_alarma,tipo,resultado_target,oc_folio,fecha_oc,dias_dif,nota').gte('fecha_alarma',mes).order('fecha_alarma'));
+  const cuentaT=x=>x.resultado_target&&!['EXCLUIDA','EN REVISION GERENCIA','SIN NECESIDAD'].includes(x.resultado_target);
+  const tg={};am.forEach(a=>{const o=tg[a.comprador]||(tg[a.comprador]={n:0,ok:0,pend:0});if(!a.resultado_target){o.pend++;return;}if(!cuentaT(a))return;o.n++;if(['EN TIEMPO','ANTICIPADA'].includes(a.resultado_target))o.ok++;});
+  const tRows=Object.entries(tg).map(([c,o])=>({nombre:c,evaluadas:o.n,cumplen:o.ok,target:o.n?o.ok/o.n:null,pendientes:o.pend})).sort((a,b)=>a.nombre<b.nombre?-1:1);
+  const tN=tRows.reduce((t,r)=>t+r.evaluadas,0),tOk=tRows.reduce((t,r)=>t+r.cumplen,0);
+  const cer=await todo(()=>sb.from('plan_oc_lineas').select('*').gte('cerrada_en',mes).order('folio').order('clave'));
+  const folios=[...new Set(cer.map(l=>Number(l.folio)))];const rec=new Map();
+  for(let i=0;i<folios.length;i+=200){(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio'))).forEach(r=>{const k=Number(r.folio)+'|'+Number(r.clave);if(!rec.has(k))rec.set(k,[]);rec.get(k).push(r);});}
+  const comp=new Map((await todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))).filter(c=>c.fecha).map(c=>[Number(c.folio),c.fecha]));
+  const oLin=cer.map(l=>P.otifLinea(l,rec.get(Number(l.folio)+'|'+Number(l.clave)),comp)).filter(Boolean);
+  const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;
+  log.msg('🚚 OTIF del mes: '+fmt(oLin.length)+' líneas cerradas evaluables'+(oGen?' · OTIF '+(oGen.otif==null?'— (sin líneas con fecha válida)':(oGen.otif*100).toFixed(1)+'%'):''));
+  return{tRows,tGen:tN?{evaluadas:tN,target:tOk/tN}:null,alarmasMes:am,oLin,oProv:P.otifResumen(oLin,'proveedor'),oGen};
+}
+function pct(x){return x==null?'—':(x*100).toFixed(1)+'%';}
+function pintarCalc(r,nuevas,ocx){
   const est=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
   const porComp={};nuevas.forEach(a=>{porComp[a.comprador]=(porComp[a.comprador]||0)+1;});
   document.getElementById('calc-res').innerHTML=
    '<div class="kpis">'+est.map(e=>'<div class="kpi"><b>'+fmt(r.estatus_portal[e]||0)+'</b><span>'+e+' portal · Excel '+fmt(r.estatus_excel[e]||0)+'</span></div>').join('')
    +'<div class="kpi"><b>'+fmt(r.alarmas_nuevas)+'</b><span>Alarmas nuevas</span></div><div class="kpi"><b>'+fmt(r.bandera_mf)+'</b><span>Revisar con gerencia (MF)</span></div></div>'
-   +(nuevas.length?'<div class="scroll" style="max-height:220px"><table><tr><th>Comprador</th><th>Alarmas nuevas</th></tr>'+Object.entries(porComp).sort((a,b)=>b[1]-a[1]).map(([c,n])=>'<tr><td>'+c+'</td><td>'+n+'</td></tr>').join('')+'</table></div>':'');
+   +(nuevas.length?'<div class="scroll" style="max-height:220px"><table><tr><th>Comprador</th><th>Alarmas nuevas</th></tr>'+Object.entries(porComp).sort((a,b)=>b[1]-a[1]).map(([c,n])=>'<tr><td>'+c+'</td><td>'+n+'</td></tr>').join('')+'</table></div>':'')
+   +(ocx?'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🎯 Target de comprador del mes '+(ocx.tGen?'· '+pct(ocx.tGen.target)+' ('+fmt(ocx.tGen.evaluadas)+' alarmas evaluadas)':'· aún sin alarmas evaluadas')+'</h3>'
+      +'<div class="scroll" style="max-height:260px"><table><tr><th>Comprador</th><th>Evaluadas</th><th>Cumplen</th><th>Target</th><th>En plazo (sin resultado aún)</th></tr>'+ocx.tRows.map(t=>'<tr><td>'+t.nombre+'</td><td>'+t.evaluadas+'</td><td>'+t.cumplen+'</td><td>'+pct(t.target)+'</td><td>'+t.pendientes+'</td></tr>').join('')+'</table></div>'
+      +'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🚚 OTIF de proveedor del mes '+(ocx.oGen?'· '+pct(ocx.oGen.otif)+' ('+fmt(ocx.oGen.lineas)+' líneas · '+pct(ocx.oGen.con_compromiso)+' con fecha compromiso)':'· aún sin líneas cerradas')+'</h3>'
+      +(ocx.oProv.length?'<div class="scroll" style="max-height:260px"><table><tr><th>Proveedor</th><th>Líneas</th><th>Con fecha válida</th><th>On Time</th><th>In Full</th><th>OTIF</th><th>Con compromiso</th></tr>'+ocx.oProv.slice(0,30).map(o=>'<tr><td>'+o.nombre+'</td><td>'+o.lineas+'</td><td>'+o.con_fecha+'</td><td>'+pct(o.on_time)+'</td><td>'+pct(o.in_full)+'</td><td>'+pct(o.otif)+'</td><td>'+pct(o.con_compromiso)+'</td></tr>').join('')+'</table></div>':'')
+      +'<p class="d" style="font-size:11.5px;margin-top:6px">Target: cumple si la OC se colocó entre '+P.R.T_ANTES+' días antes y '+P.R.T_DESPUES+' días después de la alarma. OTIF = promedio de On Time e In Full. On Time se mide contra la fecha compromiso del proveedor; si la OC no la tiene, contra su fecha de entrega, solo si es posterior a la fecha de la OC (si no, la línea no cuenta para On Time).</p>':'');
 }
 async function descargarCalc(){
   if(!ULTIMO_CALC)return;
   let abiertas=[];
   try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
-    ['ex','Existencias SANVER'],['bo','BO'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
+    ['ex','Existencias SANVER'],['bo','BO'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
     ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
@@ -605,6 +762,9 @@ async function descargarCalc(){
   const tr=a=>{const o={};Object.keys(alH).forEach(k=>o[alH[k]]=a[k]);return o;};
   if(abiertas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(abiertas.map(tr)),'Alarmas abiertas');
   if(ULTIMO_CALC.nuevas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ULTIMO_CALC.nuevas.map(tr)),'Alarmas nuevas (esta carga)');
+  const ox=ULTIMO_CALC.oc;
+  if(ox&&ox.alarmasMes.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ox.alarmasMes.map(a=>({Clave:a.clave,Comprador:a.comprador,'Fecha alarma':a.fecha_alarma,Tipo:a.tipo,Target:a.resultado_target||'EN PLAZO','OC':a.oc_folio,'Fecha OC':a.fecha_oc,'Días vs alarma':a.dias_dif,Nota:a.nota}))),'Target del mes');
+  if(ox&&ox.oLin.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ox.oLin.map(l=>({OC:l.folio,Clave:l.clave,Proveedor:l.proveedor,Comprador:l.comprador,'Mes cierre':l.mes,'Fecha referencia':l.ref,'Base':l.base,'A tiempo':l.on_time==null?'SIN FECHA VÁLIDA':(l.on_time?'SÍ':'NO'),'Completa':l.in_full?'SÍ':'NO',Pedido:l.pedido,Recibido:l.recibido}))),'OTIF líneas del mes');
   XLSX.writeFile(wb,'Planeacion_'+ULTIMO_CALC.fecha+'.xlsx');
 }
 
