@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fecha compromiso OCs</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -68,6 +69,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
       <select id="f-comp" onchange="pintar()"><option value="">Todos los compradores</option></select>
       <input type="text" id="f-prov" placeholder="Proveedor…" oninput="pintar()">
       <input type="text" id="f-folio" placeholder="Folio OC…" oninput="pintar()" style="width:130px">
+      <select id="f-mes" onchange="pintar()" title="Mes vigente = el mes de hoy"><option value="REF">Compromiso en el mes vigente</option><option value="OC">OC creada en el mes vigente</option><option value="">Todos los meses</option></select>
       <select id="f-tipo" onchange="pintar()"><option value="CEDI">OCs al CEDI</option><option value="ED">Entregas directas a sucursal</option><option value="TODAS">Todas</option></select>
       <label class="d"><input type="checkbox" id="f-sin" onchange="pintar()"> Solo sin compromiso</label>
       <label class="d" title="OCs al CEDI con más de 120 días desde su fecha: revisar si se deben cerrar o cancelar en el sistema"><input type="checkbox" id="f-dep" onchange="pintar()"> Por depurar (+120 días)</label>
@@ -75,8 +77,14 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
     </div>
     <div class="kpis" id="kpis"></div>
   </div>
+  <div class="card">
+    <h2>Fechas reales del proveedor por archivo</h2>
+    <p class="d" style="margin-bottom:10px">Descarga la plantilla (trae las OCs que ves con los filtros de arriba), llena la columna <b>Fecha compromiso real</b> y súbela. Solo se usan las filas con fecha; las vacías no cambian nada. La fecha real reemplaza a la de por defecto y con ella se mide el OTIF. También sirve cualquier Excel que tenga una columna <b>Folio</b> y una columna <b>Fecha compromiso real</b> (o <b>Fecha compromiso</b>).</p>
+    <div class="row"><button class="sm" onclick="plantilla()">⬇ Descargar plantilla</button><input type="file" id="f-arch" accept=".xlsx,.xls,.csv"><button class="sm" onclick="revisarArchivo()">Revisar archivo</button></div>
+    <div id="arch-res" class="d" style="margin-top:10px"></div>
+  </div>
   <div class="scroll"><table id="tb"></table></div>
-  <p class="d" style="margin-top:8px">Cada OC trae una <b>fecha compromiso por defecto</b> = fecha de la OC + meses de entrega de la clave. El OTIF se mide contra ella hasta que alguien capture la fecha real que confirme el proveedor (cámbiala y presiona Guardar).</p>
+  <p class="d" style="margin-top:8px">Cada OC trae una <b>fecha compromiso por defecto</b> = fecha de la OC + meses de entrega de la clave. El OTIF se mide contra ella hasta que alguien capture la fecha real que confirme el proveedor (cámbiala y presiona Guardar, o súbela por archivo).</p>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -118,9 +126,60 @@ function agruparOC(lineas,comp,ltMap){
 }
 const DEPURAR=120;   // días desde la fecha de la OC
 const edad=(f,hoy)=>f?Math.round((new Date(hoy+'T12:00:00')-new Date(f+'T12:00:00'))/864e5):0;
+// (Por depurar y la búsqueda por folio ignoran el filtro de mes)
+// Mes vigente: REF = la fecha contra la que se mide (capturada o por defecto) cae en el mes de hoy; OC = la OC se creó en el mes de hoy
+const enMes=(f,hoy)=>!!f&&f.slice(0,7)===hoy.slice(0,7);
 function filtrarOC(ocs,f,hoy){
-  return ocs.filter(o=>(!f.tipo||f.tipo==='TODAS'||(f.tipo==='ED')===o.ed)&&(!f.dep||(!o.ed&&edad(o.fecha_oc,hoy)>DEPURAR))&&(!f.comp||o.comprador===f.comp)&&(!f.prov||o.proveedor.toUpperCase().includes(f.prov.toUpperCase()))&&(!f.folio||String(o.folio).includes(f.folio))&&(!f.sin||!o.compromiso))
+  return ocs.filter(o=>(!f.mes||f.dep||f.folio||(f.mes==='REF'?enMes(o.ref,hoy):enMes(o.fecha_oc,hoy)))&&(!f.tipo||f.tipo==='TODAS'||(f.tipo==='ED')===o.ed)&&(!f.dep||(!o.ed&&edad(o.fecha_oc,hoy)>DEPURAR))&&(!f.comp||o.comprador===f.comp)&&(!f.prov||o.proveedor.toUpperCase().includes(f.prov.toUpperCase()))&&(!f.folio||String(o.folio).includes(f.folio))&&(!f.sin||!o.compromiso))
     .sort((a,b)=>(a.ref||'9')<(b.ref||'9')?-1:(a.ref||'9')>(b.ref||'9')?1:a.folio-b.folio);
+}
+// ── Carga de fechas reales por archivo ──
+const normH=s=>String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+// Fecha de una celda: Date, serial de Excel, 'AAAA-MM-DD', 'DD/MM/AAAA' o 'DD-MM-AA'. Devuelve 'AAAA-MM-DD' o null
+function fechaCelda(v){
+  if(v==null||v==='')return null;
+  const ok=(y,m,d)=>{if(y<100)y+=2000;const t=new Date(Date.UTC(y,m-1,d));return t.getUTCFullYear()===y&&t.getUTCMonth()===m-1&&t.getUTCDate()===d&&y>=2020&&y<=2035?t.toISOString().slice(0,10):null;};
+  if(v instanceof Date)return isNaN(v)?null:ok(v.getFullYear(),v.getMonth()+1,v.getDate());
+  if(typeof v==='number'){if(v<40000||v>60000)return null;const t=new Date(Math.round((v-25569)*864e5));return ok(t.getUTCFullYear(),t.getUTCMonth()+1,t.getUTCDate());}
+  const s=String(v).trim();let m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)))return ok(+m[1],+m[2],+m[3]);
+  if((m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/)))return ok(+m[3],+m[2],+m[1]);
+  if(/^\d+(\.\d+)?$/.test(s))return fechaCelda(Number(s));
+  return null;
+}
+// filas: arreglo de arreglos (hoja). ocs: Map folio → OC abierta. Devuelve cambios a guardar y lo que no se pudo usar.
+function leerFechasReales(filas,ocs){
+  let hi=-1,cF=-1,cD=-1,cC=-1;
+  for(let i=0;i<Math.min(filas.length,15)&&hi<0;i++){
+    const h=(filas[i]||[]).map(normH);
+    const f=h.findIndex(x=>x.includes('FOLIO'));if(f<0)continue;
+    let d=h.findIndex(x=>x.includes('REAL'));
+    if(d<0)d=h.findIndex(x=>x.includes('COMPROMISO')&&!x.includes('DEFECTO')&&!x.includes('CAPTURAD')&&!x.includes('ANTERIOR'));
+    if(d<0)continue;
+    hi=i;cF=f;cD=d;cC=h.findIndex(x=>x.includes('COMENT'));
+  }
+  const r={cambios:[],errores:[],iguales:0,vacias:0,filas:0,encabezado:hi>=0};
+  if(hi<0)return r;
+  const vistos=new Map();
+  for(let i=hi+1;i<filas.length;i++){
+    const row=filas[i]||[];const fv=row[cF];
+    if(fv==null||String(fv).trim()===''){continue;}
+    r.filas++;
+    const folio=Number(String(fv).replace(/[^\d]/g,''));const n=i+1;
+    const raw=row[cD];const com=cC>=0&&row[cC]!=null&&String(row[cC]).trim()!==''?String(row[cC]).trim():null;
+    if(raw==null||String(raw).trim()===''){r.vacias++;continue;}
+    const fecha=fechaCelda(raw);
+    if(!folio){r.errores.push({fila:n,folio:fv,motivo:'Folio no válido'});continue;}
+    if(!fecha){r.errores.push({fila:n,folio,motivo:'Fecha no válida: '+raw});continue;}
+    const o=ocs.get(folio);
+    if(!o){r.errores.push({fila:n,folio,motivo:'No es una OC abierta (ya cerrada, cancelada o no existe)'});continue;}
+    if(o.fecha_oc&&fecha<o.fecha_oc){r.errores.push({fila:n,folio,motivo:'Fecha antes de la fecha de la OC ('+o.fecha_oc+')'});continue;}
+    if(vistos.has(folio))r.errores.push({fila:n,folio,motivo:'Folio repetido en el archivo: se usa esta fila (la última)'});
+    if(o.compromiso===fecha&&(!com||com===(o.comentario||''))){vistos.delete(folio);r.iguales++;continue;}
+    vistos.set(folio,{folio,fecha,comentario:com!=null?com:(o.comentario||null),antes:o.compromiso||null,defecto:o.defecto||null});
+  }
+  r.cambios=[...vistos.values()];
+  return r;
 }
 /*LOGIC-END*/
 const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
@@ -187,17 +246,17 @@ async function cargar(){
 }
 function pintar(){
   if(!OCS)return;
-  const f={tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
+  const f={mes:document.getElementById('f-mes').value,tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
   const v=filtrarOC(OCS,f,hoy());const h=hoy();
-  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.defecto).length,dep=v.filter(o=>!o.ed&&edad(o.fecha_oc,h)>DEPURAR).length;
-  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con compromiso capturado</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>con compromiso por defecto (OC + entrega)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
+  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.defecto).length,dep=filtrarOC(OCS,{...f,mes:'',dep:true},h).length;
+  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas'+(f.mes==='REF'?' con compromiso este mes':f.mes==='OC'?' creadas este mes':'')+'</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con compromiso capturado</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>con compromiso por defecto (OC + entrega)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
   const puede=!!document.getElementById('quien').value;
   let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega en OC</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
   v.slice(0,800).forEach(o=>{
     const ref=o.ref;const vencida=ref&&ref<h;
     html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+(o.ed?' <span class="chip c-no" title="Entrega directa a sucursal: no cuenta para OTIF, Target ni vencidas del CEDI">→ '+esc(o.destino||'sucursal')+'</span>':'')+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega_oc)+'</td>'
       +'<td class="num">'+o.claves.length+'</td><td class="num">'+o.pend.toLocaleString('es-MX')+'</td>'
-      +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||o.defecto||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida':'capturada')+'</span>':o.defecto?'<span class="chip '+(vencida?'c-v':'c-no')+'" title="Fecha de la OC + meses de entrega de la clave. Cámbiala y guarda cuando el proveedor confirme la fecha real.">'+(vencida?'vencida · ':'')+'por defecto</span>':'<span class="chip c-v">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
+      +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||o.defecto||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida hace '+edad(ref,h).toLocaleString('es-MX')+' días':'capturada')+'</span>':o.defecto?'<span class="chip '+(vencida?'c-v':'c-no')+'" title="Fecha de la OC + meses de entrega de la clave. Cámbiala y guarda cuando el proveedor confirme la fecha real.">'+(vencida?'vencida hace '+edad(ref,h).toLocaleString('es-MX')+' días · ':'')+'por defecto</span>':'<span class="chip c-v">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
       +'<td><input type="text" id="c-'+o.folio+'" value="'+esc(o.comentario||'')+'" placeholder="opcional"'+(puede?'':' disabled')+'></td>'
       +'<td><button class="sm" onclick="guardar('+o.folio+')"'+(puede?'':' disabled')+'>Guardar</button></td>'
       +'<td class="who">'+(o.usuario?esc(o.usuario)+'<br>'+new Date(o.cuando).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'}):'')+'</td></tr>';
@@ -218,6 +277,53 @@ async function guardar(folio){
   if(error){toast('❌ No se guardó: '+error.message);return;}
   Object.assign(o,{compromiso:fecha,comentario:com,anterior:fila.fecha_anterior,usuario:quien,cuando:fila.actualizado_en});
   toast('✓ OC '+folio+' guardada');pintar();
+}
+// ── Plantilla y carga de fechas reales ──
+function filtrosActuales(){return{mes:document.getElementById('f-mes').value,tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};}
+const aFecha=f=>f?new Date(f+'T12:00:00'):null;
+function plantilla(){
+  const v=filtrarOC(OCS,filtrosActuales(),hoy());
+  if(!v.length){toast('No hay OCs con esos filtros');return;}
+  const filas=[['Folio OC','Proveedor','Comprador','Fecha OC','Claves','Compromiso por defecto','Compromiso capturado','Fecha compromiso real','Comentario']];
+  v.forEach(o=>filas.push([o.folio,o.proveedor,o.comprador,aFecha(o.fecha_oc),o.claves.length,aFecha(o.defecto),aFecha(o.compromiso),null,o.comentario||'']));
+  const ws=XLSX.utils.aoa_to_sheet(filas,{cellDates:true,dateNF:'dd/mm/yyyy'});
+  ws['!cols']=[{wch:10},{wch:34},{wch:16},{wch:11},{wch:7},{wch:13},{wch:13},{wch:15},{wch:30}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Fechas reales');
+  XLSX.writeFile(wb,'Fechas_compromiso_'+hoy()+'.xlsx');
+}
+let PEND_ARCH=null;
+async function revisarArchivo(){
+  const out=document.getElementById('arch-res');PEND_ARCH=null;
+  const fi=document.getElementById('f-arch').files[0];if(!fi){toast('Elige un archivo');return;}
+  try{
+    const wb=XLSX.read(await fi.arrayBuffer(),{type:'array',cellDates:true});
+    let r=null;
+    for(const n of wb.SheetNames){const x=leerFechasReales(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:null}),new Map(OCS.map(o=>[o.folio,o])));if(x.encabezado){r=x;break;}}
+    if(!r){out.innerHTML='<span style="color:var(--err)">❌ No encontré las columnas <b>Folio</b> y <b>Fecha compromiso real</b> en ninguna hoja.</span>';return;}
+    PEND_ARCH=r.cambios;
+    let h='<b>'+r.filas.toLocaleString('es-MX')+'</b> filas leídas · <b style="color:var(--ok)">'+r.cambios.length.toLocaleString('es-MX')+' fechas para guardar</b> · '+r.iguales+' iguales a lo ya capturado · '+r.vacias+' sin fecha · <b style="color:'+(r.errores.length?'var(--err)':'inherit')+'">'+r.errores.length+' con problema</b>';
+    if(r.cambios.length){
+      const venc=r.cambios.filter(c=>c.fecha<hoy()).length;
+      h+='<div style="margin-top:8px" class="row"><button onclick="aplicarArchivo()">Guardar '+r.cambios.length.toLocaleString('es-MX')+' fechas reales</button>'+(venc?'<span class="d">'+venc+' traen fecha ya pasada (se guardan igual).</span>':'')+'</div>';
+      h+='<details style="margin-top:6px"><summary>Ver cambios</summary><table style="margin-top:6px"><tr><th>Folio</th><th>Por defecto</th><th>Antes</th><th>Real</th><th>Comentario</th></tr>'+r.cambios.slice(0,300).map(c=>'<tr><td>'+c.folio+'</td><td>'+fmtF(c.defecto)+'</td><td>'+fmtF(c.antes)+'</td><td><b>'+fmtF(c.fecha)+'</b></td><td>'+esc(c.comentario||'')+'</td></tr>').join('')+'</table></details>';
+    }
+    if(r.errores.length)h+='<details style="margin-top:6px"'+(r.cambios.length?'':' open')+'><summary style="color:var(--err)">Ver filas con problema</summary><table style="margin-top:6px"><tr><th>Fila</th><th>Folio</th><th>Motivo</th></tr>'+r.errores.slice(0,300).map(e=>'<tr><td>'+e.fila+'</td><td>'+esc(e.folio)+'</td><td>'+esc(e.motivo)+'</td></tr>').join('')+'</table></details>';
+    out.innerHTML=h;
+  }catch(e){out.innerHTML='<span style="color:var(--err)">❌ No se pudo leer el archivo: '+esc(e.message)+'</span>';}
+}
+async function aplicarArchivo(){
+  const quien=document.getElementById('quien').value;if(!quien){toast('Primero elige tu nombre');return;}
+  if(!PEND_ARCH||!PEND_ARCH.length)return;
+  const ahora=new Date().toISOString();
+  const filas=PEND_ARCH.map(c=>{const o=OCS.find(x=>x.folio===c.folio);return{folio:c.folio,fecha:c.fecha,comentario:c.comentario,fecha_anterior:o&&o.compromiso&&o.compromiso!==c.fecha?o.compromiso:(o&&o.anterior)||null,usuario:quien+' (archivo)',actualizado_en:ahora};});
+  const out=document.getElementById('arch-res');
+  for(let i=0;i<filas.length;i+=500){
+    const{error}=await sb.from('plan_oc_compromiso').upsert(filas.slice(i,i+500),{onConflict:'folio'});
+    if(error){out.innerHTML='<span style="color:var(--err)">❌ Se guardaron '+i+' de '+filas.length+'. Error: '+esc(error.message)+'</span>';return;}
+  }
+  PEND_ARCH=null;document.getElementById('f-arch').value='';
+  out.innerHTML='<span style="color:var(--ok)">✓ '+filas.length.toLocaleString('es-MX')+' fechas reales guardadas. El OTIF se medirá contra ellas en el próximo cálculo diario.</span>';
+  await cargar();
 }
 </script>
 </body>
