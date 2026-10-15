@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — Estatus de Back Orders</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="plan_logica.js" charset="utf-8"></script>
 <script>
 window.SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";window.SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
 window.sbGet=function(){return window.__SB||(window.__SB=window.supabase.createClient(window.SB_URL,window.SB_KEY));};
@@ -321,6 +322,12 @@ tr.detail-row td{padding:0;background:#F0F7FF;border-bottom:2px solid var(--sky-
         </select>
       </div>
       <div class="filter-group">
+        <label>Tipo de entrega</label>
+        <select id="f-entrega" onchange="applyFilters()" title="Entrega directa = la sucursal de destino viene en Observaciones">
+          <option value="">Todas</option><option value="CEDI">Entrega en CEDI</option><option value="ED">Entrega directa a sucursal</option>
+        </select>
+      </div>
+      <div class="filter-group">
         <label>Back Order</label>
         <select id="f-bo" onchange="applyFilters()">
           <option value="">Todos</option><option>PENDIENTE</option><option>APLICADO</option>
@@ -569,6 +576,8 @@ function normalizeOrders(estadoMap){
     o._estatus  = String(o['Estatus']||'').trim().toUpperCase();
     o._bo       = String(o['Back Order']||'').trim().toUpperCase();
     o._prov     = String(o['Proveedor']||'').trim();
+    o._destino  = (window.P&&P.destinoED)?P.destinoED(o['Observaciones']||''):null;   // sucursal de entrega directa (misma regla que Planeación)
+    o._entrega  = o._destino?'ED':'CEDI';
     o._comp     = resolverComprador(o);  // comprador de la OC (manual → reporte → capturista)
     // Estado OC: from map (Excel load) or from JSON field
     o._estadoOC = (estadoMap && estadoMap[o._folio])
@@ -679,7 +688,7 @@ function toggleFilters(){
 }
 
 function updateActiveCount(){
-  const ids = ['f-estatus','f-estado-oc','f-bo','f-comprador','f-comprador-clave','f-proveedor',
+  const ids = ['f-estatus','f-estado-oc','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor',
                'f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
                'f-folio','f-clave','search-box'];
   const count = ids.filter(id=>{ const el=$(id); return el && el.value; }).length;
@@ -690,7 +699,7 @@ function updateActiveCount(){
 
 // ── FULL RESET ─────────────────────────────────────────────────────────────
 function fullReset(){
-  ['f-estatus','f-bo','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc']
+  ['f-estatus','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc']
     .forEach(id=>{ const el=$(id); if(el) el.value=''; });
   ['f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
    'f-folio','f-clave','search-box']
@@ -836,6 +845,7 @@ function matchesFilters(o, v, skip){
   if(skip!=='estatus'  && v.estatus  && o._estatus  !== v.estatus)  return false;
   if(skip!=='estadoOC' && v.estadoOC && o._estadoOC !== v.estadoOC) return false;
   if(skip!=='bo'       && v.bo       && o._bo       !== v.bo)       return false;
+  if(v.entrega && o._entrega !== v.entrega) return false;
   if(skip!=='comp'     && v.comp     && o._comp     !== v.comp)     return false;
   if(skip!=='prov'     && v.prov     && o._prov     !== v.prov)     return false;
   if(v.folio  && !o._folio.toLowerCase().includes(v.folio))         return false;
@@ -864,6 +874,7 @@ function readVals(){
     estatus:  $('f-estatus').value,
     estadoOC: $('f-estado-oc').value,
     bo:       $('f-bo').value,
+    entrega:  $('f-entrega').value,
     comp:     $('f-comprador').value,
     prov:     $('f-proveedor').value,
     cc:       $('f-comprador-clave').value,
@@ -929,7 +940,7 @@ function applyFilters(){
 }
 
 function resetFilters(){
-  ['f-estatus','f-bo','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc',
+  ['f-estatus','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc',
    'f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
    'f-folio','f-clave','search-box'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
   // Reconstruir opciones completas desde allOrders
@@ -1023,7 +1034,7 @@ function renderTable(){
       <td style="text-align:right"><span class="mono">${fmtMoney(o['Importe'])}</span></td>
       <td>${escH(String(o['Plazo Pago']||''))}</td>
       <td>${escH(String(o['Acepta Parciales']||''))}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(String(o['Observaciones']||''))}">${escH(String(o['Observaciones']||''))}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(String(o['Observaciones']||''))}">${o._destino?`<span class="badge" style="background:#ede9fe;color:#5b21b6;margin-right:4px" title="Entrega directa a sucursal">→ ${escH(o._destino)}</span>`:''}${escH(String(o['Observaciones']||''))}</td>
     </tr>
     <tr class="detail-row" id="detail-${rid}">
       <td colspan="13"><div class="detail-inner" id="inner-${rid}"></div></td>
@@ -1112,7 +1123,7 @@ function exportToExcel(){
   if(!filtered.length){alert('No hay datos para exportar.');return;}
   const ordRows=filtered.map(o=>({
     'Folio OC':o._folio,'Fecha OC':fmtDate(o._fechaOC),'Proveedor':o._prov,'Comprador':o._comp,
-    'Estado Recepción':o._estadoOC,'Estatus':o._estatus,'Back Order':o._bo,'Fecha Entrega':fmtDate(o._fechaEnt),
+    'Estado Recepción':o._estadoOC,'Estatus':o._estatus,'Back Order':o._bo,'Tipo de entrega':o._destino?'ENTREGA DIRECTA':'CEDI','Sucursal destino':o._destino||'','Fecha Entrega':fmtDate(o._fechaEnt),
     'Subtotal':o['Subtotal']||'','IVA':o['Importe IVA']||'','Importe Total':o['Importe']||'',
     'Plazo Pago':o['Plazo Pago']||'','Flete x Cobrar':o['Flete x Cobrar']||'',
     'Transportista':o['Transportista']||'','Acepta Parciales':o['Acepta Parciales']||'',

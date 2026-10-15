@@ -39,7 +39,7 @@
       const sob=cl.filter(r=>r.est==='SOBRE INVENTARIO').sort((a,b)=>(b.mi??0)-(a.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'Obj':r.pm,'Demanda':r1(r.D)}));
       push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario que el objetivo × 1.4.');
       const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));
-      push(comp,'PEDIDO_PROPUESTO',ped,ped.length,nota+' Faltante y riesgo con propuesta = demanda × (tiempo de entrega + objetivo) − (existencia + BO).');
+      push(comp,'PEDIDO_PROPUESTO',ped,ped.length,nota+' Faltante y riesgo con propuesta = demanda × (tiempo de entrega + objetivo) − (existencia + BO del CEDI, sin entregas directas).');
       const al=v.alarmas.filter(a=>mine(a.comprador));let n=0,ok=0,pend=0;
       al.forEach(a=>{if(!a.resultado_target){pend++;return;}if(NO_CUENTA.includes(a.resultado_target))return;n++;if(CUMPLE.includes(a.resultado_target))ok++;});
       const ord={'TARDE':0,'SIN OC':1,'ANTICIPACION EXCESIVA':2};

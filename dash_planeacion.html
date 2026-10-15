@@ -159,13 +159,13 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
       <button class="btn" style="margin-left:auto" onclick="excelDetalle()">⬇ Excel</button>
     </div>
     <div class="tw" id="d-tw"><table><thead id="d-head"></thead><tbody id="d-body"></tbody></table></div>
-    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (≥10 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana). Demanda del portal = promedio de antecedente y pronóstico. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO). Clic en una clave para ver sus ventas mes a mes.</div>
+    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (≥10 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana). Demanda del portal = promedio de antecedente y pronóstico. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO del CEDI); el BO de OCs de entrega directa a sucursal no cuenta. Clic en una clave para ver sus ventas mes a mes.</div>
   </section>
 
   <!-- ═════ PEDIDOS ═════ -->
   <section class="pane" id="pane-ped">
     <div class="card">
-      <div class="row" style="justify-content:space-between"><div><h2>Por pedir hoy</h2><div class="sub">Claves en faltante o riesgo con propuesta del portal mayor a cero (ya descuenta existencia y BO). Primero las de menos cobertura.</div></div>
+      <div class="row" style="justify-content:space-between"><div><h2>Por pedir hoy</h2><div class="sub">Claves en faltante o riesgo con propuesta del portal mayor a cero (ya descuenta existencia y BO del CEDI; el BO de entregas directas no cuenta). Primero las de menos cobertura.</div></div>
       <div class="row"><select id="p-est"><option value="RF">Faltante y riesgo</option><option value="TODAS">Todas las que tienen propuesta</option></select><button class="btn" onclick="excelPedir()">⬇ Excel</button></div></div>
       <div class="cards" id="p-cards"></div>
       <div class="tw" style="max-height:60vh"><table><thead id="p-head"></thead><tbody id="p-body"></tbody></table></div>
@@ -274,6 +274,8 @@ function resumenTarget(al){
 function lineasOTIF(cerradas,recs,comp,ltMap){
   return cerradas.map(l=>{l={...l,fecha_oc:P.d10(l.fecha_oc),fecha_entrega:P.d10(l.fecha_entrega)};return P.otifLinea(l,recs.get(Number(l.folio)+'|'+Number(l.clave)),comp,ltMap.get(Number(l.clave)));}).filter(Boolean);
 }
+const nBO=v=>Number(v).toLocaleString('es-MX',{maximumFractionDigits:Math.abs(v)>=10?0:2});
+const boTxt=r=>{const ed=(r.boT!=null?r.boT:r.bo)-(r.bo||0);return ed>0.0001?'<span title="BO total '+nBO(r.boT)+' · entrega directa '+nBO(ed)+' (no cuenta para el CEDI)">'+nBO(r.bo)+' <span style="color:#7c3aed;font-size:11px">+ED</span></span>':(r.bo?nBO(r.bo):'<span class="cero">0</span>');};
 const pctTxt=x=>x==null?'—':(x*100).toFixed(1)+'%';
 /*DASH-END*/
 
@@ -424,7 +426,7 @@ function pintarCriticas(rows){
 
 // ══════════ DETALLE ══════════
 const DCOLS=[
-  {k:'c',t:'Clave'},{k:'n',t:'Descripción',cls:'desc'},{k:'ex',t:'Exist.',num:1},{k:'bo',t:'BO',num:1},{k:'u',t:'Unidad'},
+  {k:'c',t:'Clave'},{k:'n',t:'Descripción',cls:'desc'},{k:'ex',t:'Exist.',num:1},{k:'bo',t:'BO CEDI',num:1},{k:'u',t:'Unidad'},
   {k:'A',t:'Consumo',num:1,g:'A'},{k:'mA',t:'Meses',num:1,g:'A',d:1},{k:'eA',t:'Estatus',g:'A'},
   {k:'P',t:'Consumo',num:1,g:'P'},{k:'mP',t:'Meses',num:1,g:'P',d:1},{k:'eP',t:'Estatus',g:'P'},
   {k:'D',t:'Demanda',num:1,g:'D'},{k:'mi',t:'Meses',num:1,g:'D',d:1},{k:'est',t:'Estatus',g:'D'},
@@ -453,7 +455,7 @@ function pintarDetalle(){
   rows.slice(0,S.limite).forEach(r=>{
     const ch=cambia(r),em=empeora(r);const mk=ch?'<span class="cambia'+(em?' bad':'')+'" title="'+(em?'Empeora con el pronóstico':'Cambia de estatus')+': '+(EST[r.eA]||{}).l+' → '+(EST[r.eP]||{}).l+'">⇄</span>':'';
     const ocs=S.ocs[r.c]||[];
-    html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+(r.bo?fmtN(r.bo):'<span class="cero">0</span>')+'</td><td class="sm mut">'+esc(r.u)+'</td>'
+    html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
       +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td>'
       +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="gD">'+tag(r.est,B==='D')+'</td>'
@@ -493,8 +495,8 @@ async function pintarExplicacion(c){
       +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF)+'</details>':'')+'</div>'
       +'<div><div class="kv"><b>Antecedente</b><span>'+fmtN(r.A,1)+' / mes · '+(sv.filter(x=>x.usa.includes('ANT')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span><b>Pronóstico</b><span>'+fmtN(r.P,1)+' / mes · '+(sv.filter(x=>x.usa.includes('PRON')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span>'
       +'<b>Demanda portal</b><span>'+fmtN(r.D,1)+' / mes · '+esc(r.bD)+'</span><b>Meses objetivo (N)</b><span>'+r.N+' · objetivo '+fmtN(r.pm,1)+' · entrega '+fmtN(r.lt,1)+'</span>'
-      +'<b>Óptimo</b><span>entre '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' y '+fmtN(r.pm*P.R.FACT_MAX,1)+' meses</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+' + '+fmtN(r.bo)+') = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
-      +'<b>Estatus Excel</b><span>'+esc(r.estX||'—')+'</span>'+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
+      +'<b>Óptimo</b><span>entre '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' y '+fmtN(r.pm*P.R.FACT_MAX,1)+' meses</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
+      +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+' · entrega directa '+fmtN(r.boT-r.bo)+' (no cuenta) · CEDI '+fmtN(r.bo)+'</span>':'')+'<b>Estatus Excel</b><span>'+esc(r.estX||'—')+'</span>'+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
   }catch(e){el.innerHTML='<div class="err">No se pudo leer el historial de la clave: '+esc(e.message||e)+'</div>';}
@@ -518,7 +520,7 @@ function graficaMeses(arr,agot){
 }
 function excelDetalle(){
   const rows=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base});
-  const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO':r.bo,'OCs abiertas':(S.ocs[r.c]||[]).length,
+  const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
     'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
@@ -534,15 +536,15 @@ function filasPedir(){
 }
 function pintarPedir(){
   const rows=filasPedir();const cp=v=>v==null?'—':v>0?'<b class="comprar">'+fmtN(v)+'</b>':'<span class="cero">0</span>';
-  const f=rows.filter(r=>r.est==='FALTANTE').length,ri=rows.filter(r=>r.est==='RIESGO').length,conOC=rows.filter(r=>(S.ocs[r.c]||[]).length).length,mf=rows.filter(r=>r.mfF&&r.mfX>=r.s).length;
-  $('p-cards').innerHTML=[['var(--acc)','🛒 Claves por pedir',rows.length,'con propuesta del portal'],['var(--st-f)','⛔ En faltante',f,'existencia en cero'],['var(--st-r)','⚠️ En riesgo',ri,'menos cobertura que el tiempo de entrega'],['var(--st-o)','📦 Ya tienen OC abierta',conOC,'la propuesta ya descuenta su BO'],['var(--st-n)','🏬 MF podría cubrir',mf,'excedente MF ≥ propuesta: revisar con gerencia']]
+  const f=rows.filter(r=>r.est==='FALTANTE').length,ri=rows.filter(r=>r.est==='RIESGO').length,conOC=rows.filter(r=>(S.ocs[r.c]||[]).some(o=>!o[4])).length,mf=rows.filter(r=>r.mfF&&r.mfX>=r.s).length;
+  $('p-cards').innerHTML=[['var(--acc)','🛒 Claves por pedir',rows.length,'con propuesta del portal'],['var(--st-f)','⛔ En faltante',f,'existencia en cero'],['var(--st-r)','⚠️ En riesgo',ri,'menos cobertura que el tiempo de entrega'],['var(--st-o)','📦 Ya tienen OC al CEDI',conOC,'la propuesta ya descuenta ese BO'],['var(--st-n)','🏬 MF podría cubrir',mf,'excedente MF ≥ propuesta: revisar con gerencia']]
     .map(([c,t,n,p])=>'<div class="kc sm" style="--c:'+c+';cursor:default"><div class="t"><i></i>'+t+'</div><div class="n">'+fmtN(n)+'</div><div class="p">'+p+'</div></div>').join('');
-  $('p-head').innerHTML='<tr class="grp"><th colspan="7"></th><th colspan="3" class="gD">🧭 Portal</th><th colspan="4" class="gPr">🛒 Propuesta</th><th colspan="2"></th></tr><tr class="cols"><th>Clave</th><th>Descripción</th><th>Comprador</th><th class="num">Exist.</th><th class="num">BO</th><th>OCs abiertas</th><th class="num">T.entr.</th><th class="num gD">Demanda</th><th class="num gD">Meses</th><th class="gD">Estatus</th><th class="num gPr">Ant.</th><th class="num gPr">Pron.</th><th class="num gPr">Portal</th><th class="num gPr">Empaque</th><th>MF</th><th>Notas</th></tr>';
-  $('p-body').innerHTML=rows.slice(0,1500).map(r=>{const ocs=S.ocs[r.c]||[];return '<tr><td><span class="lk" onclick="verEnDetalle({q:\''+r.c+'\'});$(\'d-q\').value=\''+r.c+'\'">'+r.c+'</span></td><td class="desc">'+esc(r.n)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+fmtN(r.bo)+'</td><td class="sm">'+(ocs.length?ocs.slice(0,3).map(o=>o[0]+' ('+fmtN(o[1])+')').join(', ')+(ocs.length>3?'…':''):'<span class="cero">—</span>')+'</td><td class="num">'+fmtN(r.lt,1)+'</td>'
+  $('p-head').innerHTML='<tr class="grp"><th colspan="7"></th><th colspan="3" class="gD">🧭 Portal</th><th colspan="4" class="gPr">🛒 Propuesta</th><th colspan="2"></th></tr><tr class="cols"><th>Clave</th><th>Descripción</th><th>Comprador</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th>OCs abiertas</th><th class="num">T.entr.</th><th class="num gD">Demanda</th><th class="num gD">Meses</th><th class="gD">Estatus</th><th class="num gPr">Ant.</th><th class="num gPr">Pron.</th><th class="num gPr">Portal</th><th class="num gPr">Empaque</th><th>MF</th><th>Notas</th></tr>';
+  $('p-body').innerHTML=rows.slice(0,1500).map(r=>{const ocs=S.ocs[r.c]||[];return '<tr><td><span class="lk" onclick="verEnDetalle({q:\''+r.c+'\'});$(\'d-q\').value=\''+r.c+'\'">'+r.c+'</span></td><td class="desc">'+esc(r.n)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm">'+(ocs.length?ocs.slice(0,3).map(o=>o[0]+' ('+fmtN(o[1])+(o[4]?' ED':'')+')').join(', ')+(ocs.length>3?'…':''):'<span class="cero">—</span>')+'</td><td class="num">'+fmtN(r.lt,1)+'</td>'
     +'<td class="num gD">'+fmtN(r.D,1)+'</td><td class="num gD">'+fmtN(r.mi,1)+'</td><td class="gD">'+tag(r.est)+'</td><td class="num gPr">'+cp(r.sA)+'</td><td class="num gPr">'+cp(r.sP)+'</td><td class="num gPr act">'+cp(r.s)+'</td><td class="num gPr">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT)+'</span>':'—')+'</td>'
     +'<td class="sm">'+(r.mfF?'<span class="pill p-warn" title="Excedente MF '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' m'+(r.mfX>=r.s?' · cubre':'')+'</span>':r.mfM!=null?fmtN(r.mfM,1)+' m':'—')+'</td><td class="sm mut" title="'+esc(r.nt||'')+'">'+esc((r.nt||'').slice(0,50))+'</td></tr>';}).join('')||'<tr><td colspan="16" class="empty">Nada por pedir con este filtro. ✅</td></tr>';
 }
-function excelPedir(){descargarXLSX([[filasPedir().map(r=>({'Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'BO':r.bo,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
+function excelPedir(){descargarXLSX([[filasPedir().map(r=>({'Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
 async function cargarPrecision(){
   if(S.lineasSug)return;
   const [lin,emp,mot,cat]=await Promise.all([

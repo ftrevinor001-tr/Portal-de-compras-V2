@@ -257,7 +257,9 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
     const D=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
     const est=P.estatus(d.rot,d.ex,D,lt,pm);
-    const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+d.bo)));
+    // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
+    const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.round(d.bo*fr*10000)/10000;
+    const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+bo)));
     const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
     // MF
     const smf=P.serie(ctx.ventas.MF.get(k),null);
@@ -268,7 +270,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
     const eX=X=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm);
-    out.push({c:k,n:d.nombre,m:d.marca||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo:d.bo,eA:eX(ap.A),eP:eX(ap.P),
+    out.push({c:k,n:d.nombre,m:d.marca||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A),eP:eX(ap.P),
       A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
@@ -293,6 +295,14 @@ P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
   for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;reg(m,'PRON');}
   for(let i=1;i<=24;i++){const m=P.ym(ref,-i);if(!out.has(m)&&(!ultimo||m<=ultimo))reg(m,null);}
   return[...out.values()].sort((a,b)=>a.m<b.m?-1:1);
+};
+// Fracción del BO que llega al CEDI por clave = pendiente de OCs al CEDI ÷ pendiente total (CEDI + entrega directa).
+// Se usa proporción porque la cantidad de la OC puede venir en unidad de compra y el BO en unidad de inventario.
+P.fracBoCEDI=(cur,enc)=>{
+  const g=new Map();
+  (cur?[...cur.values()]:[]).forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;const e=enc&&enc.get(Number(l.folio));const ed=!!(e&&e.destino);
+    const o=g.get(l.clave)||{t:0,ed:0};o.t+=p;if(ed)o.ed+=p;g.set(l.clave,o);});
+  const m=new Map();g.forEach((o,k)=>{if(o.ed>0)m.set(k,(o.t-o.ed)/o.t);});return m;
 };
 // Conteo de claves por estatus para la tendencia del tablero (una fila por comprador, base y estatus)
 P.histEstatus=(res,fecha)=>{
@@ -431,3 +441,4 @@ P.otifResumen=(lineas,clave)=>{
   return Object.entries(g).map(([k,o])=>{const ot=o.nOT?o.ot/o.nOT:null,inf=o.inf/o.n;return{nombre:k,lineas:o.n,con_fecha:o.nOT,on_time:ot,in_full:inf,otif:ot==null?null:(ot+inf)/2,con_compromiso:o.comp/o.n};}).sort((a,b)=>b.lineas-a.lineas);
 };
 /*PARSE-END*/
+if(typeof window!=='undefined')window.P=P;   // para páginas que preguntan por window.P (Estatus Back Orders)

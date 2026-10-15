@@ -281,6 +281,8 @@ async function cargaCalc(log){
   let soloPublicar=false;
   if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
   const{ctx,restr}=await contexto(log);
+  // BO de entregas directas: no llega al CEDI, se quita del BO para la propuesta
+  try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb));log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
   // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
   const prevEst=await leerEstadoPublicado(pub,log);
   let res=null,totN=0,totC=0;const nuevasDia=[];
@@ -412,7 +414,7 @@ async function descargarCalc(){
   let abiertas=[];
   try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
-    ['ex','Existencias SANVER'],['bo','BO'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
+    ['ex','Existencias SANVER'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
     ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
