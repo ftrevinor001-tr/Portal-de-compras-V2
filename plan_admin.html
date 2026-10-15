@@ -6,6 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="plan_logica.js" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -114,402 +115,8 @@ td:first-child,th:first-child{text-align:left}
 
 <script>
 // ══════════ LÓGICA DE LECTURA (sin conexión a la base; probada aparte) ══════════
-/*PARSE-START*/
-const P={};
-P.norm=s=>String(s==null?'':s).trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ');
-P.num=v=>{if(v==null||v==='')return null;if(typeof v==='number')return isFinite(v)?v:null;const n=parseFloat(String(v).replace(/[$,\s]/g,''));return isNaN(n)?null:n;};
-P.clave=v=>{const n=P.num(v);return n!=null&&Number.isInteger(n)&&n>0?n:null;};
-P.pad=n=>String(n).padStart(2,'0');
-// Fecha de Excel (serial, texto DD/MM/AAAA o AAAA-MM-DD) → 'AAAA-MM-DD'
-P.fecha=v=>{
-  if(v==null||v==='')return null;
-  if(typeof v==='number'){if(v<20000||v>80000)return null;const d=new Date(Math.round((v-25569)*864e5));return d.getUTCFullYear()+'-'+P.pad(d.getUTCMonth()+1)+'-'+P.pad(d.getUTCDate());}
-  if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+P.pad(v.getMonth()+1)+'-'+P.pad(v.getDate());
-  const s=String(v).trim();let m;
-  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)))return m[1]+'-'+P.pad(m[2])+'-'+P.pad(m[3]);
-  if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)))return m[3]+'-'+P.pad(m[2])+'-'+P.pad(m[1]);
-  return null;
-};
-// Encabezado de mes → 'AAAA-MM-01'
-P.mes=v=>{
-  if(v==null||v==='')return null;
-  if(typeof v==='number'){const f=P.fecha(v);return f?f.slice(0,7)+'-01':null;}
-  const s=String(v).trim();let m;
-  if((m=s.match(/^(\d{4})-(\d{1,2})$/)))return m[1]+'-'+P.pad(m[2])+'-01';
-  const f=P.fecha(s);return f?f.slice(0,7)+'-01':null;
-};
-P.aoa=ws=>XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
-// Busca la fila de encabezado (primeras 10) que contenga todas las columnas pedidas
-P.header=(aoa,requeridas)=>{
-  const req=requeridas.map(P.norm);
-  for(let i=0;i<Math.min(10,aoa.length);i++){
-    const fila=aoa[i].map(P.norm);
-    if(req.every(r=>fila.includes(r))){const idx={};req.forEach((r,j)=>idx[requeridas[j]]=fila.indexOf(r));return{fila:i,idx,cols:fila};}
-  }
-  return null;
-};
-P.hoja=(wb,nombres)=>{for(const n of nombres){const k=wb.SheetNames.find(s=>P.norm(s)===P.norm(n));if(k)return wb.Sheets[k];}return null;};
+// La lógica de cálculo vive en plan_logica.js (la comparte el tablero de planeación)
 
-// 1. Ventas: {empresas:{SANVER:{meses,rows},MF:{…}}, avisos}
-P.ventas=wb=>{
-  const out={empresas:{},avisos:[]};
-  for(const [emp,hoja] of [['SANVER','VENTAS_SANVER'],['MF','VENTAS_MF']]){
-    const ws=P.hoja(wb,[hoja]);
-    if(!ws){out.avisos.push('No se encontró la hoja '+hoja+'.');continue;}
-    const aoa=P.aoa(ws);
-    const h=aoa[0]||[];
-    if(P.norm(h[0])!=='CLAVE')out.avisos.push(hoja+': la columna A debería llamarse Clave.');
-    const meses=[];h.forEach((c,j)=>{if(j===0)return;const m=P.mes(c);if(m)meses.push({j,m});});
-    const acc=new Map();let neg=0,dup=0,malas=0;const vistas=new Set();
-    for(let i=1;i<aoa.length;i++){
-      const r=aoa[i];const k=P.clave(r[0]);
-      if(k==null){if(String(r[0]).trim()!=='')malas++;continue;}
-      if(vistas.has(k))dup++;vistas.add(k);
-      for(const {j,m} of meses){
-        const v=P.num(r[j]);if(v==null||v===0)continue;
-        if(v<0)neg++;
-        const key=k+'|'+m;acc.set(key,(acc.get(key)||0)+v);
-      }
-    }
-    const porClave=new Map();let celdas=0;
-    acc.forEach((u,key)=>{const [c,m]=key.split('|');if(u===0)return;const k=+c;
-      if(!porClave.has(k))porClave.set(k,{});porClave.get(k)[m.slice(0,7)]=Math.round(u*10000)/10000;celdas++;});
-    vistas.forEach(k=>{if(!porClave.has(k))porClave.set(k,{});});
-    out.empresas[emp]={meses:meses.map(x=>x.m.slice(0,7)),claves:vistas.size,celdas,porClave};
-    if(dup)out.avisos.push(hoja+': '+dup+' claves repetidas (se sumaron).');
-    if(neg)out.avisos.push(hoja+': '+neg+' celdas negativas (devoluciones; se guardan tal cual).');
-    if(malas)out.avisos.push(hoja+': '+malas+' filas con clave no numérica (se ignoraron).');
-  }
-  return out;
-};
-
-// Combina lo que ya está en la base con el archivo: los meses del archivo se REEMPLAZAN
-// (en todas las claves); los demás meses se conservan. Devuelve solo las filas que cambian.
-P.mergeVentas=(empresa,existentes,arch)=>{
-  const meses=new Set(arch.meses);const out=[];
-  const base=new Map(existentes.map(r=>[Number(r.clave),r.meses||{}]));
-  const claves=new Set([...base.keys(),...arch.porClave.keys()]);
-  claves.forEach(k=>{
-    const antes=base.get(k)||{};const nuevo={};
-    Object.keys(antes).forEach(m=>{if(!meses.has(m))nuevo[m]=antes[m];});
-    Object.assign(nuevo,arch.porClave.get(k)||{});
-    const ord={};Object.keys(nuevo).sort().forEach(m=>ord[m]=nuevo[m]);
-    if(JSON.stringify(ord)!==JSON.stringify(antes)||!base.has(k))out.push({empresa,clave:k,meses:ord});
-  });
-  return out;
-};
-
-// 2. Existencias MF: {fecha, rows:[{clave,existencia}], sucursales, negativas}
-P.existMF=wb=>{
-  let ws=P.hoja(wb,['Existencias'])||wb.Sheets[wb.SheetNames[0]];
-  const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE','EXISTENCIA']);
-  if(!h)throw new Error('No encontré las columnas CLAVE y EXISTENCIA en la hoja '+(wb.SheetNames[0]));
-  const iF=h.cols.indexOf('FECHA'),iS=h.cols.indexOf('SUCURSAL');
-  const sum=new Map(),suc=new Set();let fmax=null;
-  for(let i=h.fila+1;i<aoa.length;i++){
-    const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);if(k==null)continue;
-    sum.set(k,(sum.get(k)||0)+(P.num(r[h.idx.EXISTENCIA])||0));
-    if(iS>=0&&r[iS]!=='')suc.add(String(r[iS]).trim());
-    if(iF>=0){const f=P.fecha(r[iF]);if(f&&(!fmax||f>fmax))fmax=f;}
-  }
-  let neg=0;const rows=[];
-  sum.forEach((e,k)=>{if(e<0)neg++;rows.push({clave:k,existencia:Math.max(0,Math.round(e*10000)/10000)});});
-  return{fecha:fmax,rows,sucursales:suc.size,negativas:neg};
-};
-
-// 3. Empaques: rows [{clave,uni_compra,inner_cant,master_cant,factor_conv,validacion}]
-P.empaques=wb=>{
-  const ws=P.hoja(wb,['BD']);if(!ws)throw new Error('No se encontró la hoja BD.');
-  const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE SANVER','UNI COMPRA','CTD. EN UM','CTD. EN UM2','VALIDACION']);
-  if(!h)throw new Error('No encontré los encabezados de la hoja BD (CLAVE SANVER, UNI COMPRA, Ctd. En UM, Ctd. En UM2, VALIDACION).');
-  const iC=h.cols.indexOf('CAMBIO DE UNIDADES');
-  const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){
-    const r=aoa[i];const k=P.clave(r[h.idx['CLAVE SANVER']]);if(k==null)continue;
-    const fila={clave:k,uni_compra:String(r[h.idx['UNI COMPRA']]||'').trim()||null,
-      inner_cant:P.num(r[h.idx['CTD. EN UM']]),master_cant:P.num(r[h.idx['CTD. EN UM2']]),
-      factor_conv:iC>=0?P.num(r[iC]):null,validacion:P.norm(r[h.idx.VALIDACION])||null};
-    const prev=m.get(k);
-    if(!prev||(prev.validacion!=='VALIDO'&&fila.validacion==='VALIDO'))m.set(k,fila);
-  }
-  const rows=[...m.values()];
-  return{rows,validos:rows.filter(r=>r.validacion==='VALIDO').length};
-};
-
-// 4. Histórico de agotados SANVER: rows [{empresa,clave,fecha,dias}]
-P.historico=wb=>{
-  const set=new Map();let leidas=0,dias=new Set();
-  const leer=(ws,colsFecha)=>{
-    if(!ws)return false;
-    const aoa=P.aoa(ws);
-    let h=null;for(const cf of colsFecha){h=P.header(aoa,[cf,'CLAVE','EXISTENCIAS']);if(h){h.cf=cf;break;}}
-    if(!h)return false;
-    for(let i=h.fila+1;i<aoa.length;i++){
-      const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);if(k==null)continue;leidas++;
-      const f=P.fecha(r[h.idx[h.cf]]);if(!f)continue;dias.add(f);
-      const e=P.num(r[h.idx.EXISTENCIAS]);
-      if(e!=null&&e<=0)set.set(k+'|'+f,{empresa:'SANVER',clave:k,fecha:f,dias:1});
-    }
-    return true;
-  };
-  const a=leer(P.hoja(wb,['Historico de faltantes']),['DIA/ MES.1','DIA/MES','FECHA']);
-  const b=leer(P.hoja(wb,['Detalle']),['FECHA']);
-  if(!a&&!b)throw new Error('No encontré las hojas Historico de faltantes ni Detalle con columnas Fecha, Clave y Existencias.');
-  const ds=[...dias].sort();
-  return{rows:[...set.values()],leidas,desde:ds[0],hasta:ds[ds.length-1],dias:ds.length};
-};
-
-// 5. Compras por entregas directas: rows [{clave,mes,cantidad}]
-P.comprasED=wb=>{
-  let ws=null,h=null;
-  for(const n of wb.SheetNames){const aoa=P.aoa(wb.Sheets[n]);const hh=P.header(aoa,['MES/AÑO','CLAVE','TIPO DE SOLICITUD','CANT REC']);if(hh){ws=aoa;h=hh;break;}}
-  if(!h)throw new Error('No encontré una hoja con las columnas Mes/año, CLAVE, TIPO DE SOLICITUD y CANT REC.');
-  const acc=new Map(),meses=new Set();
-  for(let i=h.fila+1;i<ws.length;i++){
-    const r=ws[i];const m=P.mes(r[h.idx['MES/AÑO']]);if(!m)continue;meses.add(m);
-    if(P.norm(r[h.idx['TIPO DE SOLICITUD']])!=='ENTREGAS DIRECTAS')continue;
-    const k=P.clave(r[h.idx.CLAVE]);const q=P.num(r[h.idx['CANT REC']]);if(k==null||!q)continue;
-    acc.set(k+'|'+m,(acc.get(k+'|'+m)||0)+q);
-  }
-  const rows=[];acc.forEach((q,key)=>{const [c,m]=key.split('|');rows.push({clave:+c,mes:m,cantidad:Math.round(q*10000)/10000});});
-  return{rows,meses:[...meses].sort()};
-};
-// 6. Detalle del maestro diario: rows por fecha
-P.detalle=wb=>{
-  const ws=P.hoja(wb,['Detalle']);if(!ws)throw new Error('No se encontró la hoja Detalle.');
-  const aoa=P.aoa(ws);
-  const req=['FECHA','CLAVE','EXISTENCIAS','COMPRADOR','CLASIFICACION POR MOVIMIENTO','TIEMPO DE ENTREGA','OBJETIVO_MESES DE INVENTARIO','BACK ORDER'];
-  const h=P.header(aoa,req);if(!h)throw new Error('La hoja Detalle no trae las columnas esperadas: '+req.join(', '));
-  const c=n=>h.cols.indexOf(n);
-  const iN=c('NOMBRE'),iU=c('UNIDAD'),iG=c('GRUPO'),iE=c('CLASIFICACION_ESTATUS DE INVENTARIO');
-  const porFecha=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){
-    const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);const f=P.fecha(r[h.idx.FECHA]);if(k==null||!f)continue;
-    if(!porFecha.has(f))porFecha.set(f,new Map());
-    porFecha.get(f).set(k,{clave:k,nombre:iN>=0?String(r[iN]).trim():'',unidad:iU>=0?P.norm(r[iU]):'',grupo:iG>=0?String(r[iG]).trim():'',
-      comprador:P.norm(r[h.idx.COMPRADOR]),rot:P.norm(r[h.idx['CLASIFICACION POR MOVIMIENTO']]),
-      lt:P.num(r[h.idx['TIEMPO DE ENTREGA']]),pm:P.num(r[h.idx['OBJETIVO_MESES DE INVENTARIO']]),
-      ex:P.num(r[h.idx.EXISTENCIAS])||0,bo:P.num(r[h.idx['BACK ORDER']])||0,estX:iE>=0?P.norm(r[iE]):''});
-  }
-  return porFecha;
-};
-
-// ── Reglas de cálculo (acordadas con Compras, oct-2026) ──
-P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:10,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
-     FACT_ENTREGA:1.4,FACT_MAX:1.4,EXCLUIR_ROT:['SIN COMPRA','NUEVOS']};
-P.ym=(ym,k)=>{let[y,m]=ym.split('-').map(Number);m+=k;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}return y+'-'+P.pad(m);};
-// Serie de ventas de una clave ya limpia de entregas directas (solo 2025, nunca negativa)
-P.serie=(meses,ed)=>{
-  const s=Object.assign({},meses||{});const notas=[];
-  if(ed)Object.keys(ed).forEach(m=>{if(m>=P.R.ED_DESDE&&m<=P.R.ED_HASTA&&s[m]!=null&&s[m]>=ed[m]){s[m]=s[m]-ed[m];notas.push(m);}});
-  return{s,ed:notas};
-};
-// Valor de un mes después de la regla de atípicos: null = descartado
-P.valor=(s,m)=>{
-  const x=Math.max(0,s[m]||0);
-  const w=[];for(let i=1;i<=12;i++){const v=s[P.ym(m,-i)];if(v>0)w.push(v);}
-  if(w.length<P.R.MIN_MESES_MEDIANA)return{v:x};
-  w.sort((a,b)=>a-b);const med=w.length%2?w[(w.length-1)/2]:(w[w.length/2-1]+w[w.length/2])/2;
-  if(x<=P.R.ATIPICO*med)return{v:x};
-  return m<P.R.ANIO_LIMPIO?{v:null,at:'descartado'}:{v:P.R.ATIPICO*med,at:'topado'};
-};
-// ¿Mes de 2025 sospechoso de agotado? (sin datos de existencia antes de abr-2026)
-// Clave regular (vendió ≥10 de los 12 meses previos) con una racha de ≥2 meses en cero.
-P.R.AGOT_DESDE='2026-04';P.R.REGULAR=10;P.R.RACHA=2;P.R.INTERMITENTE=6;
-P.sospechoso=(s,m,lo,hi)=>{
-  if(m>=P.R.AGOT_DESDE||(s[m]||0)>0)return false;
-  let n=0;for(let i=1;i<=12;i++){const x=P.ym(m,-i);if(lo&&x<lo)break;if((s[x]||0)>0)n++;}
-  if(n<P.R.REGULAR)return false;
-  let r=1;
-  for(let x=P.ym(m,-1);(!lo||x>=lo)&&!((s[x]||0)>0);x=P.ym(x,-1))r++;
-  for(let x=P.ym(m,1);(!hi||x<=hi)&&!((s[x]||0)>0);x=P.ym(x,1)){r++;if(r>40)break;}
-  return r>=P.R.RACHA;
-};
-// Antecedente y pronóstico de una serie para el mes de referencia.
-// Un mes NO cuenta si: estuvo agotado (≥10 días), es anterior a la primera venta de la clave,
-// o es un mes de 2025 sospechoso de agotado. Si una ventana queda sin meses válidos → null
-// (la demanda usa solo la otra; nunca se promedia contra un cero falso).
-P.antPron=(s,ref,N,agot,ultimo,primero)=>{
-  const notas=[];const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
-  if(fin!==P.ym(ref,-1))notas.push('ventas cargadas solo hasta '+fin);
-  const conVenta=Object.keys(s).filter(m=>s[m]>0).sort();const ini=conVenta[0]||null;
-  const hi=ultimo||fin;const ok=m=>ini!=null&&m>=ini&&!agot(m)&&!P.sospechoso(s,m,primero,hi);
-  const a=[];for(let i=0;i<P.R.VENTANA_ATRAS&&a.length<N;i++){const m=P.ym(fin,-i);if(!ok(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;a.push(r.v);}
-  const p=[];for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;if(!ok(m))continue;const r=P.valor(s,m);if(r.at)notas.push(m+' '+r.at);if(r.v==null)continue;p.push(r.v);}
-  const avg=x=>x.length?x.reduce((t,v)=>t+v,0)/x.length:null;
-  // Intermitente: en los 12 meses previos válidos vendió en ≤6 → la demanda usa el promedio de esos 12 meses
-  const w=[];let nv=0;for(let i=1;i<=12;i++){const m=P.ym(ref,-i);if(ultimo&&m>ultimo)continue;if(!ok(m))continue;const r=P.valor(s,m);if(r.v==null)continue;w.push(r.v);if(r.v>0)nv++;}
-  const inter=w.length>=6&&nv<=P.R.INTERMITENTE;
-  if(ini==null)notas.push('sin ventas en el historial');
-  else if(ini>P.ym(ref,-12))notas.push('primera venta '+ini);
-  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,I:inter?avg(w):null,notas};
-};
-P.estatus=(rot,ex,D,lt,pm)=>{
-  if(rot==='SIN COMPRA')return'SIN COMPRA';
-  if(ex<=0)return'FALTANTE';
-  if(!D)return'RIESGO';
-  const mi=ex/D;
-  if(mi>=lt*P.R.FACT_ENTREGA&&mi<=pm*P.R.FACT_MAX)return'OPTIMO';
-  return mi<lt*P.R.FACT_ENTREGA?'RIESGO':'SOBRE INVENTARIO';
-};
-// Redondeo a empaque: ≥1 MASTER → múltiplo de MASTER más cercano; menor → hacia arriba al INNER
-P.empaque=(q,e,unidad)=>{
-  if(!q||!e||e.validacion!=='VALIDO')return{q,ok:false};
-  let f=1;if(P.norm(e.uni_compra)!==P.norm(unidad)){if(!e.factor_conv)return{q,ok:false,nota:'empaque en otra unidad sin factor'};f=e.factor_conv;}
-  const inn=(e.inner_cant||0)*f,mas=(e.master_cant||0)*f;
-  if(mas>0&&q>=mas)return{q:Math.max(mas,Math.round(q/mas)*mas),ok:true,tipo:'MASTER'};
-  if(inn>0)return{q:Math.ceil(q/inn)*inn,ok:true,tipo:'INNER'};
-  if(mas>0)return{q:mas,ok:true,tipo:'MASTER'};
-  return{q,ok:false};
-};
-// Cálculo de un día completo. ctx: {ventas:{SANVER:Map,MF:Map}, ed:Map, agot:Set('EMP|clave|AAAA-MM'), invMF:Map, emp:Map, ultimo:{SANVER,MF}}
-P.calcularDia=(fecha,filas,ctx)=>{
-  const ref=fecha.slice(0,7);const out=[];
-  filas.forEach(d=>{
-    const k=d.clave;const lt=d.lt||0,pm=d.pm||0;const N=Math.max(1,Math.ceil(pm||1));
-    const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
-    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
-    const D=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
-    const est=P.estatus(d.rot,d.ex,D,lt,pm);
-    const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+d.bo)));
-    const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
-    // MF
-    const smf=P.serie(ctx.ventas.MF.get(k),null);
-    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),ctx.ultimo.MF,ctx.primero&&ctx.primero.MF);
-    const Dm=apm.I!=null?apm.I:(apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0));
-    const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
-    const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
-    const r1=x=>x==null?null:Math.round(x*10)/10;
-    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
-    out.push({c:k,n:d.nombre,comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo:d.bo,
-      A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,est,estX:d.estX,
-      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
-      mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nt:notas.join(' · ')});
-  });
-  return out;
-};
-const EN_RIESGO=['RIESGO','FALTANTE'];
-// Compara contra el día anterior: claves que ENTRAN a riesgo (alarma) y las que salen (cierre)
-P.alarmas=(prev,prevEst,res,fecha,restr)=>{
-  const nuevas=[],cierres=[],set=[];
-  res.forEach(r=>{
-    const enR=EN_RIESGO.includes(r.est);if(enR)set.push(r.c);
-    if(enR&&!prev.has(r.c)){
-      if(P.R.EXCLUIR_ROT.includes(r.rot)||!r.D)return;
-      const directo=r.est==='FALTANTE';
-      nuevas.push({clave:r.c,comprador:r.comp,rotacion:r.rot,fecha_alarma:fecha,tipo:directo?'FALTANTE_DIRECTO':'RIESGO',
-        n_meses:r.N,t_entrega:r.lt,objetivo_meses:r.pm,antecedente:r.A,pronostico:r.P,demanda:r.D,existencias:r.ex,bo:r.bo,meses_inv:r.mi,
-        sugerida:r.s,sugerida_empaque:r.sE,resultado_target:restr.has(r.c+'|'+r.comp)?'EXCLUIDA':(r.mfF&&r.s>0&&r.mfX>=r.s?'EN REVISION GERENCIA':null),
-        nota:[directo?'Posible venta atípica (pasó directo a FALTANTE)':'',restr.has(r.c+'|'+r.comp)?'Clave restringida':'',r.mfF&&r.s>0&&r.mfX>=r.s?'Excedente MF ('+r.mfX+') cubre la sugerencia: revisar redistribución con gerencia':r.mfF?'MF con más de '+P.R.MF_MESES_REV+' meses, pero su excedente no cubre la sugerencia':''].filter(Boolean).join(' · ')||null});
-    }
-  });
-  const cur=new Set(set);prev.forEach(k=>{if(!cur.has(k))cierres.push(k);});
-  return{nuevas,cierres,set};
-};
-// ══ OCs ══
-// Líneas pendientes de "Productos Incluidos en" → Map 'folio|clave' → línea
-P.ocLineas=wb=>{
-  const ws=P.hoja(wb,['Productos Incluidos en']);if(!ws)return null;
-  const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO OC','FECHA OC','CLAVE','CANTIDAD PED','CANTIDAD PEND','FECHA ENTREGA']);
-  if(!h)throw new Error('La hoja Productos Incluidos en no trae FOLIO OC, FECHA OC, CLAVE, CANTIDAD PED, CANTIDAD PEND y FECHA ENTREGA.');
-  const iP=h.cols.indexOf('PROVEEDOR'),iC=h.cols.indexOf('COMPRADOR'),iE=h.cols.indexOf('ESTADO OC');
-  const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){
-    const r=aoa[i];const f=P.clave(r[h.idx['FOLIO OC']]),k=P.clave(r[h.idx.CLAVE]);if(f==null||k==null)continue;
-    const key=f+'|'+k;const ped=P.num(r[h.idx['CANTIDAD PED']])||0,pend=P.num(r[h.idx['CANTIDAD PEND']])||0;
-    const prev=m.get(key);
-    if(prev){prev.cantidad_ped+=ped;prev.cantidad_pend+=pend;continue;}   // misma clave repetida en la OC: se suma
-    m.set(key,{folio:f,clave:k,fecha_oc:P.fecha(r[h.idx['FECHA OC']]),proveedor:iP>=0?String(r[iP]).trim():null,comprador:iC>=0?P.norm(r[iC]):null,
-      cantidad_ped:ped,cantidad_pend:pend,fecha_entrega:P.fecha(r[h.idx['FECHA ENTREGA']]),estado_oc:iE>=0?P.norm(r[iE]):null});
-  }
-  return m;
-};
-// ── Entrega directa: la sucursal de destino aparece en Observaciones de RP01-23 ──
-// Cuenta si la sucursal está al inicio (opcionalmente tras "MAS FERRE", "SANVER", "CIUDAD/CD"),
-// o después de "ENTREGAR EN", "SUC./SUCURSAL" o "PARA". Así se evitan falsos como
-// "CEMENTO BLANCO MORA" (marca) o "RECOLECCION TAMPICO".
-P.R.SANVER_SUC_ES_ED=false;  // "SANVER ALAMO", "SANVER LA FUENTE": entran al CEDI (confirmado por Compras, 14-oct-2026)
-P.SUCURSALES=['AHUATENO','ALAMO','ARISTA','ATLAPEXCO','BODEGA','CENTRO','CHICONTEPEC','COATZINTLA','DEL CARMEN','EL CARMEN','EBANO','LA FUENTE','LA RIVERA','MANTE','MARTINEZ','MERCADO','MORA','NARANJOS','PINTURAS','PUEBLO VIEJO','TAMIAHUA','TAMPICO','TEMPOAL','TIHUATLAN','TUXPAN','VALLES','VALLEZ','ZACATIPAN'];
-P.destinoED=obs=>{
-  const o=P.norm(obs).replace(/^[^A-Z0-9]+/,'');if(!o)return null;
-  const ALT='(?:CIUDAD |CD\\.? )?('+P.SUCURSALES.join('|')+')(?![A-Z])',SUC='(?:SUC(?:URSAL)?\\.? )?';
-  const pre='(?:MAS FERRE(?:TERIAS)?\\.? (?:SANVER )?|MF )?'+(P.R.SANVER_SUC_ES_ED?'(?:SANVER (?!FORTE))?':'');
-  const rx=[new RegExp('^'+pre+SUC+ALT),new RegExp('ENTREGA(?:R)? (?:EN )?'+SUC+ALT),new RegExp('(?:^|[^A-Z])SUC(?:URSAL)?\\.? '+ALT),new RegExp('(?:^|[^A-Z])PARA (?:LA )?'+SUC+ALT)];
-  for(const r of rx){const m=o.match(r);if(m)return m[1]==='VALLEZ'?'VALLES':m[1]==='EL CARMEN'?'DEL CARMEN':m[1];}
-  return null;
-};
-// Encabezados de OC (RP01-23): Map folio → {estatus, estado, obs}
-P.ocEncabezados=wb=>{
-  const ws=P.hoja(wb,['RP01-23 Ordenes de Compra']);if(!ws)return new Map();
-  const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO','ESTATUS']);if(!h)return new Map();
-  const iE=h.cols.indexOf('ESTADO OC'),iO=h.cols.indexOf('OBSERVACIONES');const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;const obs=iO>=0?String(r[iO]||'').trim():'';const d=P.destinoED(obs);m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):'',obs,destino:d});}
-  return m;
-};
-// Compara la foto anterior (líneas abiertas en la base) con la de hoy
-P.diffOC=(prev,cur,enc,fecha)=>{
-  const upserts=[],recep=[],r4=x=>Math.round(x*10000)/10000;
-  cur.forEach((l,key)=>{
-    const p=prev.get(key);
-    if(!p){upserts.push({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null});return;}
-    const baja=Number(p.cantidad_pend)-l.cantidad_pend;
-    if(baja>1e-9)recep.push({folio:l.folio,clave:l.clave,fecha,cantidad:r4(baja),fecha_entrega:l.fecha_entrega});
-    upserts.push({...l,primera_foto:p.primera_foto,pend_inicial:p.pend_inicial,cancelada:false,cerrada_en:null});
-  });
-  let canc=0,comp=0;
-  prev.forEach((p,key)=>{
-    if(cur.has(key))return;
-    const e=enc.get(Number(p.folio));const cancel=!!(e&&e.estatus==='CANCELADO');
-    if(cancel)canc++;else{comp++;if(Number(p.cantidad_pend)>0)recep.push({folio:Number(p.folio),clave:Number(p.clave),fecha,cantidad:r4(Number(p.cantidad_pend)),fecha_entrega:p.fecha_entrega});}
-    upserts.push({folio:Number(p.folio),clave:Number(p.clave),fecha_oc:p.fecha_oc,proveedor:p.proveedor,comprador:p.comprador,cantidad_ped:Number(p.cantidad_ped),
-      cantidad_pend:cancel?Number(p.cantidad_pend):0,fecha_entrega:p.fecha_entrega,estado_oc:cancel?'CANCELADO':'RECIBIDO TOTALMENTE',entrega_directa:!!p.entrega_directa,destino:p.destino||null,observaciones:p.observaciones||null,
-      primera_foto:p.primera_foto,pend_inicial:p.pend_inicial,cancelada:cancel,cerrada_en:fecha});
-  });
-  return{upserts,recep,cerradas:comp,canceladas:canc};
-};
-P.d10=v=>v==null||v===''?null:String(v).slice(0,10);   // timestamptz de Supabase → 'AAAA-MM-DD'
-P.dias=(a,b)=>Math.round((new Date(P.d10(b)+'T12:00:00')-new Date(P.d10(a)+'T12:00:00'))/864e5);
-// Target de una alarma. ocs: líneas de esa clave {folio,fecha_oc,cantidad_pend,cerrada_en,cancelada}
-P.R.T_ANTES=15;P.R.T_ANTES_PCT=0.10;P.R.T_DESPUES=5;P.R.T_VIEJA=60;P.R.DIAS_MES=30;P.R.MF_MESES_REV=8;
-// Margen para considerar una OC anticipada: 15 días o el 10% del tiempo de entrega, lo que sea mayor
-P.margen=lt=>Math.max(P.R.T_ANTES,Math.round((Number(lt)||0)*P.R.DIAS_MES*P.R.T_ANTES_PCT));
-P.target=(al,ocs,hoy)=>{
-  const fa=P.d10(al.fecha_alarma);const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada&&!o.entrega_directa).map(o=>({...o,fecha_oc:P.d10(o.fecha_oc),d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
-  const mg=P.margen(al.t_entrega),vieja0=Math.max(P.R.T_VIEJA,Math.round((Number(al.t_entrega)||0)*P.R.DIAS_MES));
-  const enRango=vs.find(o=>o.d>=-mg&&o.d<=P.R.T_DESPUES);
-  const res=(r,o)=>({resultado_target:r,oc_folio:o?Number(o.folio):null,fecha_oc:o?o.fecha_oc:null,dias_dif:o?o.d:null});
-  if(enRango)return res(enRango.d<0?'ANTICIPADA':'EN TIEMPO',enRango);
-  const vieja=vs.filter(o=>o.d<-mg&&o.d>=-vieja0&&(!o.cerrada_en||o.cerrada_en>=fa)).pop();
-  if(vieja)return res('ANTICIPACION EXCESIVA',vieja);
-  const tarde=vs.find(o=>o.d>P.R.T_DESPUES);
-  if(tarde)return res('TARDE',tarde);
-  if(al.fecha_fin&&P.dias(fa,al.fecha_fin)<=P.R.T_DESPUES)return res('SIN NECESIDAD',null);
-  if(P.dias(fa,hoy)>P.R.T_DESPUES)return res('SIN OC',null);   // provisional: cambia a TARDE si llega la OC
-  return null;   // todavía dentro del plazo
-};
-// OTIF por línea cerrada. compromisos: Map folio → fecha
-P.otifLinea=(l,recs,compromisos,lt)=>{
-  if(l.entrega_directa)return null;                                 // entrega directa a sucursal: no es OTIF del CEDI
-  if(l.cancelada&&!(recs&&recs.length))return null;              // cancelada sin recibir: no cuenta
-  if(Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null; // ya traía recepciones antes de la primera foto
-  const rec=(recs||[]).slice().sort((a,b)=>a.fecha<b.fecha?-1:1);if(!rec.length)return null;
-  // Fecha compromiso: la capturada por el comprador; si no hay, la de POR DEFECTO = fecha de la OC + meses de entrega
-  // de la clave × 30 días. Solo si la clave no tiene tiempo de entrega se usa la fecha de entrega de la OC (si es válida).
-  let ref=null,base='SIN FECHA';
-  if(compromisos.has(Number(l.folio))){ref=compromisos.get(Number(l.folio));base='COMPROMISO CAPTURADO';}
-  else if(l.fecha_oc&&Number(lt)>0){const d=new Date(l.fecha_oc+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Math.round(Number(lt)*P.R.DIAS_MES));ref=d.toISOString().slice(0,10);base='COMPROMISO POR DEFECTO';}
-  else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='ENTREGA EN OC (sin tiempo de entrega)';}
-  const tot=rec.reduce((t,r)=>t+Number(r.cantidad),0);const ult=rec[rec.length-1].fecha;
-  return{folio:Number(l.folio),clave:Number(l.clave),proveedor:l.proveedor,comprador:l.comprador,mes:ult.slice(0,7),ref,base,
-    on_time:ref?ult<=ref:null,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
-};
-P.otifResumen=(lineas,clave)=>{
-  // On Time solo sobre líneas con fecha de referencia válida; In Full sobre todas. OTIF = promedio de los dos.
-  const g={};lineas.forEach(x=>{const k=x[clave]||'(sin dato)';const o=g[k]||(g[k]={n:0,nOT:0,ot:0,inf:0,comp:0});o.n++;if(x.on_time!=null){o.nOT++;if(x.on_time)o.ot++;}if(x.in_full)o.inf++;if(x.base==='COMPROMISO CAPTURADO')o.comp++;});
-  return Object.entries(g).map(([k,o])=>{const ot=o.nOT?o.ot/o.nOT:null,inf=o.inf/o.n;return{nombre:k,lineas:o.n,con_fecha:o.nOT,on_time:ot,in_full:inf,otif:ot==null?null:(ot+inf)/2,con_compromiso:o.comp/o.n};}).sort((a,b)=>b.lineas-a.lineas);
-};
-/*PARSE-END*/
 
 // ══════════ CONEXIÓN Y CARGA ══════════
 const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
@@ -674,10 +281,13 @@ async function cargaCalc(log){
   let soloPublicar=false;
   if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
   const{ctx,restr}=await contexto(log);
+  // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
+  const prevEst=await leerEstadoPublicado(pub,log);
   let res=null,totN=0,totC=0;const nuevasDia=[];
   for(const f of pendientes){
     await pausa();
     res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
+    await guardarHistEstatus(res,f,log);
     if(soloPublicar)break;
     if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
     const a=P.alarmas(prev,null,res,f,restr);
@@ -693,11 +303,11 @@ async function cargaCalc(log){
   const fUlt=pendientes[pendientes.length-1];
   if(soloPublicar)prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));
   // OCs, Target y OTIF
-  const ocx=await procesarOCs(wb,fUlt,log,res);
+  const ocx=await procesarOCs(wb,fUlt,log,res,prevEst);
   // 3. publicar
   log.msg('🗜️ Publicando el cálculo del '+fUlt+'…');
   const cuenta=(arr,k)=>arr.reduce((o,r)=>{o[r[k]]=(o[r[k]]||0)+1;return o;},{});
-  const payload={fecha:fUlt,generado:new Date().toISOString(),reglas:P.R,claves:res};
+  const payload={fecha:fUlt,generado:new Date().toISOString(),reglas:P.R,ventas_hasta:ctx.ultimo,ventas_desde:ctx.primero,claves:res,ocs:ocx?ocx.abiertas:{}};
   const js=JSON.stringify(payload);let body=new Blob([js],{type:'application/json'}),ruta='plan/estado.json';
   if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
   const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
@@ -710,7 +320,23 @@ async function cargaCalc(log){
   pintarCalc(resumen,nuevasDia,ocx);
   log.msg('🎉 Listo. '+fmt(res.length)+' claves calculadas al '+fUlt+' · '+totN+' alarmas nuevas.');
 }
-async function procesarOCs(wb,fecha,log,res){
+// Lee el estado publicado anterior (Storage) → Map clave → fila del cálculo
+async function leerEstadoPublicado(pub,log){
+  if(!pub||!pub.fecha)return null;
+  try{
+    const{data:p2}=await sb.from('plan_publicacion').select('ruta').eq('id','estado').maybeSingle();
+    if(!p2||!p2.ruta)return null;
+    const{data:blob,error}=await sb.storage.from('respaldos').download(p2.ruta);if(error)throw error;
+    const txt=p2.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
+    const js=JSON.parse(txt);return{fecha:js.fecha,map:new Map((js.claves||[]).map(r=>[Number(r.c),r]))};
+  }catch(e){log.msg('⚠️ No se pudo leer el cálculo anterior ('+(e.message||e)+'): las OCs nuevas de hoy quedan sin sugerencia para comparar.','w');return null;}
+}
+async function guardarHistEstatus(res,f,log){
+  const{error}=await sb.from('plan_estatus_hist').delete().eq('fecha',f);
+  if(error){log.msg('⚠️ Historial de estatus no guardado ('+error.message+'). ¿Ya corriste plan_tablas_6.sql?','w');return;}
+  await enLotes('plan_estatus_hist',P.histEstatus(res,f),log,{onConflict:'fecha,comprador,base,estatus'});
+}
+async function procesarOCs(wb,fecha,log,res,prevEst){
   const ltMap=new Map((res||[]).map(r=>[r.c,r.lt]));
   const cur=P.ocLineas(wb);
   if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
@@ -727,7 +353,12 @@ async function procesarOCs(wb,fecha,log,res){
     await enLotes('plan_oc_lineas',[...cur.values()].map(l=>({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
   }else{
     const d=P.diffOC(prev,cur,enc,fecha);
-    await enLotes('plan_oc_lineas',d.upserts.map(u=>({...u,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
+    const ahora=new Date().toISOString();
+    const nuevas=d.upserts.filter(u=>!prev.has(Number(u.folio)+'|'+Number(u.clave))),resto=d.upserts.filter(u=>prev.has(Number(u.folio)+'|'+Number(u.clave)));
+    // OCs nuevas: se guarda lo que sugería el portal (en lotes separados para no borrar la sugerencia de las que ya existían)
+    await enLotes('plan_oc_lineas',nuevas.map(u=>({...u,...P.sugOC(prevEst?prevEst.map.get(Number(u.clave)):null,prevEst?prevEst.fecha:null),actualizado_en:ahora})),log,{onConflict:'folio,clave'});
+    await enLotes('plan_oc_lineas',resto.map(u=>({...u,actualizado_en:ahora})),log,{onConflict:'folio,clave'});
+    log.msg('   '+fmt(nuevas.length)+' líneas de OC nuevas'+(prevEst?' (con la sugerencia del portal del '+prevEst.fecha+')':' (sin cálculo anterior para comparar)'));
     if(d.recep.length)await enLotes('plan_recepciones',d.recep,log,{onConflict:'folio,clave,fecha'});
     log.msg('   '+fmt(d.recep.length)+' recepciones detectadas · '+fmt(d.cerradas)+' líneas completadas · '+fmt(d.canceladas)+' canceladas');
   }
@@ -758,7 +389,9 @@ async function procesarOCs(wb,fecha,log,res){
   const oLin=cer.map(l=>P.otifLinea(l,rec.get(Number(l.folio)+'|'+Number(l.clave)),comp,ltMap.get(Number(l.clave)))).filter(Boolean);
   const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;
   log.msg('🚚 OTIF del mes: '+fmt(oLin.length)+' líneas cerradas evaluables'+(oGen?' · OTIF '+(oGen.otif==null?'— (sin líneas con fecha válida)':(oGen.otif*100).toFixed(1)+'%'):''));
-  return{tRows,tGen:tN?{evaluadas:tN,target:tOk/tN}:null,alarmasMes:am,oLin,oProv:P.otifResumen(oLin,'proveedor'),oGen};
+  // OCs abiertas por clave para el tablero: [folio, pendiente, fecha OC, proveedor, entrega directa]
+  const abiertas={};cur.forEach(l=>{(abiertas[l.clave]||(abiertas[l.clave]=[])).push([l.folio,l.cantidad_pend,l.fecha_oc,l.proveedor||'',l.entrega_directa?1:0]);});
+  return{tRows,tGen:tN?{evaluadas:tN,target:tOk/tN}:null,alarmasMes:am,oLin,oProv:P.otifResumen(oLin,'proveedor'),oGen,abiertas};
 }
 function pct(x){return x==null?'—':(x*100).toFixed(1)+'%';}
 function pintarCalc(r,nuevas,ocx){

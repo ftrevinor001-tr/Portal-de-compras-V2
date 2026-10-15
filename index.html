@@ -6,6 +6,8 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="plan_logica.js" charset="utf-8"></script>
+<script src="resumen_v2.js" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -162,11 +164,12 @@
   <div class="tab" onclick="switchTab(1)"><span class="tab-icon">📉</span>Histórico Faltantes</div>
   <div class="tab" onclick="switchTab(2)"><span class="tab-icon">📦</span>Monitor de Inventario</div>
   <div class="tab" onclick="switchTab(3)"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
-  <div class="tab" onclick="switchTab(4)"><span class="tab-icon">🎯</span>Indicadores</div>
+  <div class="tab" onclick="switchTab(4)"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
   <div class="tab" onclick="switchTab(5)"><span class="tab-icon">🔁</span>Incidencias</div>
   <div class="tab" onclick="switchTab(6)" id="tab-admin" style="order:10"><span class="tab-icon">⚙️</span>Admin</div>
   <div class="tab" onclick="switchTab(7)" id="tab-oc"><span class="tab-icon">📅</span>Compromiso OCs</div>
-  <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none"><span class="tab-icon">🧮</span>Planeación</div>
+  <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none;order:9"><span class="tab-icon">🧮</span>Cálculo diario</div>
+  <div class="tab" onclick="switchTab(9)" id="tab-xl" title="Indicadores del Excel: se conservan durante el paralelo de noviembre"><span class="tab-icon">📑</span>Indicadores (Excel)</div>
 </div>
 
 <div class="frames">
@@ -202,7 +205,7 @@
     <iframe id="fr-3" onload="window.hideLd&&window.hideLd(3)"></iframe>
   </div>
   <div class="frame-wrap" id="fw-4">
-    <div class="loader" id="ld-4"><div class="spinner"></div><p>Cargando Indicadores…</p></div>
+    <div class="loader" id="ld-4"><div class="spinner"></div><p>Cargando planeación e indicadores…</p></div>
     <iframe id="fr-4" onload="window.hideLd&&window.hideLd(4)"></iframe>
   </div>
 
@@ -366,8 +369,12 @@
     <iframe id="fr-7" onload="window.hideLd&&window.hideLd(7)"></iframe>
   </div>
   <div class="frame-wrap" id="fw-8">
-    <div class="loader" id="ld-8"><div class="spinner"></div><p>Cargando planeación…</p></div>
+    <div class="loader" id="ld-8"><div class="spinner"></div><p>Cargando cálculo diario…</p></div>
     <iframe id="fr-8" onload="window.hideLd&&window.hideLd(8)"></iframe>
+  </div>
+  <div class="frame-wrap" id="fw-9">
+    <div class="loader" id="ld-9"><div class="spinner"></div><p>Cargando indicadores del Excel…</p></div>
+    <iframe id="fr-9" onload="window.hideLd&&window.hideLd(9)"></iframe>
   </div>
 </div>
 
@@ -447,7 +454,7 @@ const SRCS=[
   'dash_faltantes.html',
   'dash_monitor.html',
   'dash_backorders.html',
-  'dash_otif.html',
+  'dash_planeacion.html',
   'https://dashboard-reclamaciones.streamlit.app/?embed=true'
 ];
 const loadedTabs=[false,false,false,false,false];
@@ -456,7 +463,7 @@ function loadTab(i){ // i = 1..5 (iframes)
   if(i>=1&&i<=5&&!loadedTabs[k]){loadedTabs[k]=true;document.getElementById('fr-'+i).src=SRCS[k];}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
-const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html'};
+const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'dash_otif.html'};
 function switchTab(i){
   if(i===8&&!esAdmin)i=0;
   if(SRCS_PLAN[i]){const fr=document.getElementById('fr-'+i);if(!fr.getAttribute('src'))fr.src=SRCS_PLAN[i];}
@@ -475,13 +482,14 @@ function tick(){const now=new Date();document.getElementById('clock').textConten
 const TIPOS={
   FALTANTES:{t:'Claves en faltante',sev:'alta',icon:'🔴',dash:'Histórico Faltantes'},
   FALTANTE_NUEVO:{t:'Faltantes nuevos',sev:'alta',icon:'🆕',dash:'Histórico Faltantes'},
-  RIESGO:{t:'Claves en riesgo',sev:'media',icon:'⚠️',dash:'Histórico Faltantes'},
+  RIESGO:{t:'Claves en riesgo',sev:'media',icon:'⚠️',dash:'Planeación e indicadores'},
   PROLONGADO:{t:'Faltante prolongado',sev:'alta',icon:'⏳',dash:'Monitor de Inventario'},
-  SOBREINVENTARIO:{t:'Sobre inventario',sev:'baja',icon:'📦',dash:'Histórico Faltantes'},
+  SOBREINVENTARIO:{t:'Sobre inventario',sev:'baja',icon:'📦',dash:'Planeación e indicadores'},
   OC_3_MESES:{t:'OC >3 meses sin recibir',sev:'alta',icon:'🚨',dash:'Back Orders'},
   OC_SIN_APLICAR:{t:'OC sin aplicar >1 semana',sev:'media',icon:'📋',dash:'Back Orders'},
-  PEDIDO_PROPUESTO:{t:'Pedidos propuestos a colocar',sev:'media',icon:'🛒',dash:'Inventario & OTIF'},
-  TARGET:{t:'Target por comprador',sev:'ok',icon:'🎯',dash:'Inventario & OTIF'}
+  PEDIDO_PROPUESTO:{t:'Pedidos propuestos a colocar',sev:'media',icon:'🛒',dash:'Planeación e indicadores'},
+  TARGET:{t:'Target por comprador',sev:'ok',icon:'🎯',dash:'Planeación e indicadores'},
+  OTIF:{t:'OTIF de proveedor del mes',sev:'ok',icon:'🚚',dash:'Planeación e indicadores'}
 };
 let RES={alarmas:null,resumen:null,mesesSel:new Set(),chart:null};
 
@@ -492,7 +500,7 @@ async function actualizarTodo(){
   try{
     await cargarResumen();
     // marcar los 4 dashboards para que recarguen sus datos al abrirse de nuevo
-    for(const i of [7,8]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
+    for(const i of [7,8,9]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
     for(let i=1;i<=4;i++){
       loadedTabs[i-1]=false;   // forzar recarga la próxima vez que se abra la pestaña
       const fr=document.getElementById('fr-'+i);
@@ -526,6 +534,9 @@ async function cargarResumen(){
   if(a.error){cont.innerHTML='<div class="empty-res">❌ '+a.error.message+'</div>';return;}
   if(!a.data||!a.data.length){cont.innerHTML='<div class="empty-res">📭 Aún no hay alarmas calculadas.<br><br>El administrador debe subir el Excel maestro en la pestaña <b>Admin</b> (con esta versión del portal) para generarlas.</div>';return;}
   RES.alarmas=a.data;
+  // V2: Riesgo, Sobre inventario, Pedidos propuestos, Target y OTIF salen del cálculo del portal
+  try{RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.alarmas,RES.v2);}
+  catch(e){console.warn('Mi Resumen V2:',e);RES.v2err=e.message||String(e);}
   RES.resumen=d.data?d.data.payload:null;
   // Selector de comprador
   const comps=[...new Set(a.data.map(r=>r.comprador))].filter(x=>x!=='GENERAL').sort();
@@ -609,12 +620,12 @@ function renderResumen(){
   const comp=document.getElementById('res-comp').value;
   document.getElementById('res-title').textContent=comp==='GENERAL'?'🏠 Resumen General':'🏠 Resumen de '+comp;
   const uf=RES.resumen?RES.resumen.uf:'';
-  const orden=['FALTANTES','FALTANTE_NUEVO','RIESGO','PROLONGADO','OC_3_MESES','OC_SIN_APLICAR','PEDIDO_PROPUESTO','SOBREINVENTARIO','TARGET'];
+  const orden=['FALTANTES','FALTANTE_NUEVO','RIESGO','PROLONGADO','OC_3_MESES','OC_SIN_APLICAR','PEDIDO_PROPUESTO','SOBREINVENTARIO','TARGET','OTIF'];
   // KPIs
   let kpis='';
   orden.forEach(t=>{const a=alarmaDe(comp,t);const T=TIPOS[t];
     let n=a?(a.datos&&a.datos.total!=null?a.datos.total:0):0;
-    if(t==='TARGET'&&a&&a.datos)n=(a.datos.pct!=null?a.datos.pct+'%':'—');
+    if((t==='TARGET'||t==='OTIF')&&a&&a.datos)n=(a.datos.pct!=null?a.datos.pct+'%':'—');
     kpis+=`<div class="kpi s-${T.sev}" onclick="document.getElementById('card-${t}')?.scrollIntoView({behavior:'smooth'})"><div class="n">${n}</div><div class="t">${T.icon} ${T.t}</div></div>`;
   });
   // Tarjeta de incidencias activas del comprador (valor total, excluye finalizadas)
@@ -629,8 +640,8 @@ function renderResumen(){
   let cards='';
   orden.forEach(t=>{const a=alarmaDe(comp,t);if(!a)return;const T=TIPOS[t];const d=a.datos||{};
     let body='';
-    if(t==='TARGET'){
-      body=`<p style="font-size:13px;color:#334155">${d.ocsOk||0} de ${d.total||0} órdenes de compra cumplen Target (<b>${d.pct!=null?d.pct+'%':'—'}</b>).</p>`;
+    if(t==='TARGET'||t==='OTIF'){
+      body=d.texto?`<p style="font-size:13px;color:#334155">${d.texto}</p>`:`<p style="font-size:13px;color:#334155">${d.ocsOk||0} de ${d.total||0} órdenes de compra cumplen Target (<b>${d.pct!=null?d.pct+'%':'—'}</b>).</p>`;
       const its=d.items||[];
       if(its.length){const cols=Object.keys(its[0]);
         body+='<div class="alist" style="margin-top:8px">'+tablaHTML(t,cols,its)+'</div>';}
@@ -789,7 +800,7 @@ async function descargarResumenExcel(){
     const wb=new ExcelJS.Workbook();
     wb.creator='Portal de Compras';
     const uf=RES.resumen?RES.resumen.uf:'';
-    const orden=['FALTANTES','FALTANTE_NUEVO','RIESGO','PROLONGADO','OC_3_MESES','OC_SIN_APLICAR','PEDIDO_PROPUESTO','SOBREINVENTARIO','TARGET'];
+    const orden=['FALTANTES','FALTANTE_NUEVO','RIESGO','PROLONGADO','OC_3_MESES','OC_SIN_APLICAR','PEDIDO_PROPUESTO','SOBREINVENTARIO','TARGET','OTIF'];
     const estiloHdr=r=>{r.font={bold:true,color:{argb:'FFFFFFFF'}};r.eachCell(cl=>{cl.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1E3A5F'}};cl.border={bottom:{style:'thin'}};});};
 
     // Hoja 1: Resumen de KPIs
@@ -799,7 +810,7 @@ async function descargarResumenExcel(){
     wsR.addRow([]);
     estiloHdr(wsR.addRow(['Indicador','Total','Dashboard']));
     orden.forEach(t=>{const a=alarmaDe(comp,t);if(!a)return;const T=TIPOS[t];const d=a.datos||{};
-      wsR.addRow([T.t, t==='TARGET'?(d.pct!=null?d.pct+'%':'—'):(d.total!=null?d.total:0), T.dash]);});
+      wsR.addRow([T.t, (t==='TARGET'||t==='OTIF')?(d.pct!=null?d.pct+'%':'—'):(d.total!=null?d.total:0), T.dash]);});
     wsR.columns=[{width:34},{width:12},{width:24}];
 
     // Una hoja por tarjeta
@@ -811,7 +822,8 @@ async function descargarResumenExcel(){
       ws.addRow([T.t+(comp!=='GENERAL'?' · '+comp:' · GENERAL')]).font={bold:true,size:13};
       if(a.descripcion)ws.addRow([a.descripcion]).font={italic:true,size:9,color:{argb:'FF6B7A99'}};
       if(t==='FALTANTES'&&d.porClmov){ws.addRow(['Desglose: '+Object.entries(d.porClmov).map(([k2,v2])=>k2+': '+v2).join(' · ')]);}
-      if(t==='TARGET')ws.addRow(['Cumplen Target: '+(d.ocsOk||0)+' de '+(d.total||0)+' OCs ('+(d.pct!=null?d.pct+'%':'—')+')']).font={bold:true};
+      if((t==='TARGET'||t==='OTIF')&&d.texto)ws.addRow([String(d.texto).replace(/<[^>]+>/g,'')]).font={bold:true};
+      else if(t==='TARGET')ws.addRow(['Cumplen Target: '+(d.ocsOk||0)+' de '+(d.total||0)+' OCs ('+(d.pct!=null?d.pct+'%':'—')+')']).font={bold:true};
       ws.addRow([]);
       const items=d.items||[];
       if(items.length){
