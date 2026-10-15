@@ -423,12 +423,26 @@ P.ocLineas=wb=>{
   }
   return m;
 };
-// Encabezados de OC (RP01-23): Map folio → {estatus, estado}
+// ── Entrega directa: la sucursal de destino aparece en Observaciones de RP01-23 ──
+// Cuenta si la sucursal está al inicio (opcionalmente tras "MAS FERRE", "SANVER", "CIUDAD/CD"),
+// o después de "ENTREGAR EN", "SUC./SUCURSAL" o "PARA". Así se evitan falsos como
+// "CEMENTO BLANCO MORA" (marca) o "RECOLECCION TAMPICO".
+P.R.SANVER_SUC_ES_ED=false;  // "SANVER ALAMO", "SANVER LA FUENTE": entran al CEDI (confirmado por Compras, 14-oct-2026)
+P.SUCURSALES=['AHUATENO','ALAMO','ARISTA','ATLAPEXCO','BODEGA','CENTRO','CHICONTEPEC','COATZINTLA','DEL CARMEN','EL CARMEN','EBANO','LA FUENTE','LA RIVERA','MANTE','MARTINEZ','MERCADO','MORA','NARANJOS','PINTURAS','PUEBLO VIEJO','TAMIAHUA','TAMPICO','TEMPOAL','TIHUATLAN','TUXPAN','VALLES','VALLEZ','ZACATIPAN'];
+P.destinoED=obs=>{
+  const o=P.norm(obs).replace(/^[^A-Z0-9]+/,'');if(!o)return null;
+  const ALT='(?:CIUDAD |CD\\.? )?('+P.SUCURSALES.join('|')+')(?![A-Z])',SUC='(?:SUC(?:URSAL)?\\.? )?';
+  const pre='(?:MAS FERRE(?:TERIAS)?\\.? (?:SANVER )?|MF )?'+(P.R.SANVER_SUC_ES_ED?'(?:SANVER (?!FORTE))?':'');
+  const rx=[new RegExp('^'+pre+SUC+ALT),new RegExp('ENTREGA(?:R)? (?:EN )?'+SUC+ALT),new RegExp('(?:^|[^A-Z])SUC(?:URSAL)?\\.? '+ALT),new RegExp('(?:^|[^A-Z])PARA (?:LA )?'+SUC+ALT)];
+  for(const r of rx){const m=o.match(r);if(m)return m[1]==='VALLEZ'?'VALLES':m[1]==='EL CARMEN'?'DEL CARMEN':m[1];}
+  return null;
+};
+// Encabezados de OC (RP01-23): Map folio → {estatus, estado, obs}
 P.ocEncabezados=wb=>{
   const ws=P.hoja(wb,['RP01-23 Ordenes de Compra']);if(!ws)return new Map();
   const aoa=P.aoa(ws);const h=P.header(aoa,['FOLIO','ESTATUS']);if(!h)return new Map();
-  const iE=h.cols.indexOf('ESTADO OC');const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):''});}
+  const iE=h.cols.indexOf('ESTADO OC'),iO=h.cols.indexOf('OBSERVACIONES');const m=new Map();
+  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx.FOLIO]);if(f==null)continue;const obs=iO>=0?String(r[iO]||'').trim():'';const d=P.destinoED(obs);m.set(f,{estatus:P.norm(r[h.idx.ESTATUS]),estado:iE>=0?P.norm(r[iE]):'',obs,destino:d});}
   return m;
 };
 // Compara la foto anterior (líneas abiertas en la base) con la de hoy
@@ -447,7 +461,7 @@ P.diffOC=(prev,cur,enc,fecha)=>{
     const e=enc.get(Number(p.folio));const cancel=!!(e&&e.estatus==='CANCELADO');
     if(cancel)canc++;else{comp++;if(Number(p.cantidad_pend)>0)recep.push({folio:Number(p.folio),clave:Number(p.clave),fecha,cantidad:r4(Number(p.cantidad_pend)),fecha_entrega:p.fecha_entrega});}
     upserts.push({folio:Number(p.folio),clave:Number(p.clave),fecha_oc:p.fecha_oc,proveedor:p.proveedor,comprador:p.comprador,cantidad_ped:Number(p.cantidad_ped),
-      cantidad_pend:cancel?Number(p.cantidad_pend):0,fecha_entrega:p.fecha_entrega,estado_oc:cancel?'CANCELADO':'RECIBIDO TOTALMENTE',
+      cantidad_pend:cancel?Number(p.cantidad_pend):0,fecha_entrega:p.fecha_entrega,estado_oc:cancel?'CANCELADO':'RECIBIDO TOTALMENTE',entrega_directa:!!p.entrega_directa,destino:p.destino||null,observaciones:p.observaciones||null,
       primera_foto:p.primera_foto,pend_inicial:p.pend_inicial,cancelada:cancel,cerrada_en:fecha});
   });
   return{upserts,recep,cerradas:comp,canceladas:canc};
@@ -459,7 +473,7 @@ P.R.T_ANTES=15;P.R.T_ANTES_PCT=0.10;P.R.T_DESPUES=5;P.R.T_VIEJA=60;P.R.DIAS_MES=
 // Margen para considerar una OC anticipada: 15 días o el 10% del tiempo de entrega, lo que sea mayor
 P.margen=lt=>Math.max(P.R.T_ANTES,Math.round((Number(lt)||0)*P.R.DIAS_MES*P.R.T_ANTES_PCT));
 P.target=(al,ocs,hoy)=>{
-  const fa=P.d10(al.fecha_alarma);const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada).map(o=>({...o,fecha_oc:P.d10(o.fecha_oc),d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
+  const fa=P.d10(al.fecha_alarma);const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada&&!o.entrega_directa).map(o=>({...o,fecha_oc:P.d10(o.fecha_oc),d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
   const mg=P.margen(al.t_entrega),vieja0=Math.max(P.R.T_VIEJA,Math.round((Number(al.t_entrega)||0)*P.R.DIAS_MES));
   const enRango=vs.find(o=>o.d>=-mg&&o.d<=P.R.T_DESPUES);
   const res=(r,o)=>({resultado_target:r,oc_folio:o?Number(o.folio):null,fecha_oc:o?o.fecha_oc:null,dias_dif:o?o.d:null});
@@ -474,6 +488,7 @@ P.target=(al,ocs,hoy)=>{
 };
 // OTIF por línea cerrada. compromisos: Map folio → fecha
 P.otifLinea=(l,recs,compromisos,lt)=>{
+  if(l.entrega_directa)return null;                                 // entrega directa a sucursal: no es OTIF del CEDI
   if(l.cancelada&&!(recs&&recs.length))return null;              // cancelada sin recibir: no cuenta
   if(Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null; // ya traía recepciones antes de la primera foto
   const rec=(recs||[]).slice().sort((a,b)=>a.fecha<b.fecha?-1:1);if(!rec.length)return null;
@@ -697,6 +712,8 @@ async function procesarOCs(wb,fecha,log,res){
   const cur=P.ocLineas(wb);
   if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
   const enc=P.ocEncabezados(wb);
+  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=!!(e&&e.destino);});
+  log.msg('   '+fmt([...cur.values()].filter(l=>l.entrega_directa).length)+' líneas son de entrega directa a sucursal (no cuentan para OTIF, Target ni vencidas del CEDI)');
   log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
   const prevRows=await todo(()=>sb.from('plan_oc_lineas').select('*').is('cerrada_en',null).order('folio').order('clave'));
   const{count:tot}=await sb.from('plan_oc_lineas').select('*',{count:'exact',head:true});
@@ -717,7 +734,7 @@ async function procesarOCs(wb,fecha,log,res){
             ...await todo(()=>sb.from('plan_alarmas').select('*').eq('resultado_target','SIN OC').gte('fecha_alarma',desde).order('id'))];
   const claves=[...new Set(al.map(a=>Number(a.clave)))];const ocs=new Map();
   for(let i=0;i<claves.length;i+=200){
-    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,cerrada_en,cancelada').in('clave',claves.slice(i,i+200)).order('folio'));
+    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,cerrada_en,cancelada,entrega_directa').in('clave',claves.slice(i,i+200)).order('folio'));
     rs.forEach(o=>{o=normOC(o);const k=Number(o.clave);if(!ocs.has(k))ocs.set(k,[]);ocs.get(k).push(o);});
   }
   const cambios=[];

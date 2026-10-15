@@ -68,7 +68,9 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
       <select id="f-comp" onchange="pintar()"><option value="">Todos los compradores</option></select>
       <input type="text" id="f-prov" placeholder="Proveedor…" oninput="pintar()">
       <input type="text" id="f-folio" placeholder="Folio OC…" oninput="pintar()" style="width:130px">
+      <select id="f-tipo" onchange="pintar()"><option value="CEDI">OCs al CEDI</option><option value="ED">Entregas directas a sucursal</option><option value="TODAS">Todas</option></select>
       <label class="d"><input type="checkbox" id="f-sin" onchange="pintar()"> Solo sin compromiso</label>
+      <label class="d" title="OCs al CEDI con más de 120 días desde su fecha: revisar si se deben cerrar o cancelar en el sistema"><input type="checkbox" id="f-dep" onchange="pintar()"> Por depurar (+120 días)</label>
       <button class="sm" onclick="cargar()" style="margin-left:auto">↻ Actualizar</button>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -97,7 +99,8 @@ function agruparOC(lineas,comp,ltMap){
     l={...l,fecha_oc:d10(l.fecha_oc),fecha_entrega:d10(l.fecha_entrega)};
     Object.assign(l,refLinea(l,ltMap.get(Number(l.clave))));
     const f=Number(l.folio);let o=m.get(f);
-    if(!o){o={folio:f,proveedor:l.proveedor||'',fecha_oc:l.fecha_oc,compradores:{},claves:[],pend:0};m.set(f,o);}
+    if(!o){o={folio:f,proveedor:l.proveedor||'',fecha_oc:l.fecha_oc,compradores:{},claves:[],pend:0,ed:false,destino:null};m.set(f,o);}
+    if(l.entrega_directa){o.ed=true;o.destino=l.destino||o.destino;}
     if(l.fecha_oc&&(!o.fecha_oc||l.fecha_oc<o.fecha_oc))o.fecha_oc=l.fecha_oc;
     const c=l.comprador||'';o.compradores[c]=(o.compradores[c]||0)+1;
     o.claves.push(l);o.pend+=Number(l.cantidad_pend)||0;
@@ -112,8 +115,10 @@ function agruparOC(lineas,comp,ltMap){
     return o;
   });
 }
+const DEPURAR=120;   // días desde la fecha de la OC
+const edad=(f,hoy)=>f?Math.round((new Date(hoy+'T12:00:00')-new Date(f+'T12:00:00'))/864e5):0;
 function filtrarOC(ocs,f,hoy){
-  return ocs.filter(o=>(!f.comp||o.comprador===f.comp)&&(!f.prov||o.proveedor.toUpperCase().includes(f.prov.toUpperCase()))&&(!f.folio||String(o.folio).includes(f.folio))&&(!f.sin||!o.compromiso))
+  return ocs.filter(o=>(!f.tipo||f.tipo==='TODAS'||(f.tipo==='ED')===o.ed)&&(!f.dep||(!o.ed&&edad(o.fecha_oc,hoy)>DEPURAR))&&(!f.comp||o.comprador===f.comp)&&(!f.prov||o.proveedor.toUpperCase().includes(f.prov.toUpperCase()))&&(!f.folio||String(o.folio).includes(f.folio))&&(!f.sin||!o.compromiso))
     .sort((a,b)=>(a.ref||'9')<(b.ref||'9')?-1:(a.ref||'9')>(b.ref||'9')?1:a.folio-b.folio);
 }
 /*LOGIC-END*/
@@ -169,7 +174,7 @@ async function cargar(){
   try{
     const ltMap=await leerEntregas();
     const [lin,cmp]=await Promise.all([
-      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,cantidad_pend,fecha_entrega').is('cerrada_en',null).order('folio').order('clave')),
+      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,cantidad_pend,fecha_entrega,entrega_directa,destino').is('cerrada_en',null).order('folio').order('clave')),
       todo(()=>sb.from('plan_oc_compromiso').select('*').order('folio'))]);
     OCS=agruparOC(lin,new Map(cmp.map(c=>[Number(c.folio),c])),ltMap);
     const fc=document.getElementById('f-comp');const sel=fc.value;
@@ -181,15 +186,15 @@ async function cargar(){
 }
 function pintar(){
   if(!OCS)return;
-  const f={comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
+  const f={tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
   const v=filtrarOC(OCS,f,hoy());const h=hoy();
-  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.tipo==='ESTIMADA').length;
-  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con fecha compromiso</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>usan fecha estimada (sin compromiso)</span></div>'+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
+  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.tipo==='ESTIMADA').length,dep=v.filter(o=>!o.ed&&edad(o.fecha_oc,h)>DEPURAR).length;
+  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con fecha compromiso</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>usan fecha estimada (sin compromiso)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
   const puede=!!document.getElementById('quien').value;
   let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega esperada</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
   v.slice(0,800).forEach(o=>{
     const ref=o.ref;const vencida=ref&&ref<h;
-    html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega)+(o.tipo==='ESTIMADA'?' <span class="chip c-no" title="La fecha de entrega de la OC es igual o anterior a la fecha de la OC. Se usa la fecha de la OC + los meses de entrega de la clave, hasta que se capture la fecha compromiso.">estimada</span>':o.tipo==='SIN FECHA'?' <span class="chip c-v">sin fecha</span>':'')+'</td>'
+    html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+(o.ed?' <span class="chip c-no" title="Entrega directa a sucursal: no cuenta para OTIF, Target ni vencidas del CEDI">→ '+esc(o.destino||'sucursal')+'</span>':'')+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega)+(o.tipo==='ESTIMADA'?' <span class="chip c-no" title="La fecha de entrega de la OC es igual o anterior a la fecha de la OC. Se usa la fecha de la OC + los meses de entrega de la clave, hasta que se capture la fecha compromiso.">estimada</span>':o.tipo==='SIN FECHA'?' <span class="chip c-v">sin fecha</span>':'')+'</td>'
       +'<td class="num">'+o.claves.length+'</td><td class="num">'+o.pend.toLocaleString('es-MX')+'</td>'
       +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida':'ok')+'</span>':'<span class="chip c-no">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
       +'<td><input type="text" id="c-'+o.folio+'" value="'+esc(o.comentario||'')+'" placeholder="opcional"'+(puede?'':' disabled')+'></td>'
