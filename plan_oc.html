@@ -45,6 +45,8 @@ td input[type=text]{padding:4px 6px;font-size:12px;width:180px}
 a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1a2035;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;display:none;z-index:9}
 </style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
+<style>.embed header{display:none}</style>
 </head>
 <body>
 <header>
@@ -206,7 +208,9 @@ async function abrir(){
   document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';
   const q=document.getElementById('quien');
   q.innerHTML='<option value="">— Elige tu nombre —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
-  q.value=lsGet('plan_oc_quien')||'';setQuien(true);
+  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}
+  if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
+  q.value=pu||lsGet('plan_oc_quien')||'';setQuien(true);
   await cargar();
 }
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session)abrir();})();
