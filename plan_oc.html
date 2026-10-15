@@ -76,7 +76,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
     <div class="kpis" id="kpis"></div>
   </div>
   <div class="scroll"><table id="tb"></table></div>
-  <p class="d" style="margin-top:8px">La fecha compromiso es la que confirmó el proveedor. El OTIF mide el "a tiempo" contra ella; si una OC no la tiene, se mide contra la fecha de entrega que se puso en la OC.</p>
+  <p class="d" style="margin-top:8px">Cada OC trae una <b>fecha compromiso por defecto</b> = fecha de la OC + meses de entrega de la clave. El OTIF se mide contra ella hasta que alguien capture la fecha real que confirme el proveedor (cámbiala y presiona Guardar).</p>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -85,11 +85,11 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline}
 const DIAS_MES=30;
 const d10=v=>v==null||v===''?null:String(v).slice(0,10);
 const sumaDias=(f,n)=>{const d=new Date(f+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
-// Fecha de referencia de una línea: entrega de la OC si es válida (posterior a la fecha de la OC);
-// si no, fecha estimada = fecha de la OC + meses de entrega de la clave × 30 días.
+// Compromiso POR DEFECTO de una línea = fecha de la OC + meses de entrega de la clave × 30 días.
+// Solo si la clave no tiene tiempo de entrega se usa la entrega de la OC (si es posterior a la fecha de la OC).
 function refLinea(l,lt){
+  if(l.fecha_oc&&Number(lt)>0)return{ref:sumaDias(l.fecha_oc,Math.round(Number(lt)*DIAS_MES)),tipo:'DEFECTO'};
   if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc))return{ref:l.fecha_entrega,tipo:'OC'};
-  if(l.fecha_oc&&Number(lt)>0)return{ref:sumaDias(l.fecha_oc,Math.round(Number(lt)*DIAS_MES)),tipo:'ESTIMADA'};
   return{ref:null,tipo:'SIN FECHA'};
 }
 // Agrupa líneas abiertas por folio. ltMap: clave → meses de entrega
@@ -107,11 +107,12 @@ function agruparOC(lineas,comp,ltMap){
   });
   return[...m.values()].map(o=>{
     o.comprador=Object.entries(o.compradores).sort((a,b)=>b[1]-a[1])[0][0];
-    // Entrega esperada de la OC = la línea que llega al final; tipo ESTIMADA si alguna línea usa estimación
-    const refs=o.claves.filter(l=>l.ref);o.entrega=refs.length?refs.map(l=>l.ref).sort().pop():null;
-    o.tipo=refs.some(l=>l.tipo==='ESTIMADA')?'ESTIMADA':refs.length?'OC':'SIN FECHA';
+    // Entrega en OC = la que puso el comprador (solo referencia). Compromiso por defecto = la línea que llega al final.
+    const fe=o.claves.map(l=>l.fecha_entrega).filter(Boolean).sort();o.entrega_oc=fe.length?fe[0]:null;
+    const refs=o.claves.filter(l=>l.ref);o.defecto=refs.length?refs.map(l=>l.ref).sort().pop():null;
+    o.tipo=refs.some(l=>l.tipo==='DEFECTO')?'DEFECTO':refs.length?'OC':'SIN FECHA';
     const c=comp.get(o.folio);o.compromiso=c&&c.fecha?d10(c.fecha):null;o.comentario=c?c.comentario:'';o.usuario=c?c.usuario:'';o.cuando=c?c.actualizado_en:null;o.anterior=c?d10(c.fecha_anterior):null;
-    o.ref=o.compromiso||o.entrega;   // contra esta fecha se ve si está vencida (y se mide el OTIF)
+    o.ref=o.compromiso||o.defecto;   // compromiso capturado o, si no hay, el de por defecto: contra esta fecha se mide el OTIF
     return o;
   });
 }
@@ -188,19 +189,19 @@ function pintar(){
   if(!OCS)return;
   const f={tipo:document.getElementById('f-tipo').value,dep:document.getElementById('f-dep').checked,comp:document.getElementById('f-comp').value,prov:document.getElementById('f-prov').value.trim(),folio:document.getElementById('f-folio').value.trim(),sin:document.getElementById('f-sin').checked};
   const v=filtrarOC(OCS,f,hoy());const h=hoy();
-  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.tipo==='ESTIMADA').length,dep=v.filter(o=>!o.ed&&edad(o.fecha_oc,h)>DEPURAR).length;
-  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con fecha compromiso</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>usan fecha estimada (sin compromiso)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
+  const con=v.filter(o=>o.compromiso).length,venc=v.filter(o=>o.ref&&o.ref<h).length,est=v.filter(o=>!o.compromiso&&o.defecto).length,dep=v.filter(o=>!o.ed&&edad(o.fecha_oc,h)>DEPURAR).length;
+  document.getElementById('kpis').innerHTML='<div class="kpi"><b>'+v.length.toLocaleString('es-MX')+'</b><span>OCs abiertas</span></div><div class="kpi"><b>'+(v.length?Math.round(con/v.length*100):0)+'%</b><span>con compromiso capturado</span></div><div class="kpi"><b>'+venc.toLocaleString('es-MX')+'</b><span>con fecha ya vencida</span></div><div class="kpi"><b>'+est.toLocaleString('es-MX')+'</b><span>con compromiso por defecto (OC + entrega)</span></div>'+(f.tipo!=='ED'?'<div class="kpi" style="cursor:pointer" onclick="document.getElementById(\'f-dep\').checked=!document.getElementById(\'f-dep\').checked;pintar()" title="Clic para filtrar"><b style="color:var(--err)">'+dep.toLocaleString('es-MX')+'</b><span>por depurar (+'+DEPURAR+' días)</span></div>':'')+(AVISO_LT?'<div class="kpi" style="border-color:var(--err);color:var(--err);font-size:12px;max-width:420px">'+esc(AVISO_LT)+'</div>':'');
   const puede=!!document.getElementById('quien').value;
-  let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega esperada</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
+  let html='<tr><th>Folio</th><th>Proveedor</th><th>Comprador</th><th>Fecha OC</th><th>Entrega en OC</th><th class="num">Claves</th><th class="num">Pendiente</th><th>Fecha compromiso</th><th>Comentario</th><th></th><th>Capturó</th></tr>';
   v.slice(0,800).forEach(o=>{
     const ref=o.ref;const vencida=ref&&ref<h;
-    html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+(o.ed?' <span class="chip c-no" title="Entrega directa a sucursal: no cuenta para OTIF, Target ni vencidas del CEDI">→ '+esc(o.destino||'sucursal')+'</span>':'')+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega)+(o.tipo==='ESTIMADA'?' <span class="chip c-no" title="La fecha de entrega de la OC es igual o anterior a la fecha de la OC. Se usa la fecha de la OC + los meses de entrega de la clave, hasta que se capture la fecha compromiso.">estimada</span>':o.tipo==='SIN FECHA'?' <span class="chip c-v">sin fecha</span>':'')+'</td>'
+    html+='<tr'+(vencida?' class="vencida"':'')+' data-f="'+o.folio+'"><td><a class="lk" onclick="toggle('+o.folio+')">'+o.folio+'</a></td><td>'+esc(o.proveedor)+(o.ed?' <span class="chip c-no" title="Entrega directa a sucursal: no cuenta para OTIF, Target ni vencidas del CEDI">→ '+esc(o.destino||'sucursal')+'</span>':'')+'</td><td>'+esc(o.comprador)+'</td><td>'+fmtF(o.fecha_oc)+'</td><td>'+fmtF(o.entrega_oc)+'</td>'
       +'<td class="num">'+o.claves.length+'</td><td class="num">'+o.pend.toLocaleString('es-MX')+'</td>'
-      +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida':'ok')+'</span>':'<span class="chip c-no">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
+      +'<td><input type="date" id="d-'+o.folio+'" value="'+(o.compromiso||o.defecto||'')+'"'+(puede?'':' disabled')+'> '+(o.compromiso?'<span class="chip '+(vencida?'c-v':'c-ok')+'">'+(vencida?'vencida':'capturada')+'</span>':o.defecto?'<span class="chip '+(vencida?'c-v':'c-no')+'" title="Fecha de la OC + meses de entrega de la clave. Cámbiala y guarda cuando el proveedor confirme la fecha real.">'+(vencida?'vencida · ':'')+'por defecto</span>':'<span class="chip c-v">sin fecha</span>')+(o.anterior&&o.anterior!==o.compromiso?'<div class="who">antes: '+fmtF(o.anterior)+'</div>':'')+'</td>'
       +'<td><input type="text" id="c-'+o.folio+'" value="'+esc(o.comentario||'')+'" placeholder="opcional"'+(puede?'':' disabled')+'></td>'
       +'<td><button class="sm" onclick="guardar('+o.folio+')"'+(puede?'':' disabled')+'>Guardar</button></td>'
       +'<td class="who">'+(o.usuario?esc(o.usuario)+'<br>'+new Date(o.cuando).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'}):'')+'</td></tr>';
-    if(ABIERTO.has(o.folio))html+=o.claves.map(l=>'<tr class="lines"><td></td><td colspan="4">Clave '+l.clave+'</td><td></td><td class="num">'+Number(l.cantidad_pend).toLocaleString('es-MX')+' de '+Number(l.cantidad_ped).toLocaleString('es-MX')+'</td><td colspan="4">'+(l.tipo==='ESTIMADA'?'Estimada: '+fmtF(l.ref)+' <span class="who">(OC '+fmtF(l.fecha_oc)+' + entrega; en la OC decía '+fmtF(l.fecha_entrega)+')</span>':'Entrega en OC: '+fmtF(l.ref))+'</td></tr>').join('');
+    if(ABIERTO.has(o.folio))html+=o.claves.map(l=>'<tr class="lines"><td></td><td colspan="4">Clave '+l.clave+'</td><td></td><td class="num">'+Number(l.cantidad_pend).toLocaleString('es-MX')+' de '+Number(l.cantidad_ped).toLocaleString('es-MX')+'</td><td colspan="4">Por defecto: '+fmtF(l.ref)+' <span class="who">'+(l.tipo==='DEFECTO'?'(OC '+fmtF(l.fecha_oc)+' + entrega de la clave)':l.tipo==='OC'?'(clave sin tiempo de entrega: se usa la de la OC)':'')+' · Entrega en OC: '+fmtF(l.fecha_entrega)+'</span></td></tr>').join('');
   });
   if(v.length>800)html+='<tr><td colspan="11" class="d">Se muestran 800 de '+v.length+'. Usa los filtros para ver el resto.</td></tr>';
   if(!v.length)html+='<tr><td colspan="11" class="d">No hay OCs con esos filtros.</td></tr>';

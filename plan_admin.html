@@ -492,18 +492,19 @@ P.otifLinea=(l,recs,compromisos,lt)=>{
   if(l.cancelada&&!(recs&&recs.length))return null;              // cancelada sin recibir: no cuenta
   if(Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null; // ya traía recepciones antes de la primera foto
   const rec=(recs||[]).slice().sort((a,b)=>a.fecha<b.fecha?-1:1);if(!rec.length)return null;
-  // Fecha de referencia: compromiso del proveedor; si no hay, la fecha de entrega de la OC solo si es posterior a la fecha de la OC
-  let ref=null,base='SIN FECHA VALIDA';
-  if(compromisos.has(Number(l.folio))){ref=compromisos.get(Number(l.folio));base='COMPROMISO';}
-  else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='SOLICITADA';}
-  else if(l.fecha_oc&&Number(lt)>0){const d=new Date(l.fecha_oc+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Math.round(Number(lt)*P.R.DIAS_MES));ref=d.toISOString().slice(0,10);base='ESTIMADA (OC + entrega)';}
+  // Fecha compromiso: la capturada por el comprador; si no hay, la de POR DEFECTO = fecha de la OC + meses de entrega
+  // de la clave × 30 días. Solo si la clave no tiene tiempo de entrega se usa la fecha de entrega de la OC (si es válida).
+  let ref=null,base='SIN FECHA';
+  if(compromisos.has(Number(l.folio))){ref=compromisos.get(Number(l.folio));base='COMPROMISO CAPTURADO';}
+  else if(l.fecha_oc&&Number(lt)>0){const d=new Date(l.fecha_oc+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Math.round(Number(lt)*P.R.DIAS_MES));ref=d.toISOString().slice(0,10);base='COMPROMISO POR DEFECTO';}
+  else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='ENTREGA EN OC (sin tiempo de entrega)';}
   const tot=rec.reduce((t,r)=>t+Number(r.cantidad),0);const ult=rec[rec.length-1].fecha;
   return{folio:Number(l.folio),clave:Number(l.clave),proveedor:l.proveedor,comprador:l.comprador,mes:ult.slice(0,7),ref,base,
     on_time:ref?ult<=ref:null,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
 };
 P.otifResumen=(lineas,clave)=>{
   // On Time solo sobre líneas con fecha de referencia válida; In Full sobre todas. OTIF = promedio de los dos.
-  const g={};lineas.forEach(x=>{const k=x[clave]||'(sin dato)';const o=g[k]||(g[k]={n:0,nOT:0,ot:0,inf:0,comp:0});o.n++;if(x.on_time!=null){o.nOT++;if(x.on_time)o.ot++;}if(x.in_full)o.inf++;if(x.base==='COMPROMISO')o.comp++;});
+  const g={};lineas.forEach(x=>{const k=x[clave]||'(sin dato)';const o=g[k]||(g[k]={n:0,nOT:0,ot:0,inf:0,comp:0});o.n++;if(x.on_time!=null){o.nOT++;if(x.on_time)o.ot++;}if(x.in_full)o.inf++;if(x.base==='COMPROMISO CAPTURADO')o.comp++;});
   return Object.entries(g).map(([k,o])=>{const ot=o.nOT?o.ot/o.nOT:null,inf=o.inf/o.n;return{nombre:k,lineas:o.n,con_fecha:o.nOT,on_time:ot,in_full:inf,otif:ot==null?null:(ot+inf)/2,con_compromiso:o.comp/o.n};}).sort((a,b)=>b.lineas-a.lineas);
 };
 /*PARSE-END*/
@@ -769,7 +770,7 @@ function pintarCalc(r,nuevas,ocx){
       +'<div class="scroll" style="max-height:260px"><table><tr><th>Comprador</th><th>Evaluadas</th><th>Cumplen</th><th>Target</th><th>En plazo (sin resultado aún)</th></tr>'+ocx.tRows.map(t=>'<tr><td>'+t.nombre+'</td><td>'+t.evaluadas+'</td><td>'+t.cumplen+'</td><td>'+pct(t.target)+'</td><td>'+t.pendientes+'</td></tr>').join('')+'</table></div>'
       +'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🚚 OTIF de proveedor del mes '+(ocx.oGen?'· '+pct(ocx.oGen.otif)+' ('+fmt(ocx.oGen.lineas)+' líneas · '+pct(ocx.oGen.con_compromiso)+' con fecha compromiso)':'· aún sin líneas cerradas')+'</h3>'
       +(ocx.oProv.length?'<div class="scroll" style="max-height:260px"><table><tr><th>Proveedor</th><th>Líneas</th><th>Con fecha válida</th><th>On Time</th><th>In Full</th><th>OTIF</th><th>Con compromiso</th></tr>'+ocx.oProv.slice(0,30).map(o=>'<tr><td>'+o.nombre+'</td><td>'+o.lineas+'</td><td>'+o.con_fecha+'</td><td>'+pct(o.on_time)+'</td><td>'+pct(o.in_full)+'</td><td>'+pct(o.otif)+'</td><td>'+pct(o.con_compromiso)+'</td></tr>').join('')+'</table></div>':'')
-      +'<p class="d" style="font-size:11.5px;margin-top:6px">Target: cumple si la OC se colocó entre '+P.R.T_ANTES+' días antes (o el 10% del tiempo de entrega, si es mayor) y '+P.R.T_DESPUES+' días después de la alarma. OTIF = promedio de On Time e In Full. On Time se mide contra la fecha compromiso del proveedor; si la OC no la tiene, contra su fecha de entrega si es posterior a la fecha de la OC; si no, contra una fecha estimada = fecha de la OC + meses de entrega de la clave.</p>':'');
+      +'<p class="d" style="font-size:11.5px;margin-top:6px">Target: cumple si la OC se colocó entre '+P.R.T_ANTES+' días antes (o el 10% del tiempo de entrega, si es mayor) y '+P.R.T_DESPUES+' días después de la alarma. OTIF = promedio de On Time e In Full. On Time se mide contra la fecha compromiso: la que capturó el comprador o, si no hay, la de por defecto = fecha de la OC + meses de entrega de la clave.</p>':'');
 }
 async function descargarCalc(){
   if(!ULTIMO_CALC)return;
