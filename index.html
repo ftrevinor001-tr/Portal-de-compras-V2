@@ -1619,6 +1619,52 @@ function reconstruirHoja1(rawD){
   });
 }
 
+// ── Histórico Faltantes V2: publica solo los agregados (series, tabla resumen, meses inv.) ──
+// El detalle de cada día se consulta directo de detalle_diario cuando se necesita.
+// Las claves restringidas vigentes se descuentan aquí (antes se recalculaba todo en el navegador).
+async function restringidasVigentes(){
+  const rr=await sb.from('claves_restringidas').select('clave,comprador,activa,autorizado_en').eq('activa',true);
+  if(rr.error||!rr.data)return new Set();
+  const vig=rr.data.filter(x=>{if(!x.autorizado_en)return true;const b=new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00');return isNaN(b)?true:Math.floor((Date.now()-b.getTime())/864e5)<30;});
+  return new Set(vig.map(x=>String(x.clave).trim()+'||'+String(x.comprador).trim().toUpperCase()));
+}
+async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
+  log('🪶 Histórico Faltantes V2: preparando versión ligera…');
+  const restr=await restringidasVigentes();
+  let p=payload;
+  if(restr.size){
+    const esR=r=>String(r['Clasificacion_estatus de inventario']||'').trim().toUpperCase()==='FALTANTE'&&restr.has(String(r['Clave']).trim()+'||'+String(r['COMPRADOR']||'').trim().toUpperCase());
+    const rawD2=rawDUse.filter(r=>!esR(r));
+    if(rawD2.length!==rawDUse.length){
+      const dias=new Set(rawD2.map(r=>pD(String(r['Fecha']||''))).filter(Boolean));
+      const raw2=rawUse.filter(r=>!dias.has(pD(String(r['Fecha']||'')))).concat(reconstruirHoja1(rawD2));
+      await new Promise(r=>setTimeout(r,30));
+      p=buildData(raw2,rawD2,nombre);
+      log('   🚫 '+(rawDUse.length-rawD2.length).toLocaleString()+' filas en faltante de claves restringidas descontadas');
+    }
+  }
+  // Claves en faltante por día (para la lupa del pico): [clave,nombre,marca,comprador,rotación,BO,ABC]
+  const faltDia={};
+  (p.detR||[]).forEach(r=>{if(r.estatus!=='FALTANTE'||!r.fecha)return;(faltDia[r.fecha]=faltDia[r.fecha]||[]).push([r.clave,String(r.nombre||'').slice(0,60),r.marca,r.comprador,r.clmov,r.bo,r.clasificacion]);});
+  const{detR,rowsRes,...ligero}=p;
+  // Meses de inventario vs objetivo: solo cierres de mes y los últimos 10 días (lo que más se consulta)
+  try{
+    const dias=(p.sobreInv&&p.sobreInv.meses)||[];const cierre={};dias.forEach(d=>{const m=d.slice(0,7);if(!cierre[m]||d>cierre[m])cierre[m]=d;});
+    const keep=new Set([...Object.values(cierre),...dias.slice(-10)]);
+    ligero.sobreInv={...p.sobreInv,celdas:p.sobreInv.celdas.filter(c=>keep.has(c.dia)),meses:dias.filter(d=>keep.has(d))};
+    const pdc={};Object.keys(p.topExceso.porDiaComp).forEach(k=>{if(keep.has(k.split('||')[0]))pdc[k]=p.topExceso.porDiaComp[k];});
+    ligero.topExceso={porDiaComp:pdc,dias:(p.topExceso.dias||[]).filter(d=>keep.has(d))};
+  }catch(e){log('   ⚠️ No se pudo recortar meses de inventario: '+e.message);}
+  ligero.faltDia=faltDia;ligero.v=2;ligero.restringidas=restr.size;
+  const js=JSON.stringify(ligero);const z=await gzipBlob(js);
+  const ruta2=z.gz?'payloads/faltantes_v2.json.gz':'payloads/faltantes_v2.json';
+  const up=await sb.storage.from('respaldos').upload(ruta2,z.body,{upsert:true,contentType:'application/octet-stream'});
+  if(up.error)throw new Error('Storage: '+up.error.message);
+  const ds=await sb.from('datasets').upsert({clave:'faltantes_v2',payload:{version:Date.now().toString(),ruta:ruta2,uf:p.uf,pf:p.pf,dias:p.fechas.length,archivo:nombre},actualizado_por:usuarioActual||'admin'});
+  if(ds.error)throw new Error('datasets: '+ds.error.message);
+  log('   ✅ '+Math.round(js.length/1048576*10)/10+' MB → '+Math.round(z.body.size/1024)+' KB comprimido (antes se descargaba el detalle completo)');
+}
+
 // ── Guardar el detalle diario en Supabase, solo los días que aún no están ──
 async function guardarDiasNuevos(rawD){
   if(!rawD||!rawD.length){log('   (sin filas de Detalle para guardar)');return;}
@@ -1759,6 +1805,9 @@ async function procesarExcel(file){
     log('☁️ Subiendo datos a Supabase…');
     const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
     if(up.error) throw new Error('Storage: '+up.error.message);
+    // ── V2: versión ligera para Histórico Faltantes (sin el detalle diario completo) ──
+    try{ await publicarFaltantesV2(payload,rawUse,rawDUse,file.name); }
+    catch(e){ log('⚠️ Histórico Faltantes V2 no se publicó: '+e.message); }
 
     const version=Date.now().toString();
     log('📝 Publicando versión…');

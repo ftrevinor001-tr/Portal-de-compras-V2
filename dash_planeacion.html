@@ -219,14 +219,16 @@ const EST={
 const BASES={D:{l:'Portal',d:'promedio de antecedente y pronóstico (la que usan alarmas y Target)'},A:{l:'Antecedente',d:'consumo real de los N meses anteriores'},P:{l:'Pronóstico',d:'mismos N meses del año pasado, desde el mes en curso'}};
 const RIESGOS=['FALTANTE','RIESGO'];
 // Estatus de una clave con la base elegida (D portal, A antecedente, P pronóstico)
-function estDe(r,b){if(b==='D')return r.est;const v=b==='A'?r.eA:r.eP;return v||(r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO');}
+// El estatus por antecedente/pronóstico se calcula aquí con la misma fórmula (no depende de que el cálculo publicado lo traiga)
+function estBase(r,b){const X=b==='A'?r.A:r.P;if(X==null)return null;return P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
+function estDe(r,b){if(b==='D')return r.est;const v=estBase(r,b);return v||(r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO');}
 function consDe(r,b){return b==='A'?r.A:b==='P'?r.P:r.D;}
 function mesesDe(r,b){const c=consDe(r,b);return c>0?r.ex/c:null;}
 function propDe(r,b){return b==='A'?r.sA:b==='P'?r.sP:r.s;}
 const malo=e=>RIESGOS.includes(e);
 // Cambia: el estatus con antecedente y con pronóstico es distinto. Empeora: antecedente sano y pronóstico en riesgo/faltante
-function cambia(r){return !!(r.eA&&r.eP&&r.eA!==r.eP);}
-function empeora(r){return !!(r.eA&&r.eP&&!malo(r.eA)&&malo(r.eP));}
+function cambia(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&a!==p);}
+function empeora(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&!malo(a)&&malo(p));}
 function filtrarClaves(rows,f){
   const q=(f.q||'').trim().toUpperCase();
   return rows.filter(r=>(!f.comp||r.comp===f.comp)&&(!f.est||estDe(r,f.base||'D')===f.est)&&(!f.rot||r.rot===f.rot)&&(!f.marca||r.m===f.marca)&&(!f.grupo||r.g===f.grupo)
@@ -365,7 +367,7 @@ function pintarTablero(){
   // Aviso: antecedente sano y pronóstico en riesgo/faltante
   const emp=rows.filter(empeora).sort((x,y)=>(y.P||0)-(x.P||0));
   $('tab-alert').innerHTML=emp.length?'<div class="alert"><b>⇄ '+fmtN(emp.length)+' claves que el antecedente da por sanas pero el pronóstico manda a riesgo o faltante</b> <span class="mut sm">(viene temporada: revisa antes de que entren en alarma)</span>'
-    +emp.slice(0,6).map(r=>'<div class="it"><b style="color:var(--tx)">'+r.c+'</b> '+esc((r.n||'').slice(0,46))+' — '+(EST[r.eA]||{}).l+' → <b>'+(EST[r.eP]||{}).l+'</b></div>').join('')
+    +emp.slice(0,6).map(r=>'<div class="it"><b style="color:var(--tx)">'+r.c+'</b> '+esc((r.n||'').slice(0,46))+' — '+(EST[estDe(r,'A')]||{}).l+' → <b>'+(EST[estDe(r,'P')]||{}).l+'</b></div>').join('')
     +'<div style="margin-top:8px"><button class="btn" onclick="verEnDetalle({lista:new Set('+JSON.stringify(emp.map(r=>r.c))+')})">Ver sólo estas en la tabla</button></div></div>':'';
   const ct=conteoEstatus(rows,b);
   const orden=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO',b==='D'?'SIN COMPRA':'SIN CONSUMO'];
@@ -453,7 +455,7 @@ function pintarDetalle(){
   const cp=v=>v==null?'—':v>0?'<b class="comprar">'+fmtN(v)+'</b>':'<span class="cero">0</span>';
   let html='';
   rows.slice(0,S.limite).forEach(r=>{
-    const ch=cambia(r),em=empeora(r);const mk=ch?'<span class="cambia'+(em?' bad':'')+'" title="'+(em?'Empeora con el pronóstico':'Cambia de estatus')+': '+(EST[r.eA]||{}).l+' → '+(EST[r.eP]||{}).l+'">⇄</span>':'';
+    const ch=cambia(r),em=empeora(r);const mk=ch?'<span class="cambia'+(em?' bad':'')+'" title="'+(em?'Empeora con el pronóstico':'Cambia de estatus')+': '+(EST[estDe(r,'A')]||{}).l+' → '+(EST[estDe(r,'P')]||{}).l+'">⇄</span>':'';
     const ocs=S.ocs[r.c]||[];
     html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
