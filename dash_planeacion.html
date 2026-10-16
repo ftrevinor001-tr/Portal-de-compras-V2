@@ -153,6 +153,8 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
       <div id="d-marca" data-t="Marca"></div>
       <div id="d-grupo" data-t="Grupo"></div>
       <button class="btn" id="d-comprar">🛒 Solo por pedir</button>
+      <div id="d-temp" data-t="Temporada"></div>
+      <select id="d-umb" title="Qué tanto debe variar el pronóstico contra el antecedente para marcar temporada" onchange="P.R.TEMP_VAR=+this.value;S.limite=400;pintarDetalle()"><option value="0.3">Temporada: ±30%</option><option value="0.5" selected>Temporada: ±50%</option><option value="1">Temporada: ±100%</option></select>
       <button class="btn" id="d-cambia" title="El estatus cambia entre antecedente y pronóstico">⇄ Cambia de estatus</button>
       <button class="btn" id="d-mf" title="MF con más meses de inventario que el límite: revisar redistribución">🏬 MF a revisar</button>
       <button class="btn" onclick="limpiarDet()">Limpiar</button>
@@ -353,16 +355,19 @@ function llenarFiltros(){
   MS.opts('g-comp',cnt);
 }
 // Filtros del Detalle (selección múltiple en cascada)
-const DF=[['d-est',r=>estDe(r,S.base)],['d-rot',r=>r.rot],['d-marca',r=>r.m],['d-grupo',r=>r.g]];
-const DFL={'d-est':v=>EST[v]?EST[v].l:(v||'(sin dato)')};
+const DF=[['d-temp',r=>tempDe(r).t],['d-est',r=>estDe(r,S.base)],['d-rot',r=>r.rot],['d-marca',r=>r.m],['d-grupo',r=>r.g]];
+const DFL={'d-est':v=>EST[v]?EST[v].l:(v||'(sin dato)'),'d-temp':v=>P.TEMP_L[v]||v};
 const ORD_ROT=['SAGRADOS','ALTA ROTACION','MEDIA ROTACION','LENTA ROTACION','NUEVOS','SIN COMPRA'];const sinAc=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-const DFO={'d-est':(a,b)=>(EST[a.v]?EST[a.v].o:9)-(EST[b.v]?EST[b.v].o:9),'d-rot':(a,b)=>((ORD_ROT.indexOf(sinAc(a.v))+1||99)-(ORD_ROT.indexOf(sinAc(b.v))+1||99))||a.t.localeCompare(b.t,'es')};
+const DFO={'d-temp':(a,b)=>['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(a.v)-['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(b.v),'d-est':(a,b)=>(EST[a.v]?EST[a.v].o:9)-(EST[b.v]?EST[b.v].o:9),'d-rot':(a,b)=>((ORD_ROT.indexOf(sinAc(a.v))+1||99)-(ORD_ROT.indexOf(sinAc(b.v))+1||99))||a.t.localeCompare(b.t,'es')};
 const compSel=()=>MS.sel('g-comp');
 const compOk=c=>enF(compSel(),c);
 // Afectación en dinero: consumo mensual (base elegida) × costo unitario de compra
 const costoDe=r=>{const x=S.costos.get(Number(r.c));return x?x.c:null;};
 const impDe=(r,b)=>{const c=costoDe(r),q=consDe(r,b||'D');return c!=null&&q!=null?q*c:null;};
 const fmt$=v=>v==null?'—':'$'+fmtN(v,v<100?2:0);
+// Temporada: variación del pronóstico contra el antecedente (P.temporada, plan_logica.js)
+const tempDe=r=>P.temporada(r.A,r.P);
+const varTxt=r=>{const t=tempDe(r);if(t.t==='SIN DATO')return'—';const c=t.t==='SUBE'?'#c2410c':t.t==='BAJA'?'#2563eb':'var(--tx2)';const s=t.v==null?(t.t==='SUBE'?'nueva':'—'):(t.v>0?'+':'')+Math.round(t.v*100)+'%';return '<span style="color:'+c+';font-weight:'+(t.t==='ESTABLE'?400:700)+'" title="'+P.TEMP_L[t.t]+'">'+(t.t==='SUBE'?'↑ ':t.t==='BAJA'?'↓ ':'')+s+'</span>';};
 const misClaves=()=>compSel().size?S.claves.filter(r=>compOk(r.comp)):S.claves;
 function irTab(t){S.tab=t;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
   $('base-row').style.display=(t==='tab'||t==='det')?'':'none';pintar();}
@@ -370,7 +375,7 @@ function pintar(){
   $('base-desc').textContent='— '+BASES[S.base].d;
   if(S.tab==='tab')pintarTablero();else if(S.tab==='det')pintarDetalle();else if(S.tab==='ped'){pintarPedir();pintarPrecision();}else if(S.tab==='tgt')pintarTarget();else if(S.tab==='otif')pintarOTIF();
 }
-function verEnDetalle(f){S.f={q:'',comprar:false,cambia:false,mf:false,lista:null,...f};delete S.f.est;$('d-q').value=f.q||'';DF.forEach(([id])=>MS.clear(id));if(f.est)MS.set('d-est',[f.est]);
+function verEnDetalle(f){S.f={q:'',comprar:false,cambia:false,mf:false,lista:null,...f};delete S.f.est;$('d-q').value=f.q||'';DF.forEach(([id])=>MS.clear(id));if(f.est)MS.set('d-est',[f.est]);if(f.temp)MS.set('d-temp',f.temp);delete S.f.temp;
   ['comprar','cambia','mf'].forEach(k=>$('d-'+k).classList.toggle('on',!!S.f[k]));S.limite=400;irTab('det');}
 function limpiarDet(){verEnDetalle({});}
 
@@ -392,6 +397,7 @@ function pintarTablero(){
   $('tab-cards2').innerHTML=card('var(--acc)','🛒 Por pedir hoy',fmtN(porPedir),'faltante/riesgo con propuesta del portal',"irTab('ped')")
     +card('var(--st-x)','🎯 Target del mes','<span id="k-tgt">…</span>','<span id="k-tgt2">OC en tiempo vs alarmas</span>',"irTab('tgt')")
     +card('var(--st-o)','🚚 OTIF del mes','<span id="k-otif">…</span>','<span id="k-otif2">líneas cerradas</span>',"irTab('otif')")
+    +card('#c2410c','🌡 Temporada',fmtN(rows.filter(r=>tempDe(r).t==='SUBE').length),'pronóstico '+Math.round(P.R.TEMP_VAR*100)+'% o más arriba del antecedente · '+fmtN(rows.filter(r=>tempDe(r).t==='SUBE'&&malo(estDe(r,'P'))).length)+' ya en riesgo con pronóstico',"verEnDetalle({temp:['SUBE']})")
     +card('var(--st-n)','🏬 MF a revisar',fmtN(mf),'más de '+P.R.MF_MESES_REV+' meses de inventario en MF',"verEnDetalle({mf:true})");
   kpisIndicadores();
   pintarTendencia();pintarHist(rows);pintarCriticas(rows);
@@ -454,14 +460,14 @@ function pintarCriticas(rows){
 const DCOLS=[
   {k:'c',t:'Clave'},{k:'n',t:'Descripción',cls:'desc'},{k:'ex',t:'Exist.',num:1},{k:'bo',t:'BO CEDI',num:1},{k:'u',t:'Unidad'},
   {k:'A',t:'Consumo',num:1,g:'A'},{k:'mA',t:'Meses',num:1,g:'A',d:1},{k:'eA',t:'Estatus',g:'A'},
-  {k:'P',t:'Consumo',num:1,g:'P'},{k:'mP',t:'Meses',num:1,g:'P',d:1},{k:'eP',t:'Estatus',g:'P'},
+  {k:'P',t:'Consumo',num:1,g:'P'},{k:'mP',t:'Meses',num:1,g:'P',d:1},{k:'eP',t:'Estatus',g:'P'},{k:'var',t:'Var. vs ant.',num:1,g:'P'},
   {k:'D',t:'Demanda',num:1,g:'D'},{k:'mi',t:'Meses',num:1,g:'D',d:1},{k:'miB',t:'c/BO',num:1,g:'D',d:1},{k:'est',t:'Estatus',g:'D'},
   {k:'pm',t:'Obj.',num:1,d:1},{k:'lt',t:'T.entr.',num:1,d:1},{k:'comp',t:'Comprador'},{k:'m',t:'Marca'},{k:'imp',t:'$ consumo/mes',num:1},{k:'oc',t:'OCs abiertas',num:1},
   {k:'sA',t:'Ant.',num:1,g:'Pr'},{k:'sP',t:'Pron.',num:1,g:'Pr'},{k:'s',t:'Portal',num:1,g:'Pr'},{k:'sE',t:'Empaque',num:1,g:'Pr'},
   {k:'mfM',t:'MF meses',num:1,d:1}
 ];
 function valorOrden(r,k){
-  if(k==='imp')return impDe(r,S.base);if(k==='mA')return mesesDe(r,'A');if(k==='mP')return mesesDe(r,'P');if(k==='oc')return(S.ocs[r.c]||[]).length;
+  if(k==='var'){const t=tempDe(r);return t.v!=null?t.v:t.t==='SUBE'?9:null;}if(k==='imp')return impDe(r,S.base);if(k==='mA')return mesesDe(r,'A');if(k==='mP')return mesesDe(r,'P');if(k==='oc')return(S.ocs[r.c]||[]).length;
   if(k==='est'||k==='eA'||k==='eP'){const e=k==='est'?r.est:estDe(r,k==='eA'?'A':'P');return EST[e]?EST[e].o:9;}
   return r[k];
 }
@@ -484,7 +490,7 @@ function pintarDetalle(){
     const ocs=S.ocs[r.c]||[];
     html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+fmtN(r.ex)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
-      +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td>'
+      +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td><td class="num gP">'+varTxt(r)+'</td>'
       +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="num gD" style="color:#7c3aed" title="Meses de inventario contando el BO del CEDI (referencia; el estatus no lo cuenta)">'+fmtN(r.miB,1)+'</td><td class="gD">'+tag(r.est,B==='D')+'</td>'
       +'<td class="num">'+fmtN(r.pm,1)+'</td><td class="num">'+fmtN(r.lt,1)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="sm">'+esc(r.m||'')+'</td><td class="num" title="'+(costoDe(r)!=null?'Costo unitario '+fmt$(costoDe(r))+' × consumo':'Sin costo registrado')+'">'+fmt$(impDe(r,S.base))+'</td><td class="num">'+(ocs.length?'<span title="'+esc(ocs.map(o=>'OC '+o[0]+': '+fmtN(o[1])+' pend.').join('\n'))+'">'+ocs.length+'</span>':'<span class="cero">0</span>')+'</td>'
       +'<td class="num gPr'+act('A')+'">'+cp(r.sA)+'</td><td class="num gPr'+act('P')+'">'+cp(r.sP)+'</td><td class="num gPr'+act('D')+'">'+cp(r.s)+'</td><td class="num gPr" title="'+esc(r.eT||'sin empaque válido')+'">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT||'')+'</span>':'—')+'</td>'
@@ -549,7 +555,7 @@ function excelDetalle(){
   const rows=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base}).filter(r=>MS.pasa(r,DF));
   const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
-    'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
+    'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
     'Costo unitario':costoDe(r),'Afectación $ por mes (demanda portal)':impDe(r,'D'),'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
     'Existencia MF':r.mfI,'Demanda MF':r.mfD,'Meses MF':r.mfM,'Revisar con gerencia':r.mfF?'SÍ':'','Excedente MF':r.mfX,'Notas':r.nt}));
   descargarXLSX([[out,'Detalle por clave']],'Detalle_claves_'+S.fecha);

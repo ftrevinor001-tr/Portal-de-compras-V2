@@ -486,5 +486,17 @@ P.otifResumen=(lineas,clave)=>{
   const g={};lineas.forEach(x=>{const k=x[clave]||'(sin dato)';const o=g[k]||(g[k]={n:0,nOT:0,ot:0,inf:0,comp:0});o.n++;if(x.on_time!=null){o.nOT++;if(x.on_time)o.ot++;}if(x.in_full)o.inf++;if(x.base==='COMPROMISO CAPTURADO')o.comp++;});
   return Object.entries(g).map(([k,o])=>{const ot=o.nOT?o.ot/o.nOT:null,inf=o.inf/o.n;return{nombre:k,lineas:o.n,con_fecha:o.nOT,on_time:ot,in_full:inf,otif:ot==null?null:(ot+inf)/2,con_compromiso:o.comp/o.n};}).sort((a,b)=>b.lineas-a.lineas);
 };
+// Temporada: variación fuerte entre antecedente y pronóstico (pronóstico = mismos meses del año pasado que vienen).
+// SUBE: el pronóstico es 50% (ajustable en pantalla) o más arriba del antecedente (y al menos 1 unidad/mes más) · BAJA: el mismo % o más abajo · ESTABLE: el resto.
+P.R.TEMP_VAR=0.50;P.R.TEMP_MIN=1;
+P.temporada=(A,Pr)=>{
+  if(A==null||Pr==null)return{t:'SIN DATO',v:null};
+  if(!(A>0))return Pr>=P.R.TEMP_MIN?{t:'SUBE',v:null}:{t:'ESTABLE',v:null};
+  const v=(Pr-A)/A;
+  if(v>=P.R.TEMP_VAR&&Pr-A>=P.R.TEMP_MIN)return{t:'SUBE',v};
+  if(v<=-P.R.TEMP_VAR&&A-Pr>=P.R.TEMP_MIN)return{t:'BAJA',v};
+  return{t:'ESTABLE',v};
+};
+P.TEMP_L={SUBE:'↑ Sube fuerte (temporada)',BAJA:'↓ Baja fuerte',ESTABLE:'Sin cambio fuerte','SIN DATO':'Sin antecedente o pronóstico'};
 /*PARSE-END*/
 if(typeof window!=='undefined')window.P=P;   // para páginas que preguntan por window.P (Estatus Back Orders)
