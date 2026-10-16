@@ -94,7 +94,7 @@ tr.lin-q td{background:#fbfcff}
       <input type="search" id="n-q" placeholder="Filtrar por clave, descripción o marca…" oninput="pintarNueva()" style="width:280px">
       <span class="d" id="n-cnt"></span>
     </div>
-    <div class="scroll" style="max-height:38vh"><table><thead><tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th>Folio abierto</th></tr></thead><tbody id="n-body"></tbody></table></div>
+    <div class="scroll" style="max-height:38vh"><table><thead><tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th class="num">Recomendada</th><th>Folio abierto</th></tr></thead><tbody id="n-body"></tbody></table></div>
     <div class="row" style="margin-top:10px">
       <textarea id="n-pegar" placeholder="O pega aquí claves: 44519, 163 26520…" style="width:420px;height:52px" oninput="pintarNueva()"></textarea>
       <button onclick="crearFolio()" id="n-crear">Crear folio</button>
@@ -109,10 +109,11 @@ tr.lin-q td{background:#fbfcff}
       <div class="row" id="f-acc"></div>
     </div>
     <div class="pasos" id="f-pasos"></div>
+    <div class="d" id="f-bo" style="margin:6px 0 2px"></div>
     <div class="kpis" id="f-kpis"></div>
     <div id="f-aviso"></div>
     <div class="scroll"><table><thead id="f-head"></thead><tbody id="f-body"></tbody></table></div>
-    <p class="d" style="margin-top:8px">Meses = (existencia + BO del CEDI + pedido) ÷ consumo. Entre paréntesis, los meses <b>al llegar</b> la mercancía (meses − T. entrega). El rango aceptable se mide al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. <b>Verde</b>: al llegar queda en rango con antecedente o con pronóstico y el pedido está dentro de ±20% de la propuesta del portal con esa base. <b>Amarillo</b>: pide motivo. <b>Rojo</b>: con las dos bases llega en sobre inventario o en riesgo; pide motivo y comentario.</p>
+    <p class="d" style="margin-top:8px"><b>Recomendada:</b> el portal elige la base según el historial de la clave. Si hay temporada (pronóstico ±50% contra antecedente) usa el <b>pronóstico</b>, que son los mismos meses del año pasado; si no hay temporada usa el <b>antecedente</b>, que es lo más reciente; si una base tiene pocos meses válidos por agotados usa la otra; si la venta es intermitente usa el promedio de 12 meses. La mezcla ya no se usa para proponer. Propuesta = consumo × (T. entrega + Objetivo) − existencia − BO (si el folio es con BO). Var. = (Pedido − propuesta) ÷ propuesta.<br>Meses = (existencia + BO si aplica + pedido) ÷ consumo; entre paréntesis, al llegar (meses − T. entrega). Rango al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. <b>Verde</b>: con la base recomendada queda en rango y el pedido está dentro de ±20% de la recomendada. <b>Amarillo</b>: cuadra con la otra base o queda en rango sin acercarse a la propuesta; pide motivo. <b>Rojo</b>: con las dos bases llega en sobre inventario o en riesgo; pide motivo y comentario.</p>
     <input type="file" id="f-arch" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="subirPlantilla(this.files[0])">
   </div>
 </main>
@@ -207,7 +208,7 @@ function candidatas(){
 }
 function pintarNueva(){
   const rows=candidatas().slice(0,800);
-  $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.est||'')+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="12" class="mut">Sin claves con este filtro.</td></tr>';
+  $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.est||'')+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td class="num">'+(b=>b.b?'<b>'+nf(P.propSug(r,b.c,true))+'</b><div class="badge" title="'+esc(b.por)+'">'+P.BASE_L[b.b]+'</div>':'—')(P.baseRec(r))+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="mut">Sin claves con este filtro.</td></tr>';
   cuentaNueva();
 }
 function marcarTodas(on){candidatas().slice(0,800).forEach(r=>on?NSEL.add(r.c):NSEL.delete(r.c));pintarNueva();}
@@ -216,7 +217,7 @@ function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(
 // Lo que se congela del portal por clave
 function snap(r){
   const ocs=(S.ocs[r.c]||S.ocs[String(r.c)]||[]).filter(o=>!o[4]).length;
-  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,ocs};
+  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,ocs};
 }
 async function crearFolio(){
   const claves=claveNueva().filter(k=>S.byClave.has(k));if(!claves.length){toast('Marca o pega al menos una clave');return;}
@@ -243,7 +244,9 @@ async function abrirFolio(folio){
   $('folio').style.display='block';pintarFolio();$('folio').scrollIntoView({behavior:'smooth'});
 }
 const editable=()=>S.actual&&['BORRADOR','REGRESADO'].includes(S.actual.estado);
-function evaluar(l){return P.propLinea(l.portal||{},l.surt||null);}
+const conBO=()=>!(S.actual&&S.actual.con_bo===false);
+function evaluar(l){return P.propLinea(l.portal||{},l.surt||null,{conBO:conBO()});}
+const baseTxt=e=>e.br&&e.br.b?P.BASE_L[e.br.b]:'—';
 function faltaMotivo(l){return (l.semaforo==='AMARILLO'||l.semaforo==='ROJO')&&!l.motivo||(l.semaforo==='ROJO'&&!String(l.comentario||'').trim());}
 function pintarFolio(){
   const f=S.actual,L=S.lineas;
@@ -262,19 +265,32 @@ function pintarFolio(){
   acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
   if(ed||(f.estado==='EN REVISION'))acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio">✕</button>';
   $('f-acc').innerHTML=acc;
+  $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>';$('f-conbo').value=conBO()?'1':'0';
   $('f-aviso').innerHTML=f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'&&!adm?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras con el acceso de administrador.</p>':'';
-  $('f-head').innerHTML='<tr><th colspan="3"></th><th colspan="8" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+')</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="4" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
-    +'<tr><th>Clave</th><th>Descripción</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO CEDI</th><th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th>'
+  $('f-head').innerHTML='<tr><th colspan="3"></th><th colspan="9" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
+    +'<tr><th>Clave</th><th>Descripción</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO CEDI</th><th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th><th class="gP">Recomendada</th>'
     +'<th class="num gS">Pedido</th><th class="num gS">Anteo</th><th class="num gS">Pron</th><th class="num gS">Redond</th>'
-    +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Var. vs prop.</th><th class="gR">Semáforo</th><th>Avisos</th><th>Motivo y comentario</th></tr>';
+    +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Var. vs recomendada</th><th class="num gR">Var. vs ant. / pron.</th><th class="gR">Semáforo</th><th>Avisos</th><th>Motivo y comentario</th></tr>';
   const ops='<option value="">— Motivo —</option>'+P.PROP_MOTIVOS.map(m=>'<option>'+esc(m)+'</option>').join('');
   $('f-body').innerHTML=L.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);const necesita=l.semaforo==='AMARILLO'||l.semaforo==='ROJO';
     const v=e.varA!=null||e.varP!=null?'<div>ant. '+pct(e.varA)+'</div><div>pron. '+pct(e.varP)+'</div>':'—';
+    const vR=e.difR==null?'—':'<b>'+pct(e.varR)+'</b><div class="mut">'+(e.difR>0?'+':'')+nf(e.difR)+' pzs</div>';
+    const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b><div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
     const mot=necesita||l.motivo?(ed?'<select onchange="guardarMotivo('+l.clave+',this.value,null)">'+ops.replace('<option>'+esc(l.motivo||'')+'</option>','<option selected>'+esc(l.motivo||'')+'</option>')+'</select><br><textarea placeholder="'+(l.semaforo==='ROJO'?'Comentario obligatorio':'Comentario')+'" onchange="guardarMotivo('+l.clave+',null,this.value)">'+esc(l.comentario||'')+'</textarea>':'<b>'+esc(l.motivo||'—')+'</b><div class="av">'+esc(l.comentario||'')+'</div>'):'<span class="mut">—</span>';
     return '<tr'+(faltaMotivo(l)&&ed?' style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+esc(p.est||'')+'</td>'
-      +'<td class="num">'+nf(p.ex)+'</td><td class="num">'+nf(p.bo)+'</td><td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(p.lt,1)+'</td><td class="num">'+nf(p.pm,1)+'</td><td class="num">'+nf(p.sA)+'</td><td class="num">'+nf(p.sP)+'</td>'
+      +'<td class="num">'+nf(p.ex)+'</td><td class="num">'+nf(p.bo)+'</td><td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(p.lt,1)+'</td><td class="num">'+nf(p.pm,1)+'</td><td class="num">'+nf(e.sA)+'</td><td class="num">'+nf(e.sP)+'</td><td style="min-width:160px;max-width:200px;white-space:normal;line-height:1.3">'+rec+'<div style="font-size:10.5px;color:var(--tx2)">'+esc(e.br?e.br.por:'')+'</div></td>'
       +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
-      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="21" class="mut">El folio no tiene claves.</td></tr>';
+      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="23" class="mut">El folio no tiene claves.</td></tr>';
+}
+async function cambiarBO(v){
+  const nuevo=v==='1';if(nuevo===conBO())return;
+  const{error}=await sb.from('plan_propuestas').update({con_bo:nuevo,actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio);
+  if(error){toast('❌ '+error.message+(/con_bo/.test(error.message)?' · Corre plan_tablas_10.sql':''));$('f-conbo').value=conBO()?'1':'0';return;}
+  S.actual.con_bo=nuevo;const f=S.folios.find(x=>x.folio===S.actual.folio);if(f)f.con_bo=nuevo;
+  const ahora=new Date().toISOString();
+  for(const l of S.lineas){if(!l.surt)continue;const e=evaluar(l);l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;
+    const{error:e2}=await sb.from('plan_propuesta_lineas').update({semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);if(e2){toast('❌ '+e2.message);return;}}
+  toast('✓ Folio '+(nuevo?'con':'sin')+' BO: semáforo recalculado');await recargar();
 }
 async function guardarMotivo(clave,motivo,comentario){
   const l=S.lineas.find(x=>Number(x.clave)===Number(clave));if(!l)return;
@@ -314,12 +330,12 @@ async function cancelarFolio(){if(!confirm('¿Cancelar el folio '+S.actual.folio
 // ── Plantilla y carga de surtimiento ──
 function descargarPlantilla(){
   const f=S.actual;
-  const ins=[['Propuesta de compra '+f.folio],['Comprador: '+f.comprador+' · cálculo del portal al '+fF(f.fecha_calculo)],[],
-    ['Cómo llenarla'],['1. En tu archivo de surtimiento filtra las claves de la hoja "Folio".'],['2. Copia las filas con todo y encabezados, de la columna A (ID) a la AE (Redond).'],
+  const ins=[['Propuesta de compra '+f.folio],['Comprador: '+f.comprador+' · cálculo del portal al '+fF(f.fecha_calculo)],['Propuestas '+(conBO()?'CON BO del CEDI: en surtimiento pon ¿Considerar BO? = Sí':'SIN BO: en surtimiento pon ¿Considerar BO? = No')],[],
+    ['Cómo llenarla'],['1. En tu archivo de surtimiento filtra las claves de la hoja "Folio". Usa la base recomendada (antecedente o pronóstico) para definir el Pedido; la mezcla ya no se usa.'],['2. Copia las filas con todo y encabezados, de la columna A (ID) a la AE (Redond).'],
     ['3. Pégalas en la hoja "Pegar surtimiento" a partir de la celda A1 (pegar valores).'],['4. Guarda y súbela en el portal con "Subir plantilla con surtimiento".'],[],
     ['El portal toma por su encabezado: ID, Pedido, Pron, Anteo, Redond, Tiempos de entrega, Pedido máximo, Exist, BO, Exist MF e Inversión. No importa el orden ni que vengan columnas de más.'],
     ['Si pegas dos escenarios de la misma clave, el portal toma el último.']];
-  const fol=S.lineas.map(l=>{const p=l.portal||{};return{'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus portal':p.est,'Existencia':p.ex,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Propuesta portal antecedente':p.sA,'Propuesta portal pronóstico':p.sP,'Propuesta portal (mezcla, referencia)':p.s};});
+  const fol=S.lineas.map(l=>{const p=l.portal||{},e=evaluar(l);return{'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus portal':p.est,'Existencia':p.ex,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Por qué esa base':e.br.por,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP};});
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ins),'Instrucciones');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(fol),'Folio');
@@ -336,7 +352,7 @@ async function subirPlantilla(file){
     const m=new Map(res.filas.map(x=>[x.clave,x]));const enFolio=new Set(S.lineas.map(l=>Number(l.clave)));
     const sobran=res.filas.filter(x=>!enFolio.has(x.clave)).map(x=>x.clave);
     const ahora=new Date().toISOString();
-    for(const l of S.lineas){const s=m.get(Number(l.clave))||null;const e=P.propLinea(l.portal||{},s);
+    for(const l of S.lineas){const s=m.get(Number(l.clave))||null;const e=P.propLinea(l.portal||{},s,{conBO:conBO()});
       Object.assign(l,{surt:s,pedido:s?s.pedido:null,semaforo:e.sem,avisos:e.avisos.join(' | ')||null,actualizado_en:ahora});
       const{error}=await sb.from('plan_propuesta_lineas').update({surt:l.surt,pedido:l.pedido,semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);
       if(error){toast('❌ '+error.message);return;}}
@@ -347,7 +363,7 @@ async function subirPlantilla(file){
   }catch(e){toast('❌ No se pudo leer el archivo: '+(e.message||e));}
 }
 function excelFolio(){
-  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus':p.est,'Existencia':p.ex,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Propuesta antecedente':p.sA,'Propuesta pronóstico':p.sP,'Propuesta mezcla (ref.)':p.s,
+  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus':p.est,'Existencia':p.ex,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Var. vs recomendada':e.varR,
     'Pedido':l.pedido,'Pedido autorizado':l.pedido_aut??l.pedido,'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Var. vs prop. antecedente':e.varA,'Var. vs prop. pronóstico':e.varP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Folio');XLSX.writeFile(wb,S.actual.folio+'.xlsx');
 }
@@ -357,7 +373,7 @@ function imprimir(){
   const f=S.actual,L=S.lineas,valido=['EN REVISION','AUTORIZADO'].includes(f.estado);
   const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
   const base=location.href.replace(/[^/]*$/,'');
-  const fila=l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return '<tr><td><b>'+l.clave+'</b></td><td class="d">'+esc(p.n)+'</td><td class="n">'+nf(p.ex)+'</td><td class="n">'+nf(p.bo)+'</td><td class="n">'+nf(p.lt,1)+'</td><td class="n">'+nf(p.pm,1)+'</td><td class="n">'+nf(p.sA)+'</td><td class="n">'+nf(p.sP)+'</td><td class="n"><b>'+nf(l.pedido_aut??l.pedido)+'</b></td><td class="n">'+nf(s.anteo,1)+' / '+nf(e.mA,1)+' ('+nf(e.lA,1)+')</td><td class="n">'+nf(s.pron,1)+' / '+nf(e.mP,1)+' ('+nf(e.lP,1)+')</td><td class="n">'+pct(e.varA)+' / '+pct(e.varP)+'</td><td><span class="sm '+(l.semaforo||'SIN').split(' ')[0]+'">'+(SEM_L[l.semaforo]||'—')+'</span></td><td class="d">'+(l.motivo?'<b>'+esc(l.motivo)+'</b>':'')+(l.comentario?'<br>'+esc(l.comentario):'')+(l.avisos?'<div class="av">'+esc(l.avisos).split(' | ').join('<br>')+'</div>':'')+'</td></tr>';};
+  const fila=l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return '<tr><td><b>'+l.clave+'</b></td><td class="d">'+esc(p.n)+'</td><td class="n">'+nf(p.ex)+'</td><td class="n">'+nf(p.bo)+'</td><td class="n">'+nf(p.lt,1)+'</td><td class="n">'+nf(p.pm,1)+'</td><td class="n">'+nf(e.sA)+'</td><td class="n">'+nf(e.sP)+'</td><td class="n"><b>'+nf(e.sR)+'</b><br>'+esc(baseTxt(e))+'</td><td class="n"><b>'+nf(l.pedido_aut??l.pedido)+'</b><br>'+pct(e.varR)+'</td><td class="n">'+nf(s.anteo,1)+' / '+nf(e.mA,1)+' ('+nf(e.lA,1)+')</td><td class="n">'+nf(s.pron,1)+' / '+nf(e.mP,1)+' ('+nf(e.lP,1)+')</td><td class="n">'+pct(e.varA)+' / '+pct(e.varP)+'</td><td><span class="sm '+(l.semaforo||'SIN').split(' ')[0]+'">'+(SEM_L[l.semaforo]||'—')+'</span></td><td class="d">'+(l.motivo?'<b>'+esc(l.motivo)+'</b>':'')+(l.comentario?'<br>'+esc(l.comentario):'')+(l.avisos?'<div class="av">'+esc(l.avisos).split(' | ').join('<br>')+'</div>':'')+'</td></tr>';};
   const html='<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>'+esc(f.folio)+'</title><style>@page{size:letter landscape;margin:8mm 10mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:Calibri,"Segoe UI",sans-serif;color:#1a2035;font-size:9.5px;margin:0}'
     +'.top{width:100%;height:auto}.bot{width:100%;height:auto;margin-top:8px}h1{font-size:16px;margin:6px 0 2px;color:#1e3a5f}.meta{font-size:10.5px;margin-bottom:6px}.meta b{color:#1e3a5f}'
     +'table{border-collapse:collapse;width:100%}th{background:#1e3a5f;color:#fff;font-size:8.5px;padding:4px;text-align:left}td{border-bottom:1px solid #d5dce8;padding:3px 4px;vertical-align:top}td.n,th.n{text-align:right;white-space:nowrap}td.d{max-width:220px}.av{color:#6b7a99;font-size:8.5px;margin-top:2px}'
@@ -366,10 +382,10 @@ function imprimir(){
     +'.marca{position:fixed;top:40%;left:15%;font-size:70px;color:rgba(192,57,43,.12);transform:rotate(-20deg);font-weight:800}.pie{display:flex;justify-content:space-between;font-size:8.5px;color:#6b7a99;margin-top:6px}</style></head><body>'
     +(valido?'':'<div class="marca">BORRADOR · NO VÁLIDO</div>')
     +'<img class="top" src="'+base+'membrete_sup.png"><h1>Propuesta de compra '+esc(f.folio)+'</h1>'
-    +'<div class="meta"><b>Comprador:</b> '+esc(f.comprador)+' · <b>Estado:</b> '+esc(f.estado)+' · <b>Cálculo del portal:</b> '+fF(f.fecha_calculo)+' · <b>Surtimiento pegado:</b> '+fFH(f.cargado_en)+(f.autorizado_por&&f.estado==='AUTORIZADO'?' · <b>Autorizó en portal:</b> '+esc(f.autorizado_por)+' '+fFH(f.autorizado_en):'')+'</div>'
+    +'<div class="meta"><b>Comprador:</b> '+esc(f.comprador)+' · <b>Estado:</b> '+esc(f.estado)+' · <b>Cálculo del portal:</b> '+fF(f.fecha_calculo)+' · <b>'+(conBO()?'Con':'Sin')+' BO del CEDI</b>'+' · <b>Surtimiento pegado:</b> '+fFH(f.cargado_en)+(f.autorizado_por&&f.estado==='AUTORIZADO'?' · <b>Autorizó en portal:</b> '+esc(f.autorizado_por)+' '+fFH(f.autorizado_en):'')+'</div>'
     +'<div class="res"><span><b>'+L.length+'</b> claves</span><span><b>'+nf(L.reduce((s,l)=>s+(Number(l.pedido_aut??l.pedido)||0),0))+'</b> piezas</span><span>Verde <b>'+c.VERDE+'</b></span><span>Amarillo <b>'+c.AMARILLO+'</b></span><span>Rojo <b>'+c.ROJO+'</b></span>'+(c.SIN?'<span>Sin surtimiento <b>'+c.SIN+'</b></span>':'')+'</div>'
-    +'<table><thead><tr><th>Clave</th><th>Descripción</th><th class="n">Exist.</th><th class="n">BO CEDI</th><th class="n">T. entr.</th><th class="n">Obj.</th><th class="n">Prop. ant.</th><th class="n">Prop. pron.</th><th class="n">Pedido</th><th class="n">Meses ant. surt / portal (al llegar)</th><th class="n">Meses pron. surt / portal (al llegar)</th><th class="n">Var. ant / pron</th><th>Semáforo</th><th>Motivo, comentario y avisos</th></tr></thead><tbody>'+L.map(fila).join('')+'</tbody></table>'
-    +'<p style="font-size:8.5px;color:#6b7a99;margin-top:6px">Meses = (existencia + BO del CEDI + pedido) ÷ consumo; al llegar = meses − T. entrega. Rango aceptable al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. Variación contra la propuesta del portal con antecedente y con pronóstico; tolerancia ±20%.</p>'
+    +'<table><thead><tr><th>Clave</th><th>Descripción</th><th class="n">Exist.</th><th class="n">BO CEDI</th><th class="n">T. entr.</th><th class="n">Obj.</th><th class="n">Prop. ant.</th><th class="n">Prop. pron.</th><th class="n">Recomendada</th><th class="n">Pedido / var.</th><th class="n">Meses ant. surt / portal (al llegar)</th><th class="n">Meses pron. surt / portal (al llegar)</th><th class="n">Var. ant / pron</th><th>Semáforo</th><th>Motivo, comentario y avisos</th></tr></thead><tbody>'+L.map(fila).join('')+'</tbody></table>'
+    +'<p style="font-size:8.5px;color:#6b7a99;margin-top:6px">Base recomendada: pronóstico si hay temporada (±50% contra antecedente), antecedente si no; intermitente = promedio 12 meses. Propuesta = consumo × (T. entrega + Objetivo) − existencia'+(conBO()?' − BO del CEDI':'')+'. Meses = (existencia'+(conBO()?' + BO del CEDI':'')+' + pedido) ÷ consumo; al llegar = meses − T. entrega. Rango aceptable al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. Var. = (pedido − propuesta) ÷ propuesta; tolerancia ±20%.</p>'
     +'<div class="firmas"><div class="firma">Elaboró<br><b>'+esc(f.comprador)+'</b><br>Comprador</div><div class="firma">Autorizó<br><b>'+(f.estado==='AUTORIZADO'&&f.autorizado_por?esc(f.autorizado_por):'&nbsp;')+'</b><br>Jefe o Gerente de Compras</div></div>'
     +'<div class="pie"><span>Impreso '+new Date().toLocaleString('es-MX')+'</span><span>Código de verificación: <b>'+esc(f.codigo||'—')+'</b></span></div><img class="bot" src="'+base+'membrete_inf.png">'
     +'<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>';
