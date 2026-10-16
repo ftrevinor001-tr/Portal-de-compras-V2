@@ -367,7 +367,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <p>Estatus de cada clave en el día elegido (Excel) junto al cálculo del portal: antecedente, pronóstico y propuesta. <b>Clic en una clave</b> para ver su historia: días en faltante o riesgo, ventas mes a mes, OCs y alarmas.</p>
       <div class="ctl">
         <div id="cq-fecha" data-t="Día"></div>
-        <input type="search" id="cq-q" placeholder="Buscar clave o nombre…" oninput="CQ.lim=200;pintarConsulta()" style="min-width:210px">
+        <input type="search" id="cq-q" placeholder="Clave, varias claves (101, 205 330) o nombre…" title="Para ver varias claves escríbelas o pégalas separadas por espacio, coma o renglón" oninput="CQ.lim=200;pintarConsulta()" style="min-width:290px">
         <div id="cq-comp" data-t="Comprador"></div>
         <div id="cq-est" data-t="Estatus"></div>
         <div id="cq-estp" data-t="Estatus portal"></div>
@@ -1966,11 +1966,13 @@ async function pintarConsulta(recargar){
     }catch(e){body.innerHTML='<tr><td colspan="24" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
   const q=document.getElementById('cq-q').value.trim().toUpperCase();
+  // Varias claves (separadas por espacio, coma, punto y coma o renglón): búsqueda exacta de cada una, de cualquier comprador
+  const lqT=q.split(/[\s,;]+/).filter(Boolean),lq=lqT.length>=2&&lqT.every(x=>/^\d+$/.test(x))?lqT.map(x=>String(Number(x))):null,lset=lq?new Set(lq):null;
   const solo=document.getElementById('cq-pedir').classList.contains('on'),camb=document.getElementById('cq-camb').classList.contains('on');
-  const base=CQ.rows.filter(r=>(!q||String(r.clave).toUpperCase().startsWith(q)||String(r.nombre).toUpperCase().includes(q))
+  const base=CQ.rows.filter(r=>(lset?lset.has(String(Number(r.clave))):(!q||String(r.clave).toUpperCase().startsWith(q)||String(r.nombre).toUpperCase().includes(q)))
     &&(!solo||(r._p&&(r._p.s||0)>0))&&(!camb||(r._p&&estPlan(r._p,'A')!==estPlan(r._p,'P'))));
   msCascada(base,CQF,CQL,CQO);
-  let rows=base.filter(r=>msPasa(r,CQF,null));
+  let rows=base.filter(r=>msPasa(r,CQF,lq?'cq-comp':null));
   // Semáforo como leyenda que filtra (selección múltiple; cuenta con los demás filtros)
   const ss=MSX['cq-sem'].sel,cs={};MSX['cq-sem'].opts.forEach(o=>cs[o.v]=o.n);
   document.getElementById('cq-semleg').innerHTML=Object.keys(SEMC).map(s=>'<button class="semb'+(ss.has(s)?' on':'')+'" style="--c:'+SEMC[s]+'" title="'+SEMD[s]+' · clic para agregar o quitar" onclick="cqSem(\''+s+'\')"><i></i>'+SLBL[s]+' <b>'+nf(cs[s]||0)+'</b></button>').join('');
@@ -1979,7 +1981,9 @@ async function pintarConsulta(recargar){
   rows.sort((a,b)=>{const x=fn(a),y=fn(b);return(typeof x==='string'?String(x).localeCompare(String(y),'es'):x-y)*d||(+a.clave-+b.clave)||String(b.fecha).localeCompare(String(a.fecha));});
   CQ.vis=rows;
   const md=(CQ.dias||[]).length>1;
-  document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+(md?' registros (clave por día, '+CQ.dias.length+' días)':' claves');
+  if(lq){const hay=new Set(rows.map(r=>String(Number(r.clave)))),todas=new Set(CQ.rows.map(r=>String(Number(r.clave))));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
+    document.getElementById('cq-count').innerHTML=nf(rows.length)+(md?' registros de ':' de ')+nf(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No aparecen en el detalle de ese día">no encontradas: '+escH2(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+escH2(oc.join(', '))+'</span>':'');}
+  else document.getElementById('cq-count').textContent=nf(rows.length)+' de '+nf(CQ.rows.length)+(md?' registros (clave por día, '+CQ.dias.length+' días)':' claves');
   document.querySelectorAll('#cq-head th[data-k]').forEach(th=>{th.querySelector('.si').textContent=th.dataset.k===k?(d>0?'▲':'▼'):'';});
   const cp=v=>v==null?'—':v>0?'<b style="color:#047857">'+nf(v)+'</b>':'<span style="color:#a0a9be">0</span>';
   let h='';

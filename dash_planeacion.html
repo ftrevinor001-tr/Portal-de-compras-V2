@@ -147,7 +147,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
   <!-- ═════ DETALLE ═════ -->
   <section class="pane" id="pane-det">
     <div class="row" style="margin-bottom:10px">
-      <input type="search" id="d-q" placeholder="Buscar clave o descripción…" style="width:230px">
+      <input type="search" id="d-q" placeholder="Clave, varias claves (101, 205 330) o descripción…" title="Para ver varias claves escríbelas o pégalas separadas por espacio, coma o renglón" style="width:300px">
       <div id="d-est" data-t="Estatus"></div>
       <div id="d-rot" data-t="Rotación"></div>
       <div id="d-marca" data-t="Marca"></div>
@@ -234,11 +234,13 @@ function cambia(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&a!==p
 function empeora(r){const a=estBase(r,'A'),p=estBase(r,'P');return !!(a&&p&&!malo(a)&&malo(p));}
 // Cada filtro acepta un valor o un Set (selección múltiple; Set vacío = todos)
 const enF=(v,x)=>v==null||v===''?true:v instanceof Set?(!v.size||v.has(String(x??''))):v===x;
+// Varias claves en el buscador (separadas por espacio, coma, punto y coma o renglón): búsqueda exacta de cada una
+const listaClaves=q=>{const t=String(q||'').trim().split(/[\s,;]+/).filter(Boolean);return t.length>=2&&t.every(x=>/^\d+$/.test(x))?t.map(x=>String(Number(x))):null;};
 function filtrarClaves(rows,f){
-  const q=(f.q||'').trim().toUpperCase();
+  const q=(f.q||'').trim().toUpperCase();const lq=listaClaves(q),lset=lq?new Set(lq):null;
   return rows.filter(r=>enF(f.comp,r.comp)&&(!f.est||enF(f.est,estDe(r,f.base||'D')))&&enF(f.rot,r.rot)&&enF(f.marca,r.m)&&enF(f.grupo,r.g)
     &&(!f.comprar||(propDe(r,f.base||'D')||0)>0)&&(!f.cambia||cambia(r))&&(!f.mf||r.mfF)&&(!f.lista||f.lista.has(r.c))
-    &&(!q||String(r.c)===q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)));
+    &&(lset?lset.has(String(r.c)):(!q||String(r.c)===q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q))));
 }
 function conteoEstatus(rows,b){const o={};rows.forEach(r=>{const e=estDe(r,b);o[e]=(o[e]||0)+1;});return o;}
 // Cobertura en meses por rangos
@@ -472,11 +474,14 @@ function valorOrden(r,k){
   return r[k];
 }
 function pintarDetalle(){
-  const base0=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base});
+  const lq=listaClaves(S.f.q);   // con varias claves se muestran todas, de cualquier comprador
+  const base0=filtrarClaves(S.claves,{...S.f,comp:lq?null:compSel(),base:S.base});
   MS.cascada(base0,DF,DFL,DFO);
   const rows=base0.filter(r=>MS.pasa(r,DF));const{k,d}=S.sort;
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
-  $('d-count').textContent=fmtN(rows.length)+' de '+fmtN(misClaves().length)+' claves';
+  if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
+    $('d-count').innerHTML=fmtN(rows.length)+' de '+fmtN(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No están en el cálculo del portal">no existen: '+esc(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+esc(oc.join(', '))+'</span>':'');}
+  else $('d-count').textContent=fmtN(rows.length)+' de '+fmtN(misClaves().length)+' claves';
   const B=S.base,act=g=>B===g?' act':'';
   const gspan=g=>DCOLS.filter(c=>c.g===g).length;
   const pre=DCOLS.findIndex(c=>c.g==='A');const mid=DCOLS.filter((c,i)=>!c.g&&i>DCOLS.findIndex(c=>c.g==='D')&&i<DCOLS.findIndex(c=>c.g==='Pr')).length;
@@ -552,7 +557,7 @@ function graficaMeses(arr,agot){
   return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado.</div>';
 }
 function excelDetalle(){
-  const rows=filtrarClaves(S.claves,{...S.f,comp:compSel(),base:S.base}).filter(r=>MS.pasa(r,DF));
+  const rows=filtrarClaves(S.claves,{...S.f,comp:listaClaves(S.f.q)?null:compSel(),base:S.base}).filter(r=>MS.pasa(r,DF));
   const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
