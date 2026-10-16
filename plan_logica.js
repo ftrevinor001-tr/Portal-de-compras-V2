@@ -498,5 +498,59 @@ P.temporada=(A,Pr)=>{
   return{t:'ESTABLE',v};
 };
 P.TEMP_L={SUBE:'↑ Sube fuerte (temporada)',BAJA:'↓ Baja fuerte',ESTABLE:'Sin cambio fuerte','SIN DATO':'Sin antecedente o pronóstico'};
+// ── Propuestas de compra (folio): lectura de lo pegado de surtimiento y semáforo por clave ──
+P.R.PROP_TOL=0.20;P.R.PROP_DIF_MESES=0.5;
+// aoa = filas de la hoja donde el comprador pegó surtimiento (con encabezados). Toma cada dato por el nombre de su columna.
+P.leerSurtimiento=aoa=>{
+  const C={id:h=>h==='ID',pedido:h=>h==='PEDIDO',pron:h=>h==='PRON'||h.startsWith('PRON '),anteo:h=>h.startsWith('ANTE'),redond:h=>h.startsWith('REDOND'),
+    te:h=>h.startsWith('TIEMPO'),pmax:h=>h.startsWith('PEDIDO MAX'),exist:h=>(h.startsWith('EXIST')&&!h.startsWith('EXIST MF')&&!h.startsWith('EXISTENCIA MF')),bo:h=>h==='BO'||h==='BACK ORDER',existMF:h=>h==='EXIST MF',inversion:h=>h.startsWith('INVERSION')};
+  let best=null;
+  for(let i=0;i<Math.min(25,aoa.length);i++){const r=(aoa[i]||[]).map(P.norm);const idx={};Object.keys(C).forEach(k=>{const j=r.findIndex(h=>h&&C[k](h));if(j>=0)idx[k]=j;});
+    const n=Object.keys(idx).length;if(idx.id!=null&&idx.pedido!=null&&(!best||n>best.n))best={fila:i,idx,n};}
+  if(!best)return{filas:[],faltan:['ID','Pedido'],error:'No encontré los encabezados ID y Pedido. Pega las filas de surtimiento con todo y encabezados.'};
+  const faltan=[['pron','Pron'],['anteo','Anteo']].filter(([k])=>best.idx[k]==null).map(([,t])=>t);
+  const m=new Map();const v=(r,k)=>best.idx[k]==null?null:P.num(r[best.idx[k]]);
+  for(let i=best.fila+1;i<aoa.length;i++){const r=aoa[i]||[];const c=P.clave(r[best.idx.id]);if(c==null)continue;
+    m.set(c,{clave:c,pedido:v(r,'pedido'),pron:v(r,'pron'),anteo:v(r,'anteo'),redond:v(r,'redond'),te:v(r,'te'),pmax:v(r,'pmax'),exist:v(r,'exist'),bo:v(r,'bo'),existMF:v(r,'existMF'),inversion:v(r,'inversion')});}
+  return{filas:[...m.values()],faltan,repetidas:0};
+};
+// p = cálculo del portal congelado en el folio {ex,bo,boT,A,P,lt,pm,sA,sP,mfF,mfX,ocs}; s = fila de surtimiento o null
+P.propLinea=(p,s)=>{
+  if(!s||s.pedido==null)return{sem:'SIN DATO',mA:null,mP:null,lA:null,lP:null,varA:null,varP:null,avisos:['No viene en lo pegado de surtimiento']};
+  const ped=Math.max(0,Number(s.pedido)||0),base=(Number(p.ex)||0)+(Number(p.bo)||0),lt=Number(p.lt)||0,pm=Number(p.pm)||0;
+  const r2=x=>Math.round(x*100)/100;   // a 2 decimales para que 4.2 contra 3 × 1.4 no falle por redondeo
+  const mA=p.A>0?r2((base+ped)/p.A):null,mP=p.P>0?r2((base+ped)/p.P):null;
+  // El rango se mide AL LLEGAR la mercancía: (existencia + BO + pedido) ÷ consumo − T. entrega.
+  // Así, comprar justo la propuesta del portal (que apunta a T. entrega + Objetivo) queda dentro del rango.
+  const lA=mA==null?null:r2(mA-lt),lP=mP==null?null:r2(mP-lt);
+  const lo=r2(Math.min(lt*P.R.FACT_ENTREGA,pm)),hi=r2(pm*P.R.FACT_MAX),bajo=r2(Math.min(lt*P.R.FACT_ENTRA_RIESGO,pm));
+  const inR=m=>m!=null&&m>=lo&&m<=hi,fuera=m=>m!=null&&(m>hi||m<bajo);
+  const near=sug=>sug==null?false:sug>0?Math.abs(ped-sug)/sug<=P.R.PROP_TOL:ped<=0;
+  const ls=[lA,lP].filter(m=>m!=null);
+  let sem;
+  if((inR(lA)&&near(p.sA))||(inR(lP)&&near(p.sP)))sem='VERDE';
+  else if(inR(lA)||inR(lP))sem='AMARILLO';
+  else if(ls.length&&ls.every(fuera))sem='ROJO';
+  else sem='AMARILLO';
+  const r1=x=>Math.round(x*10)/10,av=[];
+  if(!ls.length)av.push('Sin consumo en el portal: no se pueden calcular meses');
+  if(ls.length&&ls.every(m=>m>hi))av.push('Al llegar queda en sobre inventario (más de Objetivo × '+P.R.FACT_MAX+' = '+r1(hi)+' meses)');
+  if(ls.length&&ls.every(m=>m<bajo))av.push('Al llegar sigue en riesgo (menos de '+r1(bajo)+' meses)');
+  // Surtimiento tiene el interruptor "¿Considerar BO?": si viene en No, sus meses salen sin BO
+  const exO=(Number(p.ex)||0)+ped,sinBO=c=>c>0?r2(exO/c):null,tol=P.R.PROP_DIF_MESES;let avBO=false;
+  const difM=(sm,m,c,t)=>{if(sm==null||m==null||Math.abs(sm-m)<=tol)return;const sb=sinBO(c);
+    if((Number(p.bo)||0)>0&&sb!=null&&Math.abs(sm-sb)<=tol){avBO=true;return;}av.push('Meses con '+t+': surtimiento '+r1(sm)+' vs portal '+r1(m));};
+  difM(s.anteo,mA,p.A,'antecedente');difM(s.pron,mP,p.P,'pronóstico');
+  if(avBO)av.push('Surtimiento calculó los meses sin BO (¿Considerar BO? = No); el portal sí suma el BO del CEDI');
+  if(s.te!=null&&Math.abs(s.te-lt)>0.01)av.push('T. entrega: surtimiento '+s.te+' vs portal '+lt);
+  if(s.pmax!=null&&Math.abs(s.pmax-pm)>0.01)av.push('Pedido máximo: surtimiento '+s.pmax+' vs objetivo del portal '+pm);
+  if(s.exist!=null&&Math.abs(s.exist-(Number(p.ex)||0))>0.5)av.push('Existencia: surtimiento '+s.exist+' vs portal '+p.ex);
+  if(s.bo!=null&&p.boT!=null&&Math.abs(s.bo-(Number(p.boT)||0))>0.5)av.push('BO: surtimiento '+s.bo+' vs portal '+p.boT);
+  if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+' para redistribuir');
+  if(p.ocs>0)av.push(p.ocs+(p.ocs===1?' OC abierta':' OCs abiertas')+' al CEDI');
+  const t=P.temporada(p.A,p.P).t;if(t==='SUBE'||t==='BAJA')av.push(P.TEMP_L[t]);
+  return{sem,mA,mP,lA,lP,lo,hi,varA:p.sA>0?(ped-p.sA)/p.sA:null,varP:p.sP>0?(ped-p.sP)/p.sP:null,avisos:av};
+};
+P.PROP_MOTIVOS=['Mínimo de compra o flete del proveedor','Múltiplo de empaque','Temporada','Venta especial o proyecto','Compra de oportunidad o cambio de precio','Proveedor con entregas incumplidas (más stock de seguridad)','Redistribución de MF','Clave nueva o en lanzamiento','Reducir inventario o descontinuar','Otro (explicar en comentario)'];
 /*PARSE-END*/
 if(typeof window!=='undefined')window.P=P;   // para páginas que preguntan por window.P (Estatus Back Orders)

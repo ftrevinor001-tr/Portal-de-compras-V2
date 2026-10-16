@@ -163,13 +163,14 @@
 <div class="tabs-bar">
   <div class="tab active" onclick="switchTab(0)" style="order:1"><span class="tab-icon">🏠</span>Mi Resumen</div>
   <div class="tab" onclick="switchTab(1)" style="order:2"><span class="tab-icon">📉</span>Histórico Faltantes</div>
-  <div class="tab" onclick="switchTab(2)" style="order:6"><span class="tab-icon">📦</span>Monitor de Inventario</div>
-  <div class="tab" onclick="switchTab(3)" style="order:5"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
+  <div class="tab" onclick="switchTab(2)" style="order:7"><span class="tab-icon">📦</span>Monitor de Inventario</div>
+  <div class="tab" onclick="switchTab(3)" style="order:6"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
   <div class="tab" onclick="switchTab(4)" style="order:3"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
-  <div class="tab" onclick="switchTab(5)" style="order:7"><span class="tab-icon">🔁</span>Incidencias</div>
+  <div class="tab" onclick="switchTab(5)" style="order:8"><span class="tab-icon">🔁</span>Incidencias</div>
   <div class="tab" onclick="switchTab(6)" id="tab-admin" style="display:none"><span class="tab-icon">⚙️</span>Admin</div>
-  <div class="tab" onclick="switchTab(7)" id="tab-oc" style="order:4"><span class="tab-icon">📅</span>Compromiso OCs</div>
+  <div class="tab" onclick="switchTab(7)" id="tab-oc" style="order:5"><span class="tab-icon">📅</span>Compromiso OCs</div>
   <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none"><span class="tab-icon">🧮</span>Cálculo diario</div>
+  <div class="tab" onclick="switchTab(9)" id="tab-prop" style="order:4"><span class="tab-icon">📝</span>Propuestas de compra</div>
 </div>
 
 <div class="frames">
@@ -376,6 +377,10 @@
     <div class="loader" id="ld-8"><div class="spinner"></div><p>Cargando cálculo diario…</p></div>
     <iframe id="fr-8" onload="window.hideLd&&window.hideLd(8)"></iframe>
   </div>
+  <div class="frame-wrap" id="fw-9">
+    <div class="loader" id="ld-9"><div class="spinner"></div><p>Cargando propuestas de compra…</p></div>
+    <iframe id="fr-9" onload="window.hideLd&&window.hideLd(9)"></iframe>
+  </div>
 </div>
 
 <script>
@@ -463,7 +468,7 @@ function loadTab(i){ // i = 1..5 (iframes)
   if(i>=1&&i<=5&&!loadedTabs[k]){loadedTabs[k]=true;document.getElementById('fr-'+i).src=SRCS[k];}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
-const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html'};
+const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html'};
 function switchTab(i){
   if(i===8&&!esAdmin)i=0;
   if(SRCS_PLAN[i]){const fr=document.getElementById('fr-'+i);if(!fr.getAttribute('src'))fr.src=SRCS_PLAN[i];}
@@ -500,7 +505,7 @@ async function actualizarTodo(){
   try{
     await cargarResumen();
     // marcar los 4 dashboards para que recarguen sus datos al abrirse de nuevo
-    for(const i of [7,8]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
+    for(const i of [7,8,9]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
     for(let i=1;i<=4;i++){
       loadedTabs[i-1]=false;   // forzar recarga la próxima vez que se abra la pestaña
       const fr=document.getElementById('fr-'+i);
