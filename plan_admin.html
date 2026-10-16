@@ -505,7 +505,7 @@ async function verificar(){
         +fila('Días agotado SANVER',mm=>a('SANVER',mm),mm=>(a('SANVER',mm)||0)>=10)
         +fila('Días agotado MF',mm=>a('MF',mm),mm=>(a('MF',mm)||0)>=10)+'</table></div>';
     }
-    cont.innerHTML=h+'<p class="d" style="margin-top:8px;font-size:11.5px">En rojo: meses con 10 días o más agotado (se excluirán del promedio).</p>';
+    cont.innerHTML=h+'<p class="d" style="margin-top:8px;font-size:11.5px">En rojo: meses con más de '+(P.R.DIAS_AGOTADO-1)+' días agotado (se excluyen del promedio).</p>';
   }catch(e){cont.innerHTML='<p class="note">❌ '+e.message+'</p>';}
 }
 async function resumen(){

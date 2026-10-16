@@ -197,7 +197,7 @@ P.detalle=wb=>{
 };
 
 // ── Reglas de cálculo (acordadas con Compras, oct-2026) ──
-P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:10,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
+P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:19,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
      FACT_ENTREGA:1.4,FACT_MAX:1.4,EXCLUIR_ROT:['SIN COMPRA','NUEVOS']};
 // Riesgo con margen (oct-2026): una clave ENTRA a riesgo con menos de T. entrega × 1.2 y solo SALE cuando pasa de T. entrega × 1.4.
 // Entre 1.2 y 1.4 conserva el estatus del día anterior (evita que brinque de riesgo a óptimo y regrese por unas piezas).
@@ -232,7 +232,7 @@ P.sospechoso=(s,m,lo,hi)=>{
   return r>=P.R.RACHA;
 };
 // Antecedente y pronóstico de una serie para el mes de referencia.
-// Un mes NO cuenta si: estuvo agotado (≥10 días), es anterior a la primera venta de la clave,
+// Un mes NO cuenta si: estuvo agotado más de 18 días (DIAS_AGOTADO = 19; antes 10, cambiado oct-2026), es anterior a la primera venta de la clave,
 // o es un mes de 2025 sospechoso de agotado. Si una ventana queda sin meses válidos → null
 // (la demanda usa solo la otra; nunca se promedia contra un cero falso).
 P.antPron=(s,ref,N,agot,ultimo,primero)=>{
@@ -326,7 +326,7 @@ const EN_RIESGO=['RIESGO','FALTANTE'];
 P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
   const sv=P.serie(meses,ed);const s=sv.s;const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
   const conVenta=Object.keys(s).filter(m=>s[m]>0).sort();const ini=conVenta[0]||null;const hi=ultimo||fin;
-  const por=m=>ini==null||m<ini?'antes de la primera venta':agot(m)?'agotado (≥'+P.R.DIAS_AGOTADO+' días sin existencia)':P.sospechoso(s,m,primero,hi)?'cero sospechoso de agotado':null;
+  const por=m=>ini==null||m<ini?'antes de la primera venta':agot(m)?'agotado (más de '+(P.R.DIAS_AGOTADO-1)+' días sin existencia)':P.sospechoso(s,m,primero,hi)?'cero sospechoso de agotado':null;
   const out=new Map();
   const reg=(m,win)=>{
     const o=out.get(m)||{m,venta:meses&&meses[m]!=null?meses[m]:null,limpia:s[m]!=null?s[m]:null,ed:sv.ed.includes(m),usa:[]};
