@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js" charset="utf-8"></script>
+<script src="plan_ms.js" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -91,7 +92,9 @@ tr.lin-q td{background:#fbfcff}
     <p class="d">Marca las claves que vas a revisar en surtimiento o pégalas abajo (separadas por espacio, coma o renglón). Puede ser cualquier clave del CEDI.</p>
     <div class="row" style="margin:10px 0">
       <select id="n-modo" onchange="pintarNueva()"><option value="pedir">Mis claves por pedir (faltante y riesgo con propuesta)</option><option value="todas">Todas mis claves</option></select>
-      <input type="search" id="n-q" placeholder="Filtrar por clave, descripción o marca…" oninput="pintarNueva()" style="width:280px">
+      <span id="n-marca"></span><span id="n-est"></span><span id="n-grupo"></span><span id="n-rot"></span>
+      <input type="search" id="n-q" placeholder="Filtrar por clave, descripción o marca…" oninput="pintarNueva()" style="width:260px">
+      <a class="lk" style="font-size:12px" onclick="['n-marca','n-est','n-grupo','n-rot'].forEach(MS.clear);pintarNueva()">Limpiar filtros</a>
       <span class="d" id="n-cnt"></span>
     </div>
     <div class="scroll" style="max-height:38vh"><table><thead><tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th class="num">Recomendada</th><th>Folio abierto</th></tr></thead><tbody id="n-body"></tbody></table></div>
@@ -221,19 +224,26 @@ function pintarLista(){
 let NSEL=new Set();
 function abrirNueva(){if(!quien()){toast('Primero elige quién eres (arriba a la derecha)');return;}NSEL=new Set();$('n-pegar').value='';$('nueva').style.display='block';pintarNueva();$('nueva').scrollIntoView({behavior:'smooth'});}
 const pegadas=()=>[...new Set(String($('n-pegar').value||'').split(/[\s,;]+/).filter(x=>/^\d+$/.test(x)).map(Number))];
-function candidatas(){
+// Filtros de selección múltiple en cascada (cada uno muestra solo lo que existe con los demás aplicados)
+const NF=[['n-marca',r=>r.m||''],['n-est',r=>r.est||''],['n-grupo',r=>r.g||''],['n-rot',r=>r.rot||'']];
+let NF_OK=false;
+function montarNF(){if(NF_OK||!window.MS)return;NF_OK=true;[['n-marca','Marca','Todas'],['n-est','Estatus','Todos'],['n-grupo','Grupo','Todos'],['n-rot','Rotación','Todas']].forEach(([id,t,todos])=>MS.mount(id,{t,todos,on:()=>pintarNueva()}));}
+const conProp=r=>{const b=P.baseRec(r);return (P.propSug(r,b.c,true)||0)>0;};
+function candidatas(){const base=candBase();return window.MS?base.filter(r=>MS.pasa(r,NF)):base;}
+function candBase(){
   const comp=COMPRADORES.includes(quien())?quien():$('f-comp').value;const modo=$('n-modo').value,q=($('n-q').value||'').trim().toUpperCase();
-  return [...S.byClave.values()].filter(r=>(!comp||r.comp===comp)&&r.rot!=='SIN COMPRA'&&(modo==='todas'||((r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0))
+  return [...S.byClave.values()].filter(r=>(!comp||r.comp===comp)&&r.rot!=='SIN COMPRA'&&(modo==='todas'||((r.est==='RIESGO'||r.est==='FALTANTE')&&conProp(r)))
     &&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)||(r.m||'').toUpperCase().includes(q))).sort((a,b)=>(a.mi??-1)-(b.mi??-1));
 }
 function pintarNueva(){
-  const rows=candidatas().slice(0,800);
+  montarNF();if(window.MS)MS.cascada(candBase(),NF);
+  const todas=candidatas(),rows=todas.slice(0,800);S.nVis=todas.length;
   $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.est||'')+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td class="num">'+(b=>b.b?'<b>'+nf(P.propSug(r,b.c,true))+'</b><div class="badge" title="'+esc(b.por)+'">'+P.BASE_L[b.b]+'</div>':'—')(P.baseRec(r))+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="mut">Sin claves con este filtro.</td></tr>';
   cuentaNueva();
 }
 function marcarTodas(on){candidatas().slice(0,800).forEach(r=>on?NSEL.add(r.c):NSEL.delete(r.c));pintarNueva();}
 function claveNueva(){return [...new Set([...NSEL,...pegadas()])];}
-function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(k));$('n-cnt').innerHTML=nf(c.length)+' claves para el folio'+(no.length?' · <span style="color:var(--err)">no están en el cálculo: '+esc(no.join(', '))+'</span>':'');$('n-crear').textContent='Crear folio con '+c.filter(k=>S.byClave.has(k)).length+' claves';}
+function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(k));$('n-cnt').innerHTML=nf(S.nVis||0)+' en la lista'+((S.nVis||0)>800?' (se muestran 800)':'')+' · <b>'+nf(c.length)+' marcadas para el folio</b>'+(no.length?' · <span style="color:var(--err)">no están en el cálculo: '+esc(no.join(', '))+'</span>':'');$('n-crear').textContent='Crear folio con '+c.filter(k=>S.byClave.has(k)).length+' claves';}
 // Lo que se congela del portal por clave
 function snap(r){
   const ocs=(S.ocs[r.c]||S.ocs[String(r.c)]||[]).filter(o=>!o[4]).length;
