@@ -2755,6 +2755,30 @@ async function segLeer(claves,inicio){
   }
 }
 
+// Versión ligera para Seguimiento de faltantes: solo lee los faltantes del último día y la racha de ESAS claves
+// (antes leía 60 días de faltantes y de riesgo de todas las claves, que es lo que tardaba).
+async function segDatos(fB){
+  const d0=new Date(fB+'T12:00:00');d0.setDate(d0.getDate()-60);const desde=d0.toISOString().slice(0,10);
+  const faltB=(await tgPaginar(()=>sb.from('detalle_diario').select('fecha,clave,nombre,marca,comprador,rotacion,estatus').eq('fecha',fB).ilike('estatus','faltante').order('clave',{ascending:true}))).filter(r=>!TG_EXCL.includes(tgComp(r)));
+  const claves=[...new Set(faltB.map(r=>String(r.clave).trim()))];
+  const fechasHasta=TG.fechas.filter(f=>f>=desde&&f<=fB),previas=fechasHasta.filter(f=>f<fB);
+  // Historial de faltante solo de esas claves, en tramos de 10 días y lotes de 150 claves, todo en paralelo
+  const tramos=[];for(let i=0;i<previas.length;i+=10)tramos.push([previas[i],previas[Math.min(i+9,previas.length-1)]]);
+  const lotes=[];for(let i=0;i<claves.length;i+=150)lotes.push(claves.slice(i,i+150));
+  const partes=await Promise.all(tramos.flatMap(([a,b])=>lotes.map(l=>tgPaginar(()=>sb.from('detalle_diario').select('fecha,clave').in('clave',l).ilike('estatus','faltante').gte('fecha',a).lte('fecha',b).order('fecha',{ascending:true}).order('clave',{ascending:true})))));
+  const porFecha={};partes.flat().forEach(r=>{const f=String(r.fecha).slice(0,10);(porFecha[f]=porFecha[f]||new Set()).add(String(r.clave).trim());});
+  porFecha[fB]=new Set(claves);
+  const dias={},inicio={};
+  claves.forEach(cl=>{
+    let i=fechasHasta.length-1;while(i>0&&porFecha[fechasHasta[i-1]]?.has(cl))i--;
+    const n=Math.round((new Date(fB+'T12:00:00')-new Date(fechasHasta[i]+'T12:00:00'))/864e5)+1;
+    const abierto=(i===0&&fechasHasta.length>1);
+    dias[cl]=abierto?n+'+':n;
+    inicio[cl]=abierto?null:fechasHasta[i];
+  });
+  return {fB,faltB,dias,inicio};
+}
+
 async function openSeg(){
   document.getElementById('sg-ov').classList.add('on');
   const st=document.getElementById('sg-st'),body=document.getElementById('sg-body');
@@ -2762,10 +2786,10 @@ async function openSeg(){
   try{
     TG.fechas=[];await tgFechas();
     if(TG.fechas.length<2)throw new Error('La base necesita al menos 2 días cargados.');
-    const fB=TG.fechas[TG.fechas.length-1],fA=TG.fechas[TG.fechas.length-2];
-    const D=await tgDatos(fA,fB);
-    const S=await segLeer(D.faltB.map(r=>String(r.clave).trim()),D.inicio);
-    const O=await segOCs(D.faltB.map(r=>String(r.clave).trim()));
+    const fB=TG.fechas[TG.fechas.length-1];
+    const D=await segDatos(fB);
+    const cls=D.faltB.map(r=>String(r.clave).trim());
+    const [S,O]=await Promise.all([segLeer(cls,D.inicio),segOCs(cls)]);
     SEG={...SEG,rows:D.faltB,dias:D.dias,inicio:D.inicio,seg:S.actual,hist:S.hist,fB,err:S.err,ocs:O.ocs,comp:O.comp};
     const sc=document.getElementById('sg-comp'),prev=sc.value;
     sc.innerHTML='<option value="">Todos</option>'+[...new Set(D.faltB.map(tgComp))].sort().map(c=>`<option value="${c}">${c}</option>`).join('');
