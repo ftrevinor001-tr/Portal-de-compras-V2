@@ -162,7 +162,7 @@
 
 <div class="tabs-bar">
   <div class="tab active" onclick="switchTab(0)" style="order:1"><span class="tab-icon">🏠</span>Mi Resumen</div>
-  <div class="tab" onclick="switchTab(1)" style="order:2"><span class="tab-icon">📉</span>Histórico Faltantes</div>
+  <div class="tab" onclick="switchTab(1)" style="order:2"><span class="tab-icon">📉</span>Histórico de Inventarios</div>
   <div class="tab" onclick="switchTab(2)" style="order:7"><span class="tab-icon">📦</span>Monitor de Inventario</div>
   <div class="tab" onclick="switchTab(3)" style="order:6"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
   <div class="tab" onclick="switchTab(4)" style="order:3"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
@@ -194,7 +194,7 @@
   </div>
 
   <div class="frame-wrap" id="fw-1">
-    <div class="loader" id="ld-1"><div class="spinner"></div><p>Cargando Histórico Faltantes…</p></div>
+    <div class="loader" id="ld-1"><div class="spinner"></div><p>Cargando Histórico de Inventarios…</p></div>
     <iframe id="fr-1" onload="window.hideLd&&window.hideLd(1)"></iframe>
   </div>
   <div class="frame-wrap" id="fw-2">
@@ -240,7 +240,7 @@
         </div>
         <div class="admin-card">
           <h2>📤 Cargar Excel maestro</h2>
-          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los 4 dashboards y las alarmas: Histórico Faltantes (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
+          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los 4 dashboards y las alarmas: Histórico de Inventarios (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
           <div class="drop" id="drop" onclick="document.getElementById('fx').click()">📂 Arrastra aquí el Excel o haz clic para seleccionarlo</div>
           <input type="file" id="fx" accept=".xlsx,.xlsm" style="display:none">
           <div class="chkrow"><input type="checkbox" id="chk-bk" checked><label for="chk-bk">Guardar copia del Excel original como respaldo descargable</label></div>
@@ -485,8 +485,8 @@ function tick(){const now=new Date();document.getElementById('clock').textConten
 
 // ═══════════ MI RESUMEN ═══════════
 const TIPOS={
-  FALTANTES:{t:'Claves en faltante',sev:'alta',icon:'🔴',dash:'Histórico Faltantes'},
-  FALTANTE_NUEVO:{t:'Faltantes nuevos',sev:'alta',icon:'🆕',dash:'Histórico Faltantes'},
+  FALTANTES:{t:'Claves en faltante',sev:'alta',icon:'🔴',dash:'Histórico de Inventarios'},
+  FALTANTE_NUEVO:{t:'Faltantes nuevos',sev:'alta',icon:'🆕',dash:'Histórico de Inventarios'},
   RIESGO:{t:'Claves en riesgo',sev:'media',icon:'⚠️',dash:'Planeación e indicadores'},
   PROLONGADO:{t:'Faltante prolongado',sev:'alta',icon:'⏳',dash:'Monitor de Inventario'},
   SOBREINVENTARIO:{t:'Sobre inventario',sev:'baja',icon:'📦',dash:'Planeación e indicadores'},
@@ -1654,7 +1654,7 @@ function sobreInvRegla(detR){
     topExceso:{porDiaComp,dias:[...new Set(Object.keys(tmp).map(k=>k.split('||')[0]))].sort()}};
 }
 async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
-  log('🪶 Histórico Faltantes V2: preparando versión ligera…');
+  log('🪶 Histórico de Inventarios V2: preparando versión ligera…');
   const restr=await restringidasVigentes();
   let p=payload;
   if(restr.size){
@@ -1847,7 +1847,7 @@ async function procesarExcel(file){
     if(up.error) throw new Error('Storage: '+up.error.message);
     // ── V2: versión ligera para Histórico Faltantes (sin el detalle diario completo) ──
     try{ await publicarFaltantesV2(payload,rawUse,rawDUse,file.name); }
-    catch(e){ log('⚠️ Histórico Faltantes V2 no se publicó: '+e.message); }
+    catch(e){ log('⚠️ Histórico de Inventarios V2 no se publicó: '+e.message); }
 
     const version=Date.now().toString();
     log('📝 Publicando versión…');
