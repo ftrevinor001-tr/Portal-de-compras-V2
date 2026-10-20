@@ -132,7 +132,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
 
   <!-- ═════ TABLERO ═════ -->
   <section class="pane on" id="pane-tab">
-    <div class="row" style="margin-bottom:10px"><span class="lbl">Filtrar tablero</span><div id="tb-rot" data-t="Rotación"></div><div id="tb-marca" data-t="Marca"></div><div id="tb-grupo" data-t="Grupo"></div><div id="tb-temp" data-t="Temporada"></div><button class="btn" onclick="limpiarF(TBF);pintarTablero()">Limpiar</button><span class="mut sm" id="tb-cnt"></span></div>
+    <div class="row" style="margin-bottom:10px"><span class="lbl">Filtrar tablero</span><div id="tb-comp" data-t="Comprador"></div><div id="tb-rot" data-t="Rotación"></div><div id="tb-marca" data-t="Marca"></div><div id="tb-grupo" data-t="Grupo"></div><div id="tb-temp" data-t="Temporada"></div><button class="btn" onclick="limpiarF(TBF);pintarTablero()">Limpiar</button><span class="mut sm" id="tb-cnt"></span></div>
     <div id="tab-alert"></div>
     <div class="cards" id="tab-cards"></div>
     <div class="cards" id="tab-cards2"></div>
@@ -148,6 +148,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
   <!-- ═════ DETALLE ═════ -->
   <section class="pane" id="pane-det">
     <div class="row" style="margin-bottom:10px">
+      <div id="d-comp" data-t="Comprador"></div>
       <input type="search" id="d-q" placeholder="Clave, varias claves (101, 205 330) o descripción…" title="Para ver varias claves escríbelas o pégalas separadas por espacio, coma o renglón" style="width:300px">
       <div id="d-est" data-t="Estatus"></div>
       <div id="d-rot" data-t="Rotación"></div>
@@ -171,14 +172,14 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
     <div class="card">
       <div class="row" style="justify-content:space-between"><div><h2>Por pedir hoy</h2><div class="sub">Claves en faltante o riesgo con propuesta del portal mayor a cero (ya descuenta existencia y BO del CEDI; el BO de entregas directas no cuenta). Primero las de menos cobertura.</div></div>
       <div class="row"><select id="p-est"><option value="RF">Faltante y riesgo</option><option value="TODAS">Todas las que tienen propuesta</option></select><button class="btn" onclick="excelPedir()">⬇ Excel</button></div></div>
-      <div class="row" style="margin:8px 0"><div id="p-estm" data-t="Estatus"></div><div id="p-rot" data-t="Rotación"></div><div id="p-marca" data-t="Marca"></div><div id="p-grupo" data-t="Grupo"></div><div id="p-temp" data-t="Temporada"></div><div id="p-oc" data-t="OC al CEDI"></div><button class="btn" onclick="limpiarF(PF);pintarPedir()">Limpiar</button><span class="mut sm" id="p-cnt"></span></div>
+      <div class="row" style="margin:8px 0"><div id="p-comp" data-t="Comprador"></div><div id="p-estm" data-t="Estatus"></div><div id="p-rot" data-t="Rotación"></div><div id="p-marca" data-t="Marca"></div><div id="p-grupo" data-t="Grupo"></div><div id="p-temp" data-t="Temporada"></div><div id="p-oc" data-t="OC al CEDI"></div><button class="btn" onclick="limpiarF(PF);pintarPedir()">Limpiar</button><span class="mut sm" id="p-cnt"></span></div>
       <div class="cards" id="p-cards"></div>
       <div class="tw" style="max-height:60vh"><table><thead id="p-head"></thead><tbody id="p-body"></tbody></table></div>
     </div>
     <div class="card">
       <div class="row" style="justify-content:space-between"><div><h2>OCs colocadas vs propuesta del portal</h2><div class="sub" id="pc-sub">Cada OC nueva se compara contra lo que sugería el portal el día anterior. Acertada si la diferencia está dentro de ±40%.</div></div>
       <div class="row"><button class="btn" onclick="excelPrecision()">⬇ Excel</button></div></div>
-      <div class="row" style="margin:8px 0"><div id="pc-mes" data-t="Mes de la OC"></div><div id="pc-res" data-t="Resultado"></div><div id="pc-prov" data-t="Proveedor"></div><div id="pc-marca" data-t="Marca"></div><div id="pc-est" data-t="Estatus ese día"></div><div id="pc-mot" data-t="Motivo"></div><button class="btn" onclick="limpiarF(PCF);pintarPrecision()">Limpiar</button><span class="mut sm" id="pc-cnt"></span></div>
+      <div class="row" style="margin:8px 0"><div id="pc-comp" data-t="Comprador"></div><div id="pc-mes" data-t="Mes de la OC"></div><div id="pc-res" data-t="Resultado"></div><div id="pc-prov" data-t="Proveedor"></div><div id="pc-marca" data-t="Marca"></div><div id="pc-est" data-t="Estatus ese día"></div><div id="pc-mot" data-t="Motivo"></div><button class="btn" onclick="limpiarF(PCF);pintarPrecision()">Limpiar</button><span class="mut sm" id="pc-cnt"></span></div>
       <div class="cards" id="pc-cards"></div>
       <div class="tw" style="max-height:60vh"><table><thead id="pc-head"></thead><tbody id="pc-body"></tbody></table></div>
     </div>
@@ -186,7 +187,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
 
   <!-- ═════ TARGET ═════ -->
   <section class="pane" id="pane-tgt">
-    <div class="row" style="margin-bottom:12px"><div id="t-mes" data-t="Mes de la alarma"></div><div id="t-res" data-t="Resultado"></div><div id="t-tipo" data-t="Tipo"></div><div id="t-rot" data-t="Rotación"></div><div id="t-marca" data-t="Marca"></div><div id="t-grupo" data-t="Grupo"></div><button class="btn" onclick="limpiarF(TF,['t-mes']);pintarTarget()">Limpiar</button><span class="mut sm" id="t-cnt"></span><button class="btn" style="margin-left:auto" onclick="excelTarget()">⬇ Excel</button></div>
+    <div class="row" style="margin-bottom:12px"><div id="tg-comp" data-t="Comprador"></div><div id="t-mes" data-t="Mes de la alarma"></div><div id="t-res" data-t="Resultado"></div><div id="t-tipo" data-t="Tipo"></div><div id="t-rot" data-t="Rotación"></div><div id="t-marca" data-t="Marca"></div><div id="t-grupo" data-t="Grupo"></div><button class="btn" onclick="limpiarF(TF,['t-mes']);pintarTarget()">Limpiar</button><span class="mut sm" id="t-cnt"></span><button class="btn" style="margin-left:auto" onclick="excelTarget()">⬇ Excel</button></div>
     <div class="cards" id="t-cards"></div>
     <div class="grid2">
       <div class="card"><h2>Target por comprador</h2><div class="sub">Cumple = OC colocada en tiempo o anticipada. No cuentan las excluidas, en revisión con gerencia ni las que salieron de riesgo solas.</div><div id="t-comp"></div></div>
@@ -199,7 +200,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
 
   <!-- ═════ OTIF ═════ -->
   <section class="pane" id="pane-otif">
-    <div class="row" style="margin-bottom:12px"><div id="o-mes" data-t="Mes de cierre"></div><div id="o-prov" data-t="Proveedor"></div><div id="o-marca" data-t="Marca"></div><div id="o-ot" data-t="A tiempo"></div><div id="o-if" data-t="Completa"></div><div id="o-base" data-t="Fecha compromiso"></div><button class="btn" onclick="limpiarF(OF,['o-mes']);pintarOTIF()">Limpiar</button><span class="mut sm" id="o-cnt"></span><button class="btn" style="margin-left:auto" onclick="excelOTIF()">⬇ Excel</button></div>
+    <div class="row" style="margin-bottom:12px"><div id="of-comp" data-t="Comprador"></div><div id="o-mes" data-t="Mes de cierre"></div><div id="o-prov" data-t="Proveedor"></div><div id="o-marca" data-t="Marca"></div><div id="o-ot" data-t="A tiempo"></div><div id="o-if" data-t="Completa"></div><div id="o-base" data-t="Fecha compromiso"></div><button class="btn" onclick="limpiarF(OF,['o-mes']);pintarOTIF()">Limpiar</button><span class="mut sm" id="o-cnt"></span><button class="btn" style="margin-left:auto" onclick="excelOTIF()">⬇ Excel</button></div>
     <div class="cards" id="o-cards"></div>
     <div class="grid2">
       <div class="card"><h2>OTIF por proveedor</h2><div class="sub">Líneas de OC cerradas en el mes. On Time contra la fecha compromiso (capturada o por defecto = fecha OC + tiempo de entrega).</div><div class="tw" style="max-height:52vh"><table id="o-prov-t"></table></div></div>
@@ -326,13 +327,13 @@ async function abrir(){
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>irTab(b.dataset.t));
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{S.base=b.dataset.b;document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));pintar();});
   MS.mount('g-comp',{t:'Comprador',todos:'Todos',on:()=>{lsSet('plan_dash_comp',JSON.stringify([...MS.sel('g-comp')]));S.limite=400;pintar();}});
-  DF.forEach(([id])=>MS.mount(id,{on:()=>{S.limite=400;pintarDetalle();}}));
+  DF.forEach(([id])=>MS.mount(id,{on:()=>{if(esComp(id))compDesde(id);S.limite=400;pintarDetalle();}}));
   $('tr-rango').onchange=()=>pintarTendencia();
   ['d-q'].forEach(id=>$(id).oninput=()=>{S.f.q=$(id).value;S.limite=400;pintarDetalle();});
   [['d-comprar','comprar'],['d-cambia','cambia'],['d-mf','mf']].forEach(([id,k])=>$(id).onclick=()=>{S.f[k]=!S.f[k];$(id).classList.toggle('on',S.f[k]);S.limite=400;pintarDetalle();});
   $('p-est').onchange=()=>pintarPedir();
   // Filtros de selección múltiple en cascada de cada pestaña
-  [[TBF,()=>pintarTablero()],[PF,()=>pintarPedir()],[PCF,()=>pintarPrecision()],[TF,()=>pintarTarget()],[OF,()=>pintarOTIF()]].forEach(([F,fn])=>F.forEach(([id])=>MS.mount(id,{todos:FTODOS[id]||'Todos',on:fn})));
+  [[TBF,()=>pintarTablero()],[PF,()=>pintarPedir()],[PCF,()=>pintarPrecision()],[TF,()=>pintarTarget()],[OF,()=>pintarOTIF()]].forEach(([F,fn])=>F.forEach(([id])=>MS.mount(id,{t:esComp(id)?'Comprador':undefined,todos:FTODOS[id]||'Todos',on:esComp(id)?()=>{compDesde(id);S.limite=400;fn();}:fn})));
   await recargar();
 }
 async function recargar(){
@@ -359,29 +360,35 @@ function llenarFiltros(){
   MS.opts('g-comp',cnt);
 }
 // Filtros del Detalle (selección múltiple en cascada)
-const DF=[['d-temp',r=>tempDe(r).t],['d-est',r=>estDe(r,S.base)],['d-rot',r=>r.rot],['d-marca',r=>r.m],['d-grupo',r=>r.g]];
+const DF=[['d-comp',r=>r.comp],['d-temp',r=>tempDe(r).t],['d-est',r=>estDe(r,S.base)],['d-rot',r=>r.rot],['d-marca',r=>r.m],['d-grupo',r=>r.g]];
 const DFL={'d-est':v=>EST[v]?EST[v].l:(v||'(sin dato)'),'d-temp':v=>P.TEMP_L[v]||v};
 const ORD_ROT=['SAGRADOS','ALTA ROTACION','MEDIA ROTACION','LENTA ROTACION','NUEVOS','SIN COMPRA'];const sinAc=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 const DFO={'d-temp':(a,b)=>['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(a.v)-['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(b.v),'d-est':(a,b)=>(EST[a.v]?EST[a.v].o:9)-(EST[b.v]?EST[b.v].o:9),'d-rot':(a,b)=>((ORD_ROT.indexOf(sinAc(a.v))+1||99)-(ORD_ROT.indexOf(sinAc(b.v))+1||99))||a.t.localeCompare(b.t,'es')};
 const compSel=()=>MS.sel('g-comp');
 // ── Filtros en cascada por pestaña ──
 const cl_=x=>S.byClave.get(Number(x))||{};
-const TBF=[['tb-rot',r=>r.rot],['tb-marca',r=>r.m],['tb-grupo',r=>r.g],['tb-temp',r=>tempDe(r).t]];
-const PF=[['p-estm',r=>r.est],['p-rot',r=>r.rot],['p-marca',r=>r.m],['p-grupo',r=>r.g],['p-temp',r=>tempDe(r).t],['p-oc',r=>(S.ocs[r.c]||[]).some(o=>!o[4])?'CON OC':'SIN OC']];
-const PCF=[['pc-mes',x=>(x.fecha_oc||'').slice(0,7)],['pc-res',x=>x.res],['pc-prov',x=>x.prov],['pc-marca',x=>cl_(x.clave).m],['pc-est',x=>x.est],['pc-mot',x=>x.motivo||'']];
-const TF=[['t-mes',a=>a.fecha_alarma.slice(0,7)],['t-res',a=>a.resultado_target||'EN PLAZO'],['t-tipo',a=>a.tipo==='FALTANTE_DIRECTO'?'FALTANTE DIRECTO':'RIESGO'],['t-rot',a=>cl_(a.clave).rot],['t-marca',a=>cl_(a.clave).m],['t-grupo',a=>cl_(a.clave).g]];
-const OF=[['o-mes',l=>l.mes],['o-prov',l=>l.proveedor],['o-marca',l=>cl_(l.clave).m],['o-ot',l=>l.on_time==null?'SIN FECHA':l.on_time?'SÍ':'NO'],['o-if',l=>l.in_full?'SÍ':'NO'],['o-base',l=>l.base]];
+const TBF=[['tb-comp',r=>r.comp],['tb-rot',r=>r.rot],['tb-marca',r=>r.m],['tb-grupo',r=>r.g],['tb-temp',r=>tempDe(r).t]];
+const PF=[['p-comp',r=>r.comp],['p-estm',r=>r.est],['p-rot',r=>r.rot],['p-marca',r=>r.m],['p-grupo',r=>r.g],['p-temp',r=>tempDe(r).t],['p-oc',r=>(S.ocs[r.c]||[]).some(o=>!o[4])?'CON OC':'SIN OC']];
+const PCF=[['pc-comp',x=>x.comp],['pc-mes',x=>(x.fecha_oc||'').slice(0,7)],['pc-res',x=>x.res],['pc-prov',x=>x.prov],['pc-marca',x=>cl_(x.clave).m],['pc-est',x=>x.est],['pc-mot',x=>x.motivo||'']];
+const TF=[['tg-comp',a=>a.comprador],['t-mes',a=>a.fecha_alarma.slice(0,7)],['t-res',a=>a.resultado_target||'EN PLAZO'],['t-tipo',a=>a.tipo==='FALTANTE_DIRECTO'?'FALTANTE DIRECTO':'RIESGO'],['t-rot',a=>cl_(a.clave).rot],['t-marca',a=>cl_(a.clave).m],['t-grupo',a=>cl_(a.clave).g]];
+const OF=[['of-comp',l=>l.comprador],['o-mes',l=>l.mes],['o-prov',l=>l.proveedor],['o-marca',l=>cl_(l.clave).m],['o-ot',l=>l.on_time==null?'SIN FECHA':l.on_time?'SÍ':'NO'],['o-if',l=>l.in_full?'SÍ':'NO'],['o-base',l=>l.base]];
 const FTODOS={'pc-mes':'Todos','t-mes':'Todos','o-mes':'Todos'};
 const mesL=v=>v?fmtMes(v):'(sin fecha)',mesO=(a,b)=>b.v.localeCompare(a.v);
 const FL={'tb-temp':v=>P.TEMP_L[v]||v,'p-temp':v=>P.TEMP_L[v]||v,'p-estm':v=>EST[v]?EST[v].l:(v||'(sin dato)'),'pc-est':v=>EST[v]?EST[v].l:(v||'(sin dato)'),'pc-mes':mesL,'t-mes':mesL,'o-mes':mesL,'pc-mot':v=>v?(((S.catMot||[]).find(o=>o.k===v)||{}).l||v):'(sin motivo)','o-base':v=>v?v.charAt(0)+v.slice(1).toLowerCase():'(sin dato)'};
 const FO={'pc-mes':mesO,'t-mes':mesO,'o-mes':mesO,'tb-rot':(a,b)=>DFO['d-rot'](a,b),'p-rot':(a,b)=>DFO['d-rot'](a,b),'t-rot':(a,b)=>DFO['d-rot'](a,b),'p-estm':(a,b)=>DFO['d-est'](a,b),'tb-temp':(a,b)=>DFO['d-temp'](a,b),'p-temp':(a,b)=>DFO['d-temp'](a,b)};
 // Aplica la cascada y regresa las filas que pasan. mesIni = filtro de mes que arranca en el mes más reciente.
+const COMP_IDS=['tb-comp','d-comp','p-comp','pc-comp','tg-comp','of-comp'];
+const esComp=id=>COMP_IDS.includes(id);
+// Al cambiar el comprador en una pestaña se cambia el de arriba (y con él, el de todas las pestañas)
+function compDesde(id){const v=[...MS.sel(id)];MS.set('g-comp',v);lsSet('plan_dash_comp',JSON.stringify(v));}
+function sincComp(F){F.forEach(([id])=>{if(esComp(id))MS.set(id,[...compSel()]);});}
+const conComp=rows=>compSel().size?rows.filter(r=>compOk(r.comp??r.comprador)):rows;
 function filtrar(base,F,mesIni){
-  MS.cascada(base,F,FL,FO);
+  sincComp(F);MS.cascada(base,F,FL,FO);
   if(mesIni&&!S['ini_'+mesIni]){const op=(MS.X[mesIni]||{}).opts||[];if(op.length){S['ini_'+mesIni]=1;MS.set(mesIni,[op[0].v]);MS.cascada(base,F,FL,FO);}}
   return base.filter(r=>MS.pasa(r,F));
 }
-function limpiarF(F,keep){F.forEach(([id])=>{if(!(keep||[]).includes(id))MS.clear(id);});}
+function limpiarF(F,keep){F.forEach(([id])=>{if(!esComp(id)&&!(keep||[]).includes(id))MS.clear(id);});}
 const cntTxt=(n,t)=>fmtN(n)+' de '+fmtN(t);
 const compOk=c=>enF(compSel(),c);
 // Afectación en dinero: consumo mensual (base elegida) × costo unitario de compra
@@ -405,7 +412,7 @@ function limpiarDet(){verEnDetalle({});}
 
 // ══════════ TABLERO ══════════
 function pintarTablero(){
-  const todas=misClaves(),rows=filtrar(todas,TBF),b=S.base,tot=rows.length;$('tb-cnt').textContent=cntTxt(rows.length,todas.length)+' claves';
+  const rows=filtrar(S.claves,TBF),b=S.base,tot=rows.length;$('tb-cnt').textContent=cntTxt(rows.length,misClaves().length)+' claves';
   // Aviso: antecedente sano y pronóstico en riesgo/faltante
   const emp=rows.filter(empeora).sort((x,y)=>(y.P||0)-(x.P||0));
   $('tab-alert').innerHTML=emp.length?'<div class="alert"><b>⇄ '+fmtN(emp.length)+' claves que el antecedente da por sanas pero el pronóstico manda a riesgo o faltante</b> <span class="mut sm">(viene temporada: revisa antes de que entren en alarma)</span>'
@@ -497,9 +504,10 @@ function valorOrden(r,k){
 }
 function pintarDetalle(){
   const lq=listaClaves(S.f.q);   // con varias claves se muestran todas, de cualquier comprador
-  const base0=filtrarClaves(S.claves,{...S.f,comp:lq?null:compSel(),base:S.base});
-  MS.cascada(base0,DF,DFL,DFO);
-  const rows=base0.filter(r=>MS.pasa(r,DF));const{k,d}=S.sort;
+  const base0=filtrarClaves(S.claves,{...S.f,comp:null,base:S.base});
+  sincComp(DF);const DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
+  MS.cascada(base0,DFx,DFL,DFO);
+  const rows=base0.filter(r=>MS.pasa(r,DFx));const{k,d}=S.sort;
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
   if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
     $('d-count').innerHTML=fmtN(rows.length)+' de '+fmtN(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No están en el cálculo del portal">no existen: '+esc(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+esc(oc.join(', '))+'</span>':'');}
@@ -579,7 +587,8 @@ function graficaMeses(arr,agot){
   return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado.</div>';
 }
 function excelDetalle(){
-  const rows=filtrarClaves(S.claves,{...S.f,comp:listaClaves(S.f.q)?null:compSel(),base:S.base}).filter(r=>MS.pasa(r,DF));
+  const lq=listaClaves(S.f.q),DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
+  const rows=filtrarClaves(S.claves,{...S.f,comp:null,base:S.base}).filter(r=>MS.pasa(r,DFx));
   const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,'Estatus Excel':r.estX,
@@ -592,7 +601,7 @@ function descargarXLSX(hojas,nombre){const wb=XLSX.utils.book_new();hojas.forEac
 // ══════════ PEDIDOS ══════════
 function filasPedir(){
   const todas=$('p-est').value==='TODAS';
-  const base=misClaves().filter(r=>(r.s||0)>0&&(todas||malo(r.est)));S.pedTot=base.length;
+  const base=S.claves.filter(r=>(r.s||0)>0&&(todas||malo(r.est)));S.pedTot=conComp(base).length;
   return filtrar(base,PF).sort((a,b)=>(EST[a.est]?EST[a.est].o:9)-(EST[b.est]?EST[b.est].o:9)||(a.mi??-1)-(b.mi??-1));
 }
 function pintarPedir(){
@@ -617,8 +626,8 @@ async function cargarPrecision(){
 }
 async function pintarPrecision(){
   try{await cargarPrecision();}catch(e){$('pc-body').innerHTML='<tr><td class="empty">No se pudieron leer las OCs ('+esc(e.message||e)+'). ¿Ya corriste plan_tablas_6.sql?</td></tr>';return;}
-  let f=filasPrecision(S.lineasSug,S.byClave,S.emps,S.motivos).filter(x=>compOk(x.comp));
-  const tot=f.length;f=filtrar(f,PCF,'pc-mes');$('pc-cnt').textContent=cntTxt(f.length,tot)+' líneas';
+  let f=filasPrecision(S.lineasSug,S.byClave,S.emps,S.motivos);
+  const tot=conComp(f).length;f=filtrar(f,PCF,'pc-mes');$('pc-cnt').textContent=cntTxt(f.length,tot)+' líneas';
   const rs=resumenPrecision(f);
   $('pc-cards').innerHTML=[['var(--st-x)','🎯 Precisión',pctTxt(rs.pct),fmtN(rs.ok)+' de '+fmtN(rs.n)+' líneas evaluables'],['var(--st-o)','✅ Acertadas',fmtN(rs.ok),'dentro de ±'+P.R.TOL_PEDIDO+'%'],['var(--st-f)','↕ Desviadas',fmtN(rs.des),'fuera de ±'+P.R.TOL_PEDIDO+'%'],['var(--st-r)','➕ Pedido sin sugerencia',fmtN(rs.sin),'el portal no proponía pedir'],['var(--st-n)','○ No evaluables',fmtN(rs.ne),'clave sin cálculo (sin compra, nuevos)']]
     .map(([c,t,n,p])=>'<div class="kc sm" style="--c:'+c+';cursor:default"><div class="t"><i></i>'+t+'</div><div class="n">'+n+'</div><div class="p">'+p+'</div></div>').join('');
@@ -647,8 +656,8 @@ async function cargarAlarmas(){if(S.alarmas)return;S.alarmas=(await todo(()=>sb.
 const TRES={'EN TIEMPO':'p-ok','ANTICIPADA':'p-ok','ANTICIPACION EXCESIVA':'p-warn','TARDE':'p-bad','SIN OC':'p-bad','SIN NECESIDAD':'p-n','EXCLUIDA':'p-n','EN REVISION GERENCIA':'p-b','EN PLAZO':'p-b'};
 async function pintarTarget(){
   try{await cargarAlarmas();}catch(e){$('t-body').innerHTML='<tr><td class="empty">'+esc(e.message||e)+'</td></tr>';return;}
-  const al0=S.alarmas.filter(a=>compOk(a.comprador));
-  const al=filtrar(al0,TF,'t-mes');$('t-cnt').textContent=cntTxt(al.length,al0.length)+' alarmas';
+  const al0=S.alarmas;
+  const al=filtrar(al0,TF,'t-mes');$('t-cnt').textContent=cntTxt(al.length,conComp(al0).length)+' alarmas';
   // Las tarjetas y el resumen por comprador usan todos los filtros menos Resultado (para que el Target no se distorsione)
   const R=resumenTarget(al0.filter(a=>MS.pasa(a,TF,'t-res')));const rk=Object.keys(R.gen.res).sort();
   const g=R.gen;
@@ -678,8 +687,8 @@ async function cargarOTIF(){
 }
 async function pintarOTIF(){
   try{await cargarOTIF();}catch(e){$('o-body').innerHTML='<tr><td class="empty">'+esc(e.message||e)+'</td></tr>';return;}
-  const base=S.otif.filter(l=>compOk(l.comprador));
-  const ls=filtrar(base,OF,'o-mes');S.otifFilas=ls;$('o-cnt').textContent=cntTxt(ls.length,base.length)+' líneas';
+  const base=S.otif;
+  const ls=filtrar(base,OF,'o-mes');S.otifFilas=ls;$('o-cnt').textContent=cntTxt(ls.length,conComp(base).length)+' líneas';
   const mesesSel=[...MS.sel('o-mes')];const mesTxt=mesesSel.length===1?fmtMes(mesesSel[0]):mesesSel.length?mesesSel.length+' meses':'todos los meses';
   const g=ls.length?P.otifResumen(ls.map(x=>({...x,g:'G'})),'g')[0]:null;
   $('o-cards').innerHTML=[['var(--st-o)','🚚 OTIF',pctTxt(g&&g.otif),'promedio de On Time e In Full'],['var(--acc)','⏱ On Time',pctTxt(g&&g.on_time),fmtN(g?g.con_fecha:0)+' líneas con fecha'],['var(--st-x)','📦 In Full',pctTxt(g&&g.in_full),'recibido completo'],['var(--st-n)','📋 Líneas',fmtN(ls.length),'cerradas en '+mesTxt],['var(--st-r)','📅 Con compromiso capturado',pctTxt(g&&g.con_compromiso),'el resto usa la fecha por defecto']]
