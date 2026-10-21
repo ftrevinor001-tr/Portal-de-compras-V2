@@ -37,7 +37,7 @@
       const v=x.limpia!=null?x.limpia:(x.venta||0);const bh=(H-pt-pb)*Math.max(0,v)/mx;const x0=pl+i*bw+2,y0=H-pb-bh;
       const fill=x.excluido?'url(#pfz)':x.usa.includes('ANT')?'#3b82f6':x.usa.includes('PRON')?'#8b5cf6':'#cbd5e1';
       const ag=(agot||{})[x.m];
-      const tit=fM(x.m)+': venta '+n(x.venta)+(x.ed?' · ED restada → '+n(x.limpia):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+(ag?' · '+ag+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
+      const tit=fM(x.m)+': venta '+n(x.venta)+(x.ed?' · ED restada → '+n(x.limpia):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='temporada'?' · pico de temporada: el mismo mes del año anterior también fue alto, se usa completo':'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+(ag?' · '+ag+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
       s+='<rect x="'+x0+'" y="'+(bh?y0:H-pb-1)+'" width="'+(bw-4)+'" height="'+Math.max(bh,1)+'" rx="2" fill="'+fill+'" stroke="'+(x.excluido?'#fb7185':'none')+'"><title>'+esc(tit)+'</title></rect>';
       if(x.ed)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-3)+'" font-size="9" text-anchor="middle" fill="#b45309">ED</text>';
       if(ag>=P.R.DIAS_AGOTADO)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-(x.ed?12:3))+'" font-size="9" text-anchor="middle" fill="#e11d48">⛔</text>';

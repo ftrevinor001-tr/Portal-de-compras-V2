@@ -164,7 +164,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
       <button class="btn" style="margin-left:auto" onclick="excelDetalle()">⬇ Excel</button>
     </div>
     <div class="tw" id="d-tw"><table><thead id="d-head"></thead><tbody id="d-body"></tbody></table></div>
-    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (más de 15 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana). Demanda del portal = promedio de antecedente y pronóstico. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO del CEDI); el BO de OCs de entrega directa a sucursal no cuenta. Clic en una clave para ver sus ventas mes a mes.</div>
+    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (más de 15 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana), salvo que el pico se repita el mismo mes del año anterior (temporada). Demanda del portal = promedio de antecedente y pronóstico. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO del CEDI); el BO de OCs de entrega directa a sucursal no cuenta. Clic en una clave para ver sus ventas mes a mes.</div>
   </section>
 
   <!-- ═════ PEDIDOS ═════ -->
@@ -577,7 +577,7 @@ function graficaMeses(arr,agot){
   arr.forEach((x,i)=>{
     const v=x.limpia!=null?x.limpia:(x.venta||0);const bh=(H-pt-pb)*Math.max(0,v)/mx;const x0=pl+i*bw+2,y0=H-pb-bh;
     const fill=x.excluido?'url(#hz)':x.usa.includes('ANT')?'#3b82f6':x.usa.includes('PRON')?'#8b5cf6':'#cbd5e1';
-    const tit=fmtMes(x.m)+': venta '+fmtN(x.venta)+(x.ed?' · ED restada → '+fmtN(x.limpia):'')+(x.valor!=null&&x.valor!==v?' · se usa '+fmtN(x.valor,1):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+((agot||{})[x.m]?' · '+agot[x.m]+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
+    const tit=fmtMes(x.m)+': venta '+fmtN(x.venta)+(x.ed?' · ED restada → '+fmtN(x.limpia):'')+(x.valor!=null&&x.valor!==v?' · se usa '+fmtN(x.valor,1):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='temporada'?' · pico de temporada: el mismo mes del año anterior también fue alto, se usa completo':'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+((agot||{})[x.m]?' · '+agot[x.m]+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
     s+='<rect x="'+x0+'" y="'+(bh?y0:H-pb-1)+'" width="'+(bw-4)+'" height="'+Math.max(bh,1)+'" rx="2" fill="'+fill+'" stroke="'+(x.excluido?'#fb7185':'none')+'"><title>'+esc(tit)+'</title></rect>';
     if(x.ed)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-3)+'" font-size="9" text-anchor="middle" fill="#b45309">ED</text>';
     if((agot||{})[x.m]>=P.R.DIAS_AGOTADO)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-(x.ed?12:3))+'" font-size="9" text-anchor="middle" fill="#e11d48">⛔</text>';

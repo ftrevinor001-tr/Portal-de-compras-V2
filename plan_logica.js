@@ -217,8 +217,12 @@ P.valor=(s,m)=>{
   if(w.length<P.R.MIN_MESES_MEDIANA)return{v:x};
   w.sort((a,b)=>a-b);const med=w.length%2?w[(w.length-1)/2]:(w[w.length/2-1]+w[w.length/2])/2;
   if(x<=P.R.ATIPICO*med)return{v:x};
+  // Pico de temporada: si el mismo mes del año anterior (o el de antes o el de después) también vendió
+  // más de TEMP_REPITE × la mediana, el pico se repite cada año y se usa completo (no se descarta ni se topa).
+  if(P.R.TEMP_REPITE>0)for(let k=-1;k<=1;k++){const v=s[P.ym(m,-12+k)]||0;if(v>P.R.TEMP_REPITE*med)return{v:x,at:'temporada'};}
   return m<P.R.ANIO_LIMPIO?{v:null,at:'descartado'}:{v:P.R.ATIPICO*med,at:'topado'};
 };
+P.R.TEMP_REPITE=2;
 // ¿Mes de 2025 sospechoso de agotado? (sin datos de existencia antes de abr-2026)
 // Clave regular (vendió ≥10 de los 12 meses previos) con una racha de ≥2 meses en cero.
 P.R.AGOT_DESDE='2026-04';P.R.REGULAR=10;P.R.RACHA=2;P.R.INTERMITENTE=6;
