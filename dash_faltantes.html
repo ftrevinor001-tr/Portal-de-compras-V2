@@ -1881,16 +1881,45 @@ function resumenRegla(comp){
 const diasDetalle=()=>{const u=[...new Set([...(G.detF||[]),...(window.DIAS_DB||[])])].sort();return u.length?u:(G.fechas||[]).slice().sort();};
 
 // ── RESUMEN: una sola gráfica de faltantes por día, apilada por rotación ──
+// Plugin: número de claves dentro de cada segmento, total arriba de la columna y ★ del color de la rotación
+// sobre el día pico de cada rotación (▲ negro = día pico del total).
+const faltLabelPlugin={id:'faltLabel',afterDatasetsDraw(chart){
+  const{ctx}=chart;const dss=chart.data.datasets;const n=chart.data.labels.length;const pk=chart.$picos||{};
+  ctx.save();ctx.textAlign='center';
+  for(let i=0;i<n;i++){
+    let top=null,x=null,tot=0;
+    dss.forEach((ds,j)=>{const meta=chart.getDatasetMeta(j);if(meta.hidden)return;const bar=meta.data[i];const v=ds.data[i]||0;if(!bar||!v)return;tot+=v;x=bar.x;
+      const h=Math.abs(bar.base-bar.y);top=top==null?bar.y:Math.min(top,bar.y);
+      if(h>=13&&bar.width>=16){ctx.font='600 10px Segoe UI';ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(v,bar.x,(bar.y+bar.base)/2);}});
+    if(top==null)continue;
+    ctx.font='700 11px Segoe UI';ctx.fillStyle='#1a2035';ctx.textBaseline='bottom';ctx.fillText(tot,x,top-3);
+    // marcas de pico en una fila arriba del total (▲ total, ★ del color de cada rotación)
+    const mk=[];if(pk.total===i)mk.push(['▲','#1a2035']);
+    dss.forEach((ds,j)=>{if(!chart.getDatasetMeta(j).hidden&&pk[ds.label]===i)mk.push(['★',ds.backgroundColor]);});
+    ctx.font='700 12px Segoe UI';mk.forEach(([t,c],k)=>{ctx.fillStyle=c;ctx.fillText(t,x+(k-(mk.length-1)/2)*12,top-17);});
+  }
+  ctx.restore();}};
 function renderCharts(){
   const comp=document.getElementById('g-comp')?document.getElementById('g-comp').value:'';
   const ff=ffDates.length?ffDates:G.fechas;
   const src=comp?(G.compClByDay[comp]||{}):G.clasByDay;
   const ORD=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN'];
-  mC('c-total','bar',{labels:ff.map(fF),datasets:ORD.map(cl=>({label:CLL[cl],data:ff.map(f=>(src[cl]||{})[f]||0),backgroundColor:CLC[cl],borderRadius:2}))},
-    {...BASE,plugins:{...BASE.plugins,tooltip:{...BASE.plugins.tooltip,callbacks:{footer:it=>'Total: '+it.reduce((s,x)=>s+x.parsed.y,0)}}},scales:{x:{...BASE.scales.x,stacked:true},y:{...BASE.scales.y,stacked:true,beginAtZero:true}}});
+  const datasets=ORD.map(cl=>({label:CLL[cl],data:ff.map(f=>(src[cl]||{})[f]||0),backgroundColor:CLC[cl],borderRadius:2}));
   const tot=ff.map(f=>ORD.reduce((s,cl)=>s+((src[cl]||{})[f]||0),0));
-  const pk=Math.max(0,...tot),ip=tot.indexOf(pk);
-  document.getElementById('c-total-sub').innerHTML=(comp?'<b>'+escH2(comp)+'</b> · ':'Todos los compradores · ')+ff.length+' días · hoy <b>'+(tot[tot.length-1]||0)+'</b> faltantes · pico del rango <b>'+pk+'</b> el '+(ff[ip]?fdl(ff[ip]):'—');
+  // día pico de cada rotación y del total (si empata, el más reciente)
+  const pico=a=>{let m=0,ix=-1;a.forEach((v,i)=>{if(v>0&&v>=m){m=v;ix=i;}});return ix;};
+  const picos={total:pico(tot)};datasets.forEach(d=>picos[d.label]=pico(d.data));
+  const mx=Math.max(0,...tot);
+  const ctx=document.getElementById('c-total');
+  if(ctx){if(CH['c-total'])CH['c-total'].destroy();
+    CH['c-total']=new Chart(ctx,{type:'bar',data:{labels:ff.map(fF),datasets},plugins:[faltLabelPlugin],
+      options:{...BASE,layout:{padding:{top:8}},plugins:{...BASE.plugins,tooltip:{...BASE.plugins.tooltip,callbacks:{footer:it=>'Total: '+it.reduce((s,x)=>s+x.parsed.y,0)}}},
+        scales:{x:{...BASE.scales.x,stacked:true},y:{...BASE.scales.y,stacked:true,beginAtZero:true,suggestedMax:Math.ceil(mx*1.22)}}}});
+    CH['c-total'].$picos=picos;CH['c-total'].update('none');}
+  const pk=Math.max(0,...tot),ip=picos.total;
+  const txtPicos=datasets.filter(d=>picos[d.label]>=0).map(d=>'<span style="color:'+d.backgroundColor+'">★</span> '+d.label+' <b>'+d.data[picos[d.label]]+'</b> el '+fF(ff[picos[d.label]])).join(' · ');
+  document.getElementById('c-total-sub').innerHTML=(comp?'<b>'+escH2(comp)+'</b> · ':'Todos los compradores · ')+ff.length+' días · hoy <b>'+(tot[tot.length-1]||0)+'</b> faltantes · ▲ pico del total <b>'+pk+'</b> el '+(ff[ip]?fdl(ff[ip]):'—')
+    +(txtPicos?'<br><span style="font-size:11.5px">Día pico por rotación: '+txtPicos+'</span>':'');
   updateKPIs(comp||null,null);
 }
 function showResNiv(niv,btn){
