@@ -240,10 +240,11 @@
         </div>
         <div class="admin-card">
           <h2>📤 Cargar Excel maestro</h2>
-          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los 4 dashboards y las alarmas: Histórico de Inventarios (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
+          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los dashboards, las alarmas y el Cálculo diario del portal: Histórico de Inventarios (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
           <div class="drop" id="drop" onclick="document.getElementById('fx').click()">📂 Arrastra aquí el Excel o haz clic para seleccionarlo</div>
           <input type="file" id="fx" accept=".xlsx,.xlsm" style="display:none">
           <div class="chkrow"><input type="checkbox" id="chk-bk" checked><label for="chk-bk">Guardar copia del Excel original como respaldo descargable</label></div>
+          <div class="chkrow"><input type="checkbox" id="chk-calc" checked><label for="chk-calc">Correr también el <b>Cálculo diario</b> del portal con el mismo archivo (Planeación, alarmas, Target, OTIF, Telegram y Seguimiento)</label></div>
           <div class="prog" id="prog"></div>
         </div>
 
@@ -1991,7 +1992,30 @@ async function procesarExcel(file){
     log('');
     log('🎉 LISTO. Los 4 dashboards y las alarmas ya muestran la nueva información para todo el equipo.');
     log('   (Si tenías el dashboard abierto, presiona "☁️ Actualizar desde servidor" o recarga la página.)');
-  }catch(e){log('❌ ERROR: '+e.message);}
+  }catch(e){log('❌ ERROR: '+e.message);return;}
+  if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
+}
+// ── Cálculo diario con el mismo archivo: lo corre la página de Cálculo diario (oculta) y aquí se ve el avance ──
+async function calculoAutomatico(file){
+  log('');log('🧮 CÁLCULO DIARIO DEL PORTAL con el mismo archivo…');
+  try{
+    const fr=document.getElementById('fr-8');
+    if(!fr.getAttribute('src')||!fr.contentWindow||!fr.contentWindow.run){
+      await new Promise((ok,no)=>{const t=setTimeout(()=>no(new Error('la página de Cálculo diario no cargó')),60000);fr.addEventListener('load',()=>{clearTimeout(t);ok();},{once:true});fr.src=SRCS_PLAN[8]+(String(SRCS_PLAN[8]).includes('?')?'&':'?')+'v='+Date.now();});
+    }
+    const w=fr.contentWindow;
+    // espera a que la página abra la sesión de administrador
+    for(let i=0;i<100&&!(w.document.getElementById('app')&&w.document.getElementById('app').style.display==='block');i++)await new Promise(r=>setTimeout(r,200));
+    if(!(w.document.getElementById('app')&&w.document.getElementById('app').style.display==='block'))throw new Error('no hay sesión de administrador en Cálculo diario; ábrelo una vez desde Admin');
+    const inp=w.document.getElementById('f-calc'),dt=new w.DataTransfer();dt.items.add(file);inp.files=dt.files;
+    const lg=w.document.getElementById('log-calc');let visto=0;
+    const espejo=()=>{const ls=[...lg.children].map(d=>d.textContent).filter(Boolean);for(;visto<ls.length;visto++)log('   '+ls[visto]);};
+    const iv=setInterval(espejo,700);
+    try{await w.run('calc');}finally{clearInterval(iv);espejo();}
+    const t=lg.textContent||'';
+    if(/❌/.test(t))log('❌ El Cálculo diario no terminó. Revisa el mensaje de arriba o córrelo desde Admin → Cálculo diario → 6.');
+    else{log('✅ Cálculo diario publicado: Planeación, Telegram y Seguimiento ya usan los datos de hoy.');EST_PORTAL=null;}
+  }catch(e){log('❌ Cálculo diario: '+e.message+'. Córrelo desde Admin → Cálculo diario → 6.');}
 }
 
 // ── Descargas ──
@@ -2306,10 +2330,7 @@ init();
     </header>
     <div id="tg-body">
       <div id="tg-opts">
-        <div class="fechas">
-          <div><label>📅 Día A (anterior)</label><select id="tg-a" onchange="tgCargar()"></select></div>
-          <div><label>📅 Día B (cierre)</label><select id="tg-b" onchange="tgCargar()"></select></div>
-        </div>
+        <div style="background:#eef3fe;border:1px solid #c9d4f0;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#1e3a5f;line-height:1.4"><b>Datos del cálculo del portal</b> (Planeación e indicadores): faltante y riesgo con la regla 1.2 / 1.4 y la demanda del portal. Corre primero <b>Cálculo diario → 6</b> con el Excel del día. <a href="#" onclick="tgCargar(true);return false">↻ Releer</a></div>
         <label>⏰ Hora límite para fecha compromiso</label>
         <input type="time" id="tg-hora" value="12:00" oninput="tgSave();genTg()">
         <label>🔗 Link al portal</label>
@@ -2319,6 +2340,7 @@ init();
         <label>Opciones</label>
         <div class="chk"><input type="checkbox" id="tg-media" checked onchange="tgSave();genTg()"> Listar claves nuevas de MEDIA</div>
         <div class="chk"><input type="checkbox" id="tg-lenta" onchange="tgSave();genTg()"> Listar claves nuevas de LENTA / otras</div>
+        <div class="chk"><input type="checkbox" id="tg-res" checked onchange="tgSave();genTg()"> Listar claves resueltas (ya llegaron)</div>
         <div class="chk"><input type="checkbox" id="tg-negritas" checked onchange="tgSave();genTg()"> Negritas (**texto**)</div>
         <div class="chk"><input type="checkbox" id="tg-coment" checked onchange="tgSave();genTg()"> Incluir comentarios de seguimiento</div>
         <label>🚚 Avisar llegadas que vencen en N días o menos</label>
@@ -2362,7 +2384,7 @@ function tgV(id){return document.getElementById(id)?.value||'';}
 function tgC(id){return !!document.getElementById(id)?.checked;}
 function tgHandles(){const h={};document.querySelectorAll('#tg-handles input').forEach(i=>{if(i.value.trim())h[i.dataset.c]=i.value.trim();});return h;}
 function tgSave(){
-  const cfg={hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
+  const cfg={hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),res:tgC('tg-res'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
   document.querySelectorAll('#tg-handles input').forEach(i=>{if(!i.value.trim())delete cfg.handles[i.dataset.c];});
   try{localStorage.setItem(TG_KEY,JSON.stringify(cfg));}catch(e){}
 }
@@ -2398,21 +2420,14 @@ async function openTg(){
   if(cfg.dias)document.getElementById('tg-dias').value=cfg.dias;
   if('media' in cfg)document.getElementById('tg-media').checked=cfg.media;
   if('lenta' in cfg)document.getElementById('tg-lenta').checked=cfg.lenta;
+  if('res' in cfg)document.getElementById('tg-res').checked=cfg.res;
   if('negritas' in cfg)document.getElementById('tg-negritas').checked=cfg.negritas;
   if('coment' in cfg)document.getElementById('tg-coment').checked=cfg.coment;
   if(cfg.aviso!=null&&cfg.aviso!=='')document.getElementById('tg-aviso').value=cfg.aviso;
   document.getElementById('tg-ov').classList.add('on');
   document.getElementById('tg-msg').textContent='';
-  document.getElementById('tg-txt').value='Cargando fechas…';
-  try{
-    TG.fechas=[];await tgFechas();
-    if(TG.fechas.length<2)throw new Error('La base necesita al menos 2 días cargados.');
-    const opts=[...TG.fechas].reverse().map(f=>`<option value="${f}">${tgDMY(f)}</option>`).join('');
-    const sa=document.getElementById('tg-a'),sbb=document.getElementById('tg-b');
-    sa.innerHTML=opts;sbb.innerHTML=opts;
-    sbb.value=TG.fechas[TG.fechas.length-1];sa.value=TG.fechas[TG.fechas.length-2];
-    await tgCargar();
-  }catch(e){document.getElementById('tg-txt').value='❌ No se pudo leer la base: '+e.message;}
+  document.getElementById('tg-txt').value='Leyendo el cálculo del portal…';
+  await tgCargar();
 }
 function closeTg(){document.getElementById('tg-ov').classList.remove('on');}
 
@@ -2479,21 +2494,57 @@ async function tgDatos(fA,fB){
     riesgoB};
 }
 
-async function tgCargar(){
-  const fA=tgV('tg-a'),fB=tgV('tg-b'),st=document.getElementById('tg-st'),ta=document.getElementById('tg-txt');
-  if(!fA||!fB)return;
-  if(fA>=fB){ta.value='⚠️ El Día A debe ser anterior al Día B.';return;}
-  ta.value='Leyendo detalle del '+tgDMY(fA)+' y '+tgDMY(fB)+'…';st.textContent='⏳ leyendo base…';
+// ── Cálculo publicado del Portal V2 (Planeación e indicadores): una sola descarga y se reutiliza mientras no cambie ──
+let EST_PORTAL=null;
+async function estadoPortal(forzar){
+  const{data:pub,error}=await sb.from('plan_publicacion').select('fecha,ruta,version').eq('id','estado').maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!pub)throw new Error('Todavía no hay un cálculo diario publicado (Admin → Cálculo diario → 6).');
+  if(!forzar&&EST_PORTAL&&EST_PORTAL.version===pub.version)return EST_PORTAL;
+  const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw new Error(e2.message);
+  const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
+  EST_PORTAL={...JSON.parse(txt),version:pub.version};return EST_PORTAL;
+}
+const tgFila=r=>({clave:String(r.c),nombre:r.n,marca:r.m,comprador:r.comp,rotacion:r.rot,estatus:r.est,_bo:Math.round(+r.bo||0)});
+const tgRacha=(r,f)=>{const n=P.diasRacha(r.eD,f);return n==null?'':(r.eDx?n+'+':n);};
+// Faltantes, riesgo, nuevos y resueltos según el portal (estatus del día y del día anterior que guarda el Cálculo diario)
+async function tgDatosPortal(forzar){
+  const E=await estadoPortal(forzar),fB=E.fecha,fA=E.fecha_ant||null;
+  const exc=r=>!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase());
+  const vivas=(E.claves||[]).filter(exc);
+  const sinPrev=!vivas.some(r=>'pE' in r);
+  const falt=vivas.filter(r=>r.est==='FALTANTE');
+  const dias={},inicio={};falt.forEach(r=>{const cl=String(r.c);dias[cl]=tgRacha(r,fB);inicio[cl]=r.eDx?null:(r.eD||null);});
+  return{fA,fB,sinPrev,dias,inicio,
+    faltB:falt.map(tgFila),
+    nuevas:sinPrev?[]:falt.filter(r=>r.pE!=='FALTANTE').map(tgFila),
+    // Resueltas: ayer en faltante y hoy con existencia. _dd = días que estuvo en faltante; estatus = cómo quedó hoy
+    resInv:vivas.filter(r=>r.pE==='FALTANTE'&&r.est!=='FALTANTE').map(r=>{const n=P.diasRacha(r.pD,fA||fB);return{...tgFila(r),_dd:n==null?'':(r.pDx?n+'+':n)};}),
+    resDesc:(E.sal||[]).filter(exc).map(tgFila),
+    riesgoB:vivas.filter(r=>r.est==='RIESGO').map(r=>({...tgFila(r),_nueva:!sinPrev&&r.pE!=='RIESGO'&&r.pE!=='FALTANTE',_dias:tgRacha(r,fB)})),
+    nA:vivas.filter(r=>r.pE==='FALTANTE').length,nB:falt.length,
+    comps:[...new Set(vivas.map(r=>String(r.comp||'').trim().toUpperCase()))].filter(Boolean)};
+}
+// Total de faltantes por día según el portal (historial del Cálculo diario), para la tendencia del mensaje
+async function tgTotalesPortal(fB){
+  const d=new Date(fB+'T12:00:00');d.setDate(d.getDate()-21);
+  const{data,error}=await sb.from('plan_estatus_hist').select('fecha,comprador,claves').eq('base','PORTAL').eq('estatus','FALTANTE').gte('fecha',d.toISOString().slice(0,10)).order('fecha').limit(1000);
+  if(error)return{};const t={};(data||[]).forEach(x=>{if(TG_EXCL.includes(String(x.comprador||'').toUpperCase()))return;const f=String(x.fecha).slice(0,10);t[f]=(t[f]||0)+(+x.claves||0);});return t;
+}
+async function tgCargar(forzar){
+  const st=document.getElementById('tg-st'),ta=document.getElementById('tg-txt');
+  st.textContent='⏳ leyendo cálculo del portal…';
   try{
-    const D=await tgDatos(fA,fB);
-    const S=await segLeer(D.faltB.map(r=>String(r.clave).trim()),D.inicio);
-    TG={...TG,...D,seg:S.actual,segErr:S.err};
+    const D=await tgDatosPortal(forzar);
+    const [S,tot]=await Promise.all([segLeer(D.faltB.map(r=>String(r.clave).trim()),D.inicio),tgTotalesPortal(D.fB)]);
+    if(tot[D.fB]==null)tot[D.fB]=D.nB;
+    TG={...TG,...D,fA:D.fA||D.fB,seg:S.actual,segErr:S.err,totalByDay:tot,fechas:Object.keys(tot).sort()};
     const cfgH=tgLoad().handles||{};
     const comps=[...new Set([...D.comps,...Object.keys(cfgH)])].filter(Boolean).sort();
     document.getElementById('tg-handles').innerHTML=comps.map(c=>`<div><span title="${c}">${tgCorto2(c)}</span><input type="text" data-c="${c}" value="${String(cfgH[c]||'').replace(/"/g,'&quot;')}" placeholder="@usuario" oninput="tgSave();genTg()"></div>`).join('');
-    st.textContent=`Faltantes leídos: ${tgDMY(fA).slice(0,5)} = ${D.nA} · ${tgDMY(fB).slice(0,5)} = ${D.nB}`+(S.err?' · ⚠️ seguimiento: '+S.err:` · con fecha de llegada: ${Object.keys(S.actual).length}`);
+    st.textContent=`Portal al ${tgDMY(D.fB)}`+(D.fA?` vs ${tgDMY(D.fA)}`:'')+` · faltantes ${D.nB} · riesgo ${D.riesgoB.length}`+(D.sinPrev?' · ⚠️ falta un Cálculo diario más para saber cuáles son nuevos':'')+(S.err?' · ⚠️ seguimiento: '+S.err:` · con fecha de llegada: ${Object.keys(S.actual).length}`);
     genTg();
-  }catch(e){st.textContent='';ta.value='❌ Error leyendo la base: '+e.message+'\n\nSi dice algo de permisos o sesión, sal y vuelve a entrar como Admin.';}
+  }catch(e){st.textContent='';ta.value='❌ No se pudo leer el cálculo del portal: '+e.message+'\n\nSi dice algo de permisos o sesión, sal y vuelve a entrar como Admin.';}
 }
 
 function tgTotal(f){if(TG.totalByDay&&TG.totalByDay[f]!=null)return TG.totalByDay[f];return (TG.countByDay&&TG.countByDay[f])||0;}
@@ -2585,10 +2636,17 @@ function genTg2(){
     if(viejas.length>top.length)L.push(`   …y ${viejas.length-top.length} más (ver portal)`);
   }
 
-  // Resueltos con reconocimiento
+  // Resueltos con reconocimiento (y el listado de claves que ya llegaron)
   if(nRes){
     const m={};resInv.forEach(r=>{const c=tgComp(r);m[c]=(m[c]||0)+1;});
     L.push('');L.push(`✅ ${B('Resueltos:')} ${Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`${tgCorto2(c)} (${n})`).join(', ')}. ¡Gracias!`);
+    if(tgC('tg-res')){
+      const lr=r=>`${r.clave} ${tgCorto(r.nombre,34)}${r._dd&&parseInt(r._dd)>1?` (${r._dd}d en faltante)`:''}${r.estatus==='RIESGO'?' · ⚠️ sigue en riesgo':''}`;
+      L.push(`📦 ${B('Ya llegaron:')}`);
+      grp(resInv).forEach(([c,rs])=>{rs.sort((a,b)=>tgRank(a.rotacion)-tgRank(b.rotacion)||(parseInt(b._dd)||0)-(parseInt(a._dd)||0));
+        if(rs.length===1)L.push(`• ${tgWho(c,h)} – ${lr(rs[0])}`);
+        else{L.push(`• ${tgWho(c,h)} (${rs.length}):`);rs.forEach(r=>L.push(`   – ${lr(r)}`));}});
+    }
   }
   if(resDesc.length){
     L.push('');L.push(`🔄 Salieron de faltante por reclasificación/descontinuación: ${resDesc.length} clave${resDesc.length>1?'s':''}`);
@@ -2782,19 +2840,16 @@ async function segDatos(fB){
 async function openSeg(){
   document.getElementById('sg-ov').classList.add('on');
   const st=document.getElementById('sg-st'),body=document.getElementById('sg-body');
-  body.innerHTML='<tr><td colspan="9" style="padding:30px;text-align:center;color:#6b7a99">⏳ Leyendo faltantes del último día cargado…</td></tr>';
+  body.innerHTML='<tr><td colspan="9" style="padding:30px;text-align:center;color:#6b7a99">⏳ Leyendo faltantes del cálculo del portal…</td></tr>';
   try{
-    TG.fechas=[];await tgFechas();
-    if(TG.fechas.length<2)throw new Error('La base necesita al menos 2 días cargados.');
-    const fB=TG.fechas[TG.fechas.length-1];
-    const D=await segDatos(fB);
+    const D=await tgDatosPortal(),fB=D.fB;
     const cls=D.faltB.map(r=>String(r.clave).trim());
     const [S,O]=await Promise.all([segLeer(cls,D.inicio),segOCs(cls)]);
     SEG={...SEG,rows:D.faltB,dias:D.dias,inicio:D.inicio,seg:S.actual,hist:S.hist,fB,err:S.err,ocs:O.ocs,comp:O.comp};
     const sc=document.getElementById('sg-comp'),prev=sc.value;
     sc.innerHTML='<option value="">Todos</option>'+[...new Set(D.faltB.map(tgComp))].sort().map(c=>`<option value="${c}">${c}</option>`).join('');
     sc.value=prev;
-    st.textContent=`Faltantes al ${tgDMY(fB)}: ${D.faltB.length} claves`;
+    st.textContent=`Faltantes según el portal al ${tgDMY(fB)}: ${D.faltB.length} claves`;
     if(S.err){st.innerHTML+=` · <b style="color:#b42318">⚠️ ${S.err}</b>`;}
     renderSeg();
   }catch(e){body.innerHTML=`<tr><td colspan="9" style="padding:30px;text-align:center;color:#b42318">❌ ${e.message}</td></tr>`;}

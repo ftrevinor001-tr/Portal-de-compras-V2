@@ -297,11 +297,18 @@ async function cargaCalc(log){
   const prevEst=await leerEstadoPublicado(pub,log);
   let res=null,totN=0,totC=0;const nuevasDia=[];
   // Estatus del día anterior por clave (para el margen de riesgo entre 1.2 y 1.4)
-  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,{est:r.est,eA:r.eA,eP:r.eP}]):[]);
+  // Racha del estatus (desde cuándo está en faltante o riesgo) y estatus del día anterior, para Telegram y Seguimiento.
+  // Si se recalcula el mismo día ya publicado, se usa lo que ese cálculo tenía como "día anterior".
+  const mismoDia=prevEst&&prevEst.fecha===pendientes[0];
+  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,mismoDia&&'pE' in r?{est:r.pE,eA:r.eA,eP:r.eP,eD:r.pD,eDx:!!r.pDx}:{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]):[]);
+  ctx.prevFecha=mismoDia?(prevEst.fecha_ant||null):(prevEst?prevEst.fecha:null);
+  let antMap=mismoDia?(prevEst.antMap||null):(prevEst?prevEst.map:null),antFecha=ctx.prevFecha,salAnt=mismoDia?(prevEst.sal||null):null;
+  if(prevEst&&![...prevEst.map.values()].some(r=>'eD' in r))await rachasIniciales(ctx,prevEst,log);
   for(const f of pendientes){
     await pausa();
     res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
-    if(!soloPublicar||pendientes.length>1)ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP}]));
+    if(f!==pendientes[pendientes.length-1]){antMap=new Map(res.map(r=>[Number(r.c),r]));antFecha=f;}
+    if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;}
     await guardarHistEstatus(res,f,log);
     if(soloPublicar)break;
     if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
@@ -322,7 +329,10 @@ async function cargaCalc(log){
   // 3. publicar
   log.msg('🗜️ Publicando el cálculo del '+fUlt+'…');
   const cuenta=(arr,k)=>arr.reduce((o,r)=>{o[r[k]]=(o[r[k]]||0)+1;return o;},{});
-  const payload={fecha:fUlt,generado:new Date().toISOString(),reglas:P.R,ventas_hasta:ctx.ultimo,ventas_desde:ctx.primero,claves:res,ocs:ocx?ocx.abiertas:{}};
+  // Claves que el día anterior estaban en faltante y hoy ya no vienen en el Excel (reclasificación o descontinuación)
+  const hoyC=new Set(res.map(r=>Number(r.c)));
+  const sal=salAnt||(antMap?[...antMap.values()].filter(r=>r.est==='FALTANTE'&&!hoyC.has(Number(r.c))).map(r=>({c:r.c,n:r.n,comp:r.comp,rot:r.rot})):[]);
+  const payload={fecha:fUlt,fecha_ant:antFecha||null,sal,generado:new Date().toISOString(),reglas:P.R,ventas_hasta:ctx.ultimo,ventas_desde:ctx.primero,claves:res,ocs:ocx?ocx.abiertas:{}};
   const js=JSON.stringify(payload);let body=new Blob([js],{type:'application/json'}),ruta='plan/estado.json';
   if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
   const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
@@ -343,8 +353,26 @@ async function leerEstadoPublicado(pub,log){
     if(!p2||!p2.ruta)return null;
     const{data:blob,error}=await sb.storage.from('respaldos').download(p2.ruta);if(error)throw error;
     const txt=p2.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);return{fecha:js.fecha,map:new Map((js.claves||[]).map(r=>[Number(r.c),r]))};
+    const js=JSON.parse(txt);return{fecha:js.fecha,fecha_ant:js.fecha_ant||null,sal:js.sal||null,map:new Map((js.claves||[]).map(r=>[Number(r.c),r]))};
   }catch(e){log.msg('⚠️ No se pudo leer el cálculo anterior ('+(e.message||e)+'): las OCs nuevas de hoy quedan sin sugerencia para comparar.','w');return null;}
+}
+// Una sola vez (el primer cálculo con esta versión): de qué fecha viene la racha de cada clave en faltante o riesgo.
+// Faltante: días seguidos con existencia 0 (plan_agotados_dia). Riesgo: alarma abierta (plan_alarmas).
+async function rachasIniciales(ctx,prevEst,log){
+  const f0=prevEst.fecha,falt=[],rsg=[];
+  prevEst.map.forEach((r,k)=>{if(r.est==='FALTANTE')falt.push(k);else if(r.est==='RIESGO')rsg.push(k);});
+  log.msg('⏳ Primera vez: calculando desde cuándo están en faltante ('+fmt(falt.length)+') o riesgo ('+fmt(rsg.length)+')…');
+  try{
+    const d0=new Date(f0+'T12:00:00');d0.setDate(d0.getDate()-120);const desde=d0.toISOString().slice(0,10);
+    const dias=(await todo(()=>sb.from('dias_cargados').select('fecha').gte('fecha',desde).lte('fecha',f0).order('fecha'))).map(x=>String(x.fecha).slice(0,10));
+    const ag=new Set();
+    for(let i=0;i<falt.length;i+=150){(await todo(()=>sb.from('plan_agotados_dia').select('clave,fecha').eq('empresa','SANVER').in('clave',falt.slice(i,i+150)).gte('fecha',desde).lte('fecha',f0).order('clave').order('fecha'))).forEach(x=>ag.add(Number(x.clave)+'|'+String(x.fecha).slice(0,10)));}
+    falt.forEach(k=>{let i=dias.length-1;if(i<0||dias[i]!==f0){return;}while(i>0&&ag.has(k+'|'+dias[i-1]))i--;const pv=ctx.prevEst.get(k);if(pv){pv.eD=dias[i];pv.eDx=i===0;}});
+    const al=new Map();
+    for(let i=0;i<rsg.length;i+=150){(await todo(()=>sb.from('plan_alarmas').select('clave,fecha_alarma').in('clave',rsg.slice(i,i+150)).is('fecha_fin',null).order('clave').order('fecha_alarma'))).forEach(x=>{const k=Number(x.clave),f=String(x.fecha_alarma).slice(0,10);if(!al.has(k)||f<al.get(k))al.set(k,f);});}
+    rsg.forEach(k=>{const pv=ctx.prevEst.get(k);if(pv&&al.has(k)){pv.eD=al.get(k);pv.eDx=false;}});
+    log.msg('   listo: '+fmt(falt.filter(k=>ctx.prevEst.get(k)&&ctx.prevEst.get(k).eD).length)+' faltantes y '+fmt(al.size)+' en riesgo con fecha de inicio.');
+  }catch(e){log.msg('⚠️ No se pudo calcular la racha inicial ('+(e.message||e)+'): se cuenta desde el cálculo anterior.','w');}
 }
 async function guardarHistEstatus(res,f,log){
   const{error}=await sb.from('plan_estatus_hist').delete().eq('fecha',f);

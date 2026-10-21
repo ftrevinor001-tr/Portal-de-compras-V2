@@ -299,6 +299,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const D=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
     const pv=ctx.prevEst&&ctx.prevEst.get(k)||{};
     const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est);
+    const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.round(d.bo*fr*10000)/10000;
     const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+bo)));
@@ -316,11 +317,20 @@ P.calcularDia=(fecha,filas,ctx)=>{
       A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nA:ap.nA,nP:ap.nP,nt:notas.join(' · ')});
+      mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
   });
   return out;
 };
 const EN_RIESGO=['RIESGO','FALTANTE'];
+// Racha del estatus del portal: desde qué fecha la clave está en su estatus actual.
+// pv = estatus del día anterior {est,eD,eDx}. eDx = la racha empezó antes de lo que el portal tiene registrado ("o más").
+P.racha=(pv,est,fecha,prevFecha)=>{
+  if(!pv||pv.est==null)return{eD:fecha,eDx:true};
+  if(pv.est!==est)return{eD:fecha,eDx:false};
+  return pv.eD?{eD:pv.eD,eDx:!!pv.eDx}:{eD:prevFecha||fecha,eDx:true};
+};
+// Días de la racha contados al día de corte (calendario, incluye ambos días)
+P.diasRacha=(eD,fecha)=>eD&&fecha?Math.round((new Date(fecha+'T12:00:00')-new Date(eD+'T12:00:00'))/864e5)+1:null;
 // ── Explicación mes a mes de una clave (tablero): qué meses entraron al antecedente y al pronóstico y por qué se descartaron otros.
 // Usa exactamente las mismas reglas que P.antPron (hay prueba que lo verifica).
 P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
