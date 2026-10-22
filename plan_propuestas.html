@@ -132,7 +132,7 @@ tr.lin-q td{background:#fbfcff}
     </div>
     <div class="err" id="pin-err"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="sec" onclick="pinCerrar()">Cancelar</button><button id="pin-btn" onclick="pinOk()">Autorizar</button></div>
-    <p class="d" style="margin-top:8px">El nombre y el PIN son los mismos del portal de comparativos. Se cambian allá, en Administración → Cambiar mi PIN.</p>
+    <p class="d" style="margin-top:8px">El nombre y el PIN son los mismos de la pestaña Comparativos. Se cambian allá, con el botón «Mi PIN».</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -361,7 +361,7 @@ async function pinAbrir(accion){
   if(!us.length){toast('❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
   PINACC=accion;const aut=accion==='AUTORIZAR';
   $('pin-tit').textContent=(aut?'Autorizar ':'Regresar ')+'folio '+S.actual.folio;
-  $('pin-sub').textContent=aut?'Al autorizar, las cantidades pasan al portal de comparativos como un comparativo en borrador para '+S.actual.comprador+'.':'El folio regresa al comprador con tu comentario.';
+  $('pin-sub').textContent=aut?'Al autorizar, las cantidades pasan a la pestaña Comparativos como un comparativo en borrador para '+S.actual.comprador+'.':'El folio regresa al comprador con tu comentario.';
   $('pin-u').innerHTML='<option value="">— ¿Quién '+(aut?'autoriza':'regresa')+'? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
   $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder=aut?'Comentario (opcional)':'¿Por qué se regresa? (obligatorio)';
   $('pin-btn').textContent=aut?'Autorizar':'Regresar';$('pin-btn').className=aut?'ok':'bad';$('pin-err').style.display='none';
@@ -415,7 +415,10 @@ async function enviarComparativos(auto){
 async function pintarCmp(){
   const f=S.actual,el=$('f-cmp');if(!el)return;
   if(!f||!f.cmp_id){el.innerHTML='';return;}
-  const liga='<a class="lk" href="'+CMP_PORTAL+'?cmp='+f.cmp_id+'" target="_blank" rel="noopener">'+esc(f.cmp_folio||('#'+f.cmp_id))+' ↗</a>';
+  // Dentro del Portal V2 se abre en la pestaña Comparativos; fuera, en el portal de comparativos
+  const enV2=(()=>{try{return window.self!==window.top&&typeof window.parent.abrirComparativo==='function';}catch(e){return false;}})();
+  const liga=enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(f.cmp_id)+')">'+esc(f.cmp_folio||('#'+f.cmp_id))+' → pestaña Comparativos</a>'
+    :'<a class="lk" href="'+CMP_PORTAL+'?cmp='+f.cmp_id+'" target="_blank" rel="noopener">'+esc(f.cmp_folio||('#'+f.cmp_id))+' ↗</a>';
   el.innerHTML='<b>Comparativo:</b> '+liga+' · enviado '+fFH(f.cmp_enviado_en);
   try{const{data}=await sbc().from('cmp_comparativos').select('folio,estatus,aprobado_por,aprobado_en').eq('id',f.cmp_id).maybeSingle();
     if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en);}catch(e){}
