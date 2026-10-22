@@ -183,7 +183,7 @@ P.detalle=wb=>{
   const req=['FECHA','CLAVE','EXISTENCIAS','COMPRADOR','CLASIFICACION POR MOVIMIENTO','TIEMPO DE ENTREGA','OBJETIVO_MESES DE INVENTARIO','BACK ORDER'];
   const h=P.header(aoa,req);if(!h)throw new Error('La hoja Detalle no trae las columnas esperadas: '+req.join(', '));
   const c=n=>h.cols.indexOf(n);
-  const iN=c('NOMBRE'),iU=c('UNIDAD'),iG=c('GRUPO'),iE=c('CLASIFICACION_ESTATUS DE INVENTARIO'),iM=c('MARCA');
+  const iN=c('NOMBRE'),iU=c('UNIDAD'),iG=c('GRUPO'),iE=c('CLASIFICACION_ESTATUS DE INVENTARIO'),iM=c('MARCA'),iC=c('CLASIFICACION');
   const porFecha=new Map();
   for(let i=h.fila+1;i<aoa.length;i++){
     const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);const f=P.fecha(r[h.idx.FECHA]);if(k==null||!f)continue;
@@ -191,7 +191,7 @@ P.detalle=wb=>{
     porFecha.get(f).set(k,{clave:k,nombre:iN>=0?String(r[iN]).trim():'',unidad:iU>=0?P.norm(r[iU]):'',grupo:iG>=0?String(r[iG]).trim():'',marca:iM>=0&&r[iM]!=null?String(r[iM]).trim():'',
       comprador:P.norm(r[h.idx.COMPRADOR]),rot:P.norm(r[h.idx['CLASIFICACION POR MOVIMIENTO']]),
       lt:P.num(r[h.idx['TIEMPO DE ENTREGA']]),pm:P.num(r[h.idx['OBJETIVO_MESES DE INVENTARIO']]),
-      ex:P.num(r[h.idx.EXISTENCIAS])||0,bo:P.num(r[h.idx['BACK ORDER']])||0,estX:iE>=0?P.norm(r[iE]):''});
+      ex:P.num(r[h.idx.EXISTENCIAS])||0,bo:P.num(r[h.idx['BACK ORDER']])||0,estX:iE>=0?P.norm(r[iE]):'',abc:iC>=0&&r[iC]!=null?String(r[iC]).trim():''});
   }
   return porFecha;
 };
@@ -317,7 +317,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr);
-    out.push({c:k,n:d.nombre,m:d.marca||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
+    out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
@@ -326,6 +326,17 @@ P.calcularDia=(fecha,filas,ctx)=>{
   return out;
 };
 const EN_RIESGO=['RIESGO','FALTANTE'];
+// Foto diaria del cálculo del portal (se guarda un archivo por día): lo necesario para el histórico por clave.
+// Meses de inventario con antecedente (mA), pronóstico (mP) y demanda del portal (mi); estatus con cada base.
+P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE'];
+P.foto=res=>res.map(r=>{const o={};P.FOTO_CAMPOS.forEach(k=>{if(r[k]!=null&&r[k]!=='')o[k]=r[k];});const q=x=>x>0?Math.round(r.ex/x*100)/100:null;o.mA=q(r.A);o.mP=q(r.P);return o;});
+// Rotación con acentos (como la escribe el Excel) para las vistas que agrupan por rotación
+P.ROT_X={'SAGRADOS':'SAGRADOS','ALTA ROTACION':'ALTA ROTACIÓN','MEDIA ROTACION':'MEDIA ROTACIÓN','LENTA ROTACION':'LENTA ROTACIÓN','NUEVOS':'NUEVOS','SIN COMPRA':'SIN COMPRA'};
+// Fila de la foto en el formato de la hoja Detalle (para reutilizar los tableros que leían el Excel):
+// estatus y meses de inventario = los del portal; existencia, BO y parámetros = los del Excel de ese día.
+P.fotoADetalle=(r,f)=>({'Fecha':f,'Clave':String(r.c),'Nombre':r.n||'','Marca':r.m||'','Unidad':r.u||'','Clasificación':r.abc||'','Existencias':r.ex||0,'GRUPO':r.g||'','COMPRADOR':r.comp||'',
+  'Clasificación por movimiento':P.ROT_X[r.rot]||r.rot||'','Tiempo de entrega':r.lt,'Objetivo_Meses de inventario':r.pm,'Meses de inventario':r.mi==null?'':r.mi,
+  'Clasificacion_estatus de inventario':r.est||'','Clasificacion_Punto de reorden':'','Back Order':r.boT!=null?r.boT:(r.bo||0)});
 // Racha del estatus del portal: desde qué fecha la clave está en su estatus actual.
 // pv = estatus del día anterior {est,eD,eDx}. eDx = la racha empezó antes de lo que el portal tiene registrado ("o más").
 P.racha=(pv,est,fecha,prevFecha)=>{

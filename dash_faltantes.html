@@ -13,6 +13,7 @@ window.idbPut=function(key,val){return new Promise((res,rej)=>{const r=indexedDB
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js" charset="utf-8"></script>
+<script src="plan_fotos.js" charset="utf-8"></script>
 <script src="plan_ficha.js" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -364,18 +365,18 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
   <div id="panel-consulta" class="panel">
     <div class="card">
       <h2>Consulta de clave</h2>
-      <p>Estatus de cada clave en el día elegido (Excel) junto al cálculo del portal: antecedente, pronóstico y propuesta. <b>Clic en una clave</b> para ver su historia: días en faltante o riesgo, ventas mes a mes, OCs y alarmas.</p>
+      <p>Cálculo del portal de cada clave en el día elegido: meses de inventario y estatus con antecedente, con pronóstico y del portal, y la propuesta. <b>Clic en una clave</b> para ver su historia: días en faltante o riesgo, ventas mes a mes, OCs y alarmas.</p>
       <div class="ctl">
         <div id="cq-fecha" data-t="Día"></div>
         <input type="search" id="cq-q" placeholder="Clave, varias claves (101, 205 330) o nombre…" title="Para ver varias claves escríbelas o pégalas separadas por espacio, coma o renglón" oninput="CQ.lim=200;pintarConsulta()" style="min-width:290px">
         <div id="cq-comp" data-t="Comprador"></div>
-        <div id="cq-est" data-t="Estatus"></div>
         <div id="cq-estp" data-t="Estatus portal"></div>
+        <div id="cq-esta" data-t="Estatus antecedente"></div>
+        <div id="cq-estpr" data-t="Estatus pronóstico"></div>
         <div id="cq-rot" data-t="Rotación"></div>
         <div id="cq-marca" data-t="Marca"></div>
         <div id="cq-grupo" data-t="Grupo"></div>
         <div id="cq-abc" data-t="ABC"></div>
-        <div id="cq-reord" data-t="Pto. reorden"></div>
         <div id="cq-temp" data-t="Temporada"></div>
         <select id="cq-umb" title="Qué tanto debe variar el pronóstico contra el antecedente para marcar temporada" onchange="P.R.TEMP_VAR=+this.value;CQ.lim=200;pintarConsulta()"><option value="0.3">Temporada: ±30%</option><option value="0.5" selected>Temporada: ±50%</option><option value="1">Temporada: ±100%</option></select>
         <div id="cq-sem" data-t="Semáforo"></div>
@@ -387,22 +388,22 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <div class="semleg" id="cq-semleg"></div>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:11.5px;color:#6b7a99;margin-bottom:6px"><span id="cq-count"></span><span id="cq-plan"></span></div>
       <div class="cqw" id="cq-tw"><table class="cqt"><thead id="cq-head">
-        <tr class="g"><th colspan="13"></th><th colspan="3" class="ga">📊 Antecedente</th><th colspan="3" class="gp">🔮 Pronóstico</th><th colspan="3" class="gd">🧭 Portal</th><th colspan="2" class="gr">🛒 Propuesta</th><th></th></tr>
+        <tr class="g"><th colspan="10"></th><th colspan="3" class="ga">📊 Antecedente</th><th colspan="3" class="gp">🔮 Pronóstico</th><th colspan="4" class="gd">🧭 Portal</th><th colspan="2" class="gr">🛒 Propuesta</th><th></th></tr>
         <tr><th data-k="sem" onclick="srtCQ('sem')">Sem.<span class="si"></span></th><th data-k="clave" onclick="srtCQ('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCQ('nombre')">Nombre<span class="si"></span></th><th data-k="marca" onclick="srtCQ('marca')">Marca<span class="si"></span></th><th data-k="comp" onclick="srtCQ('comp')">Comprador<span class="si"></span></th><th>Rotación</th>
-          <th data-k="exist" onclick="srtCQ('exist')" class="num">Exist.<span class="si"></span></th><th data-k="bo" onclick="srtCQ('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCQ('mi')" class="num" title="Meses de inventario sin contar el BO (con esto se calcula el estatus)">Meses inv.<span class="si"></span></th><th data-k="mib" onclick="srtCQ('mib')" class="num" title="Meses de inventario contando el BO (referencia)">Meses c/BO<span class="si"></span></th><th class="num">Obj.</th><th class="num">T. entr.</th><th data-k="est" onclick="srtCQ('est')" title="Estatus del Excel calculado con la regla elegida arriba">Estatus<span class="si"></span></th>
+          <th data-k="exist" onclick="srtCQ('exist')" class="num">Exist.<span class="si"></span></th><th data-k="bo" onclick="srtCQ('bo')" class="num">BO<span class="si"></span></th><th class="num">Obj.</th><th class="num">T. entr.</th>
           <th data-k="ant" onclick="srtCQ('ant')" class="ga num">Consumo<span class="si"></span></th><th class="ga num">Meses</th><th class="ga">Estatus</th>
           <th data-k="pron" onclick="srtCQ('pron')" class="gp num">Consumo<span class="si"></span></th><th class="gp num">Meses</th><th class="gp">Estatus</th>
-          <th data-k="dem" onclick="srtCQ('dem')" class="gd num">Demanda<span class="si"></span></th><th class="gd num">Meses</th><th data-k="estp" onclick="srtCQ('estp')" class="gd">Estatus<span class="si"></span></th>
-          <th data-k="prop" onclick="srtCQ('prop')" class="gr num">Portal<span class="si"></span></th><th class="gr num">Empaque</th><th>Pto. reorden</th></tr>
+          <th data-k="dem" onclick="srtCQ('dem')" class="gd num">Demanda<span class="si"></span></th><th data-k="mi" onclick="srtCQ('mi')" class="gd num" title="Meses de inventario del portal sin contar el BO (con esto se calcula el estatus)">Meses<span class="si"></span></th><th data-k="mib" onclick="srtCQ('mib')" class="gd num" title="Meses de inventario del portal contando el BO (referencia)">c/BO<span class="si"></span></th><th data-k="estp" onclick="srtCQ('estp')" class="gd">Estatus<span class="si"></span></th>
+          <th data-k="prop" onclick="srtCQ('prop')" class="gr num">Portal<span class="si"></span></th><th class="gr num">Empaque</th></tr>
       </thead><tbody id="cq-body"></tbody></table></div>
-      <p style="margin-top:8px;font-size:11.5px">Semáforo (del Excel): pasa el cursor por cada color para ver su significado. Antecedente: N meses anteriores al mes en curso; pronóstico: los mismos N meses del año pasado; portal: promedio de ambos (sin meses agotados ni atípicos).</p>
+      <p style="margin-top:8px;font-size:11.5px">Todo sale del cálculo del portal de cada día (ya no se usan los meses de inventario ni el estatus del Excel). Semáforo: pasa el cursor por cada color para ver su significado. Antecedente: N meses anteriores al mes en curso; pronóstico: los mismos N meses del año pasado; portal: promedio de ambos (sin meses agotados ni atípicos).</p>
     </div>
   </div>
 
   <div id="panel-comp" class="panel">
     <div class="card">
       <h2>Comparativo diario</h2>
-      <p>Qué cambió entre dos días: claves que entraron o salieron de faltante y de riesgo. Por defecto compara el día anterior contra el último día cargado.</p>
+      <p>Qué cambió entre dos días según el estatus del portal: claves que entraron o salieron de faltante y de riesgo. Por defecto compara el día anterior contra el último día cargado.</p>
       <div class="ctl">
         <label style="font-size:12px;color:#6b7a99">Día A</label><select id="cm-a" onchange="pintarComparativo(true)"></select>
         <button class="tglb" onclick="swapCM()" title="Invertir">⇄</button>
@@ -418,7 +419,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
       <div class="cmcards" id="cm-cards"></div>
       <div style="font-size:12px;color:#475569;margin-bottom:6px" id="cm-sub"></div>
       <div class="cqw"><table class="cqt"><thead id="cm-head"><tr>
-        <th data-k="t" onclick="srtCM('t')">Cambio<span class="si"></span></th><th data-k="clave" onclick="srtCM('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCM('nombre')">Nombre<span class="si"></span></th><th>Marca</th><th data-k="comp" onclick="srtCM('comp')">Comprador<span class="si"></span></th><th>Rotación</th><th>Estatus A → B</th><th data-k="exb" onclick="srtCM('exb')" class="num">Existencia A → B<span class="si"></span></th><th data-k="bo" onclick="srtCM('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCM('mi')" class="num">Meses inv.<span class="si"></span></th><th class="num" title="Meses de inventario contando el BO">Meses c/BO</th><th class="num">T. entr.</th><th class="num">Obj.</th>
+        <th data-k="t" onclick="srtCM('t')">Cambio<span class="si"></span></th><th data-k="clave" onclick="srtCM('clave')">Clave<span class="si"></span></th><th data-k="nombre" onclick="srtCM('nombre')">Nombre<span class="si"></span></th><th>Marca</th><th data-k="comp" onclick="srtCM('comp')">Comprador<span class="si"></span></th><th>Rotación</th><th>Estatus A → B</th><th data-k="exb" onclick="srtCM('exb')" class="num">Existencia A → B<span class="si"></span></th><th data-k="bo" onclick="srtCM('bo')" class="num">BO<span class="si"></span></th><th data-k="mi" onclick="srtCM('mi')" class="num" title="Meses de inventario del portal (sin BO)">Meses portal<span class="si"></span></th><th class="num" title="Meses de inventario del portal contando el BO">c/BO</th><th class="num">T. entr.</th><th class="num">Obj.</th>
       </tr></thead><tbody id="cm-body"></tbody></table></div>
     </div>
   </div>
@@ -590,7 +591,8 @@ async function doFetch(msgEl){
   if(!session) throw new Error('Sin sesión activa. Entra al portal con tu contraseña desde la pantalla de ingreso.');
   if(msgEl){msgEl.textContent='📡 Consultando datos en el servidor...';}
   // Días que tienen detalle guardado en la base (para poder consultar cualquiera, no solo los del último Excel)
-  try{const{data:dd,error:ed}=await sb.from('dias_cargados').select('fecha').order('fecha',{ascending:true}).range(0,1999);if(!ed&&dd)window.DIAS_DB=dd.map(x=>String(x.fecha).slice(0,10));}catch(_){}
+  // Días calculados por el portal (foto diaria del Cálculo diario): son los que se pueden consultar
+  try{window.DIAS_DB=await FOTOS.fechas(sb);}catch(_){window.DIAS_DB=[];}
   let{data:meta,error:e1}=await sb.from('datasets').select('payload,actualizado_en').eq('clave','faltantes_v2').maybeSingle();
   let clave='faltantes_v2';
   if(!e1&&(!meta||!meta.payload)){clave='faltantes';({data:meta,error:e1}=await sb.from('datasets').select('payload,actualizado_en').eq('clave','faltantes').maybeSingle());}
@@ -1305,7 +1307,12 @@ function calcResMes(mSel){
   return{CDATA:CD,AREA:AR,cierre,cierrePrev,mSel,mPrev};
 }
 // Cálculo alterno usando las series diarias ya publicadas (sin necesidad de recargar el Excel)
+const BONO_EXCEL_HASTA='2026-11';
+function gG(){return G;}
+function bonoExcel(m){const b=G&&G.bonoX;return b&&m&&m<=BONO_EXCEL_HASTA?{...G,...b}:null;}
 function calcResMesDesdeSeries(mSel){
+  // Bono: hasta el cierre de BONO_EXCEL_HASTA se calcula con el estatus del Excel (acuerdo con Compras); después, con el portal
+  const X=bonoExcel(mSel),G=X||gG();
   const CLSL=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN'];
   const fechas=G.fechas||[];
   const fMes=fechas.filter(x=>x.startsWith(mSel));
@@ -1339,15 +1346,18 @@ function calcResMesDesdeSeries(mSel){
   const AR={};[...CLSL,'TOTAL'].forEach(cl=>{
     const bd=cl==='TOTAL'?G.totalByDay:(G.clasByDay||{})[cl];
     AR[cl]=st2(propor(null,cl),propor(null,cl),bd);});
-  return{CDATA:CD,AREA:AR,cierre,cierrePrev,mSel,mPrev,aprox:!hayDet};
+  return{CDATA:CD,AREA:AR,cierre,cierrePrev,mSel,mPrev,aprox:!hayDet,excel:!!X};
 }
 function mesLbl(m){if(!m)return '—';const MN2=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const p=m.split('-');return MN2[+p[1]]+' '+p[0];}
 function llenarMesesRes(){
   const sel=document.getElementById('r-mes');
   if(!sel)return;
-  const ms=(G&&G.meses&&G.meses.length)?G.meses
+  const ms0=(G&&G.meses&&G.meses.length)?G.meses
     :((G&&G.fechas)?[...new Set(G.fechas.map(f=>f.slice(0,7)))].sort():[]);
+  // los meses del bono que todavía se califican con el Excel también se listan
+  const bx=(G&&G.bonoX&&G.bonoX.fechas)?[...new Set(G.bonoX.fechas.map(f=>f.slice(0,7)))].filter(m=>m<=BONO_EXCEL_HASTA):[];
+  const ms=[...new Set([...ms0,...bx])].sort();
   if(!ms.length){sel.innerHTML='<option value="">—</option>';return;}
   sel.innerHTML=ms.slice().reverse().map(m=>`<option value="${m}">${mesLbl(m)}</option>`).join('');
   sel.value=(G&&G.mA)||ms[ms.length-1];
@@ -1602,7 +1612,7 @@ function renderRes(){
     if(thA)thA.textContent=calc.mPrev?'Cierre '+mesLbl(calc.mPrev):'Inicio';
     if(thH)thH.textContent=mesLbl(calc.mSel).split(' ')[0].toUpperCase();
     const sub=document.getElementById('res-sub');
-    if(sub)sub.textContent='Cierre '+(calc.mPrev?mesLbl(calc.mPrev):'inicio')+(calc.cierrePrev?' ('+calc.cierrePrev.split('-').reverse().join('/')+')':'')+' vs '+mesLbl(calc.mSel)+' · cierre al '+calc.cierre.split('-').reverse().join('/')+' · sin PRODUCCION'+(calc.aprox?' · Total SKU\'s aproximado (recarga el Excel en Admin para el histórico exacto)':'');
+    if(sub)sub.textContent='Cierre '+(calc.mPrev?mesLbl(calc.mPrev):'inicio')+(calc.cierrePrev?' ('+calc.cierrePrev.split('-').reverse().join('/')+')':'')+' vs '+mesLbl(calc.mSel)+' · cierre al '+calc.cierre.split('-').reverse().join('/')+' · sin PRODUCCION'+(calc.aprox?' · Total SKU\'s aproximado (recarga el Excel en Admin para el histórico exacto)':'')+(calc.excel?' · estatus del Excel (el bono se califica con el Excel hasta noviembre 2026)':' · estatus del portal');
   }
   const sC=document.getElementById('r-comp').value,sCl=document.getElementById('r-clas').value;
   const showObj=document.getElementById('r-obj').value==='si';
@@ -1845,31 +1855,23 @@ async function cargarPlan(){
 function estPlan(r,b){if(!r)return null;if(b==='D')return r.est;const X=b==='A'?r.A:r.P;if(X==null)return r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO';const v=b==='A'?r.eA:r.eP;if(v)return v;return P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
 const mesesPlan=(r,b)=>{if(!r)return null;const X=b==='A'?r.A:b==='P'?r.P:r.D;return X>0?r.ex/X:null;};
 
-// ── Detalle de un día: de la memoria (Excel manual) o de la base ──
+// ── Detalle de un día: foto del cálculo del portal de ese día (estatus y meses de inventario del portal) ──
 const DIA=new Map();
+const ROTX=r=>P.ROT_X[r]||r||'';
 async function diaDetalle(f){
   if(DIA.has(f))return DIA.get(f);
-  let rows;
-  if(G.detR&&G.detR.length){rows=G.detR.filter(r=>r.fecha===f);}
-  else{
-    const sb=sbc();let out=[];
-    for(let i=0;i<60;i++){
-      const{data,error}=await sb.from('detalle_diario').select('clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,meses_inv,estatus,reorden,back_order').eq('fecha',f).order('clave').range(i*1000,i*1000+999);
-      if(error)throw new Error('detalle_diario: '+error.message);out=out.concat(data||[]);if(!data||data.length<1000)break;
-    }
-    rows=out.map(r=>({fecha:f,clave:String(r.clave||'').trim(),nombre:r.nombre||'',marca:r.marca||'',unidad:r.unidad||'',clasificacion:String(r.clasificacion||'').trim(),existencias:+r.existencias||0,grupo:String(r.grupo||'').trim(),
-      comprador:String(r.comprador||'').trim().toUpperCase(),clmov:String(r.rotacion||'').trim().toUpperCase(),t_entrega:r.t_entrega==null?null:+r.t_entrega,obj_meses:r.obj_meses==null?null:+r.obj_meses,meses_inv:r.meses_inv==null?null:+r.meses_inv,
-      estatus:String(r.estatus||'').trim().toUpperCase(),reorden:String(r.reorden||'').trim(),bo:+r.back_order||0})).filter(r=>r.comprador&&!EXCL.includes(r.comprador));
-  }
-  rows.forEach(r=>{if(r.estatusExcel==null){r.estatusExcel=r.estatus;const c=((G.difEst||{})[f]||{})[String(r.clave)];r.estatusNuevo=c?(CODE[c]||c):r.estatus;}
-    r.mib=r.meses_inv!=null&&r.existencias>0?r.meses_inv*(r.existencias+(r.bo||0))/r.existencias:r.meses_inv;});
-  aplicarRegla(rows);
+  const cl=await FOTOS.dia(sbc(),f);
+  if(!cl)throw new Error('El portal no tiene calculado el '+fdl(f)+' (Admin → Cálculo diario → Reconstruir historial).');
+  const rows=cl.map(x=>({fecha:f,clave:String(x.c),nombre:x.n||'',marca:x.m||'',unidad:x.u||'',clasificacion:String(x.abc||'').trim(),existencias:+x.ex||0,grupo:String(x.g||'').trim(),
+      comprador:String(x.comp||'').trim().toUpperCase(),clmov:ROTX(x.rot),t_entrega:x.lt==null?null:+x.lt,obj_meses:x.pm==null?null:+x.pm,meses_inv:x.mi==null?null:+x.mi,mib:x.miB==null?null:+x.miB,
+      estatus:x.est||'',bo:x.boT!=null?+x.boT:+x.bo||0,_f:x})).filter(r=>r.comprador&&!EXCL.includes(r.comprador));
+  rows.forEach(r=>{r.semaforo=getSem(r);});
   DIA.set(f,rows);return rows;
 }
 // Regla de estatus: 'nueva' (riesgo entra con T.entrega×1.2 y sale con ×1.4) o 'excel' (la que trae el archivo)
 const CODE={F:'FALTANTE',R:'RIESGO',O:'OPTIMO',S:'SOBRE INVENTARIO',C:'SIN COMPRA'};
 let REGLA='nueva';
-function aplicarRegla(rows){rows.forEach(r=>{r.estatus=REGLA==='nueva'&&G.difEst?r.estatusNuevo:r.estatusExcel;r.semaforo=getSem(r);});}
+function aplicarRegla(rows){rows.forEach(r=>{r.semaforo=getSem(r);});}
 function cambiarRegla(v){REGLA=v;['cq-regla','cm-regla'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=v;});DIA.forEach(rows=>aplicarRegla(rows));
   if(document.getElementById('panel-consulta').classList.contains('on'))pintarConsulta(true);if(document.getElementById('panel-comp').classList.contains('on'))pintarComparativo(true);}
 function resumenRegla(comp){
@@ -1878,7 +1880,7 @@ function resumenRegla(comp){
   return '📏 <b>Regla nueva</b> (riesgo entra con T. entrega × '+R.entra+' y sale con × '+R.sale+'; sobre inventario con Objetivo × '+R.sobre+') al '+fdl(R.fecha)+(comp?' · '+escH2(comp):'')+': '
     +E.map(e=>ESTL[e]+' <b>'+nf(o.nueva[e]||0)+'</b> <span style="color:#94a3b8">(Excel '+nf(o.excel[e]||0)+')</span>').join(' · ');
 }
-const diasDetalle=()=>{const u=[...new Set([...(G.detF||[]),...(window.DIAS_DB||[])])].sort();return u.length?u:(G.fechas||[]).slice().sort();};
+const diasDetalle=()=>(window.DIAS_DB||[]).slice().sort();
 
 // ── RESUMEN: una sola gráfica de faltantes por día, apilada por rotación ──
 // Plugin: número de claves dentro de cada segmento, total arriba de la columna y ★ del color de la rotación
@@ -1964,9 +1966,9 @@ const ordEst=(a,b)=>((ORD_EST.indexOf(a.v)+1||99)-(ORD_EST.indexOf(b.v)+1||99))|
 
 const CQ={rows:[],lim:200,sort:{k:'sem',d:1},abierto:new Set()};
 const tempCQ=r=>r._p?P.temporada(r._p.A,r._p.P):{t:'SIN DATO',v:null};
-const CQF=[['cq-temp',r=>tempCQ(r).t],['cq-sem',r=>r.semaforo],['cq-est',r=>r.estatus],['cq-estp',r=>r._estP],['cq-rot',r=>r.clmov],['cq-comp',r=>r.comprador],['cq-marca',r=>r.marca],['cq-grupo',r=>r.grupo],['cq-abc',r=>r.clasificacion],['cq-reord',r=>r.reorden]];
-const CQL={'cq-temp':v=>P.TEMP_L[v]||v,'cq-sem':v=>SLBL[v]||v||'(sin dato)','cq-est':v=>ESTL[v]||v||'(sin dato)','cq-estp':v=>v?(ESTL[v]||v):'Sin cálculo del portal'};
-const CQO={'cq-temp':(a,b)=>['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(a.v)-['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(b.v),'cq-sem':(a,b)=>(SORD[a.v]??9)-(SORD[b.v]??9),'cq-est':ordEst,'cq-estp':ordEst,'cq-rot':ordRot};
+const CQF=[['cq-temp',r=>tempCQ(r).t],['cq-sem',r=>r.semaforo],['cq-estp',r=>r._estP],['cq-esta',r=>r._p?estPlan(r._p,'A'):''],['cq-estpr',r=>r._p?estPlan(r._p,'P'):''],['cq-rot',r=>r.clmov],['cq-comp',r=>r.comprador],['cq-marca',r=>r.marca],['cq-grupo',r=>r.grupo],['cq-abc',r=>r.clasificacion]];
+const CQL={'cq-temp':v=>P.TEMP_L[v]||v,'cq-sem':v=>SLBL[v]||v||'(sin dato)','cq-estp':v=>v?(ESTL[v]||v):'(sin dato)','cq-esta':v=>v?(ESTL[v]||v):'(sin dato)','cq-estpr':v=>v?(ESTL[v]||v):'(sin dato)'};
+const CQO={'cq-temp':(a,b)=>['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(a.v)-['SUBE','BAJA','ESTABLE','SIN DATO'].indexOf(b.v),'cq-sem':(a,b)=>(SORD[a.v]??9)-(SORD[b.v]??9),'cq-estp':ordEst,'cq-esta':ordEst,'cq-estpr':ordEst,'cq-rot':ordRot};
 async function initConsulta(){
   CQF.forEach(([id])=>msMount(id,()=>{CQ.lim=200;pintarConsulta();}));document.getElementById('cq-sem').style.display='none';
   msMount('cq-fecha',()=>{CQ.lim=200;pintarConsulta(true);});
@@ -1985,14 +1987,14 @@ async function pintarConsulta(recargar){
     let dias=[...mf.sel].sort();
     if(dias.length>31){dias=dias.slice(-31);mf.sel=new Set(dias);msBtn('cq-fecha');alert('Para que cargue rápido se consultan como máximo 31 días a la vez: se dejaron los 31 más recientes que elegiste.');}
     CQ.dias=dias;
-    body.innerHTML='<tr><td colspan="24" class="cq-load">⏳ Cargando el detalle '+(dias.length===1?'del '+fdl(dias[0]):'de '+dias.length+' días')+'…</td></tr>';
+    body.innerHTML='<tr><td colspan="21" class="cq-load">⏳ Cargando el detalle '+(dias.length===1?'del '+fdl(dias[0]):'de '+dias.length+' días')+'…</td></tr>';
     try{
       const [porDia,plan]=await Promise.all([Promise.all(dias.map(f=>diaDetalle(f))),cargarPlan()]);const rows=[].concat(...porDia);
-      rows.forEach(r=>{r._p=plan.byClave.get(String(r.clave))||null;r._estP=r._p?r._p.est:null;});
+      rows.forEach(r=>{r._p=r._f||null;r._estP=r.estatus||null;});
       CQ.rows=rows;
       if(!CQ.ini){CQ.ini=1;const up=usuarioPortal();if(up&&rows.some(r=>r.comprador===up))MSX['cq-comp'].sel.add(up);}
-      document.getElementById('cq-plan').innerHTML=plan.err?'⚠️ Sin cálculo del portal ('+escH2(plan.err)+'): no se muestran antecedente, pronóstico ni propuesta.':'Antecedente, pronóstico, estatus del portal y propuesta: cálculo del portal al <b>'+fdl(plan.fecha)+'</b>.';
-    }catch(e){body.innerHTML='<tr><td colspan="24" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
+      document.getElementById('cq-plan').innerHTML=plan.err?'⚠️ Sin cálculo del portal ('+escH2(plan.err)+'): no se muestran antecedente, pronóstico ni propuesta.':'Todo es del cálculo del portal de cada día (antecedente, pronóstico y portal); la ficha muestra el último cálculo, del <b>'+fdl(plan.fecha)+'</b>.';
+    }catch(e){body.innerHTML='<tr><td colspan="21" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
   const q=document.getElementById('cq-q').value.trim().toUpperCase();
   // Varias claves (separadas por espacio, coma, punto y coma o renglón): búsqueda exacta de cada una, de cualquier comprador
@@ -2019,15 +2021,15 @@ async function pintarConsulta(recargar){
   const yaFicha=new Set();
   rows.slice(0,CQ.lim).forEach(r=>{const p=r._p;const eA=estPlan(p,'A'),eP=estPlan(p,'P');const ch=p&&eA!==eP;
     h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b>'+(md?'<div class="sm2">'+fdl(r.fecha).slice(0,5)+'</div>':'')+'</td><td class="nm">'+escH2(r.nombre)+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
-     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num" title="Riesgo: entra con menos de '+nf((r.t_entrega||0)*1.2,1)+' y sale con '+nf((r.t_entrega||0)*1.4,1)+' meses · sobre inventario con más de '+nf((r.obj_meses||0)*1.4,1)+'">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="num sm2">'+(r.mib!=null?nf(r.mib,1):'—')+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td><td>'+estTag(r.estatus)+'</td>'
+     +'<td class="num">'+nf(r.existencias)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td>'
      +'<td class="ga num">'+(p?nf(p.A,p.A!=null&&p.A<10?1:0):'—')+'</td><td class="ga num">'+(p?nf(mesesPlan(p,'A'),1):'—')+'</td><td class="ga">'+(p?estTag(eA):'—')+'</td>'
      +'<td class="gp num">'+(p?nf(p.P,p.P!=null&&p.P<10?1:0):'—')+(()=>{const t=tempCQ(r);if(t.t!=='SUBE'&&t.t!=='BAJA')return'';return '<div class="sm2" style="color:'+(t.t==='SUBE'?'#c2410c':'#2563eb')+';font-weight:700" title="'+P.TEMP_L[t.t]+'">'+(t.t==='SUBE'?'↑ ':'↓ ')+(t.v==null?'nueva':(t.v>0?'+':'')+Math.round(t.v*100)+'%')+'</div>';})()+'</td><td class="gp num">'+(p?nf(mesesPlan(p,'P'),1):'—')+'</td><td class="gp">'+(p?estTag(eP)+(ch?' <span title="Cambia entre antecedente y pronóstico" style="color:#d97706;font-weight:800">⇄</span>':''):'—')+'</td>'
-     +'<td class="gd num">'+(p?'<b>'+nf(p.D,p.D!=null&&p.D<10?1:0)+'</b>':'—')+'</td><td class="gd num">'+(p?nf(p.mi,1):'—')+'</td><td class="gd">'+(p?estTag(p.est):'—')+'</td>'
-     +'<td class="gr num">'+(p?cp(p.s):'—')+'</td><td class="gr num">'+(p&&p.sE!=null?cp(p.sE):'—')+'</td><td class="sm2">'+escH2(r.reorden)+'</td></tr>';
-    if(CQ.abierto.has(String(r.clave))&&!yaFicha.has(String(r.clave))&&yaFicha.add(String(r.clave)))h+='<tr class="cqx"><td colspan="24"><div class="cqbox" id="cqx-'+escH2(r.clave)+'">⏳ Cargando la ficha de la clave…</div></td></tr>';
+     +'<td class="gd num">'+(p?'<b>'+nf(p.D,p.D!=null&&p.D<10?1:0)+'</b>':'—')+'</td><td class="gd num" title="Riesgo: entra con menos de '+nf((r.t_entrega||0)*1.2,1)+' y sale con '+nf((r.t_entrega||0)*1.4,1)+' meses · sobre inventario con más de '+nf((r.obj_meses||0)*1.4,1)+'">'+(r.meses_inv!=null?nf(r.meses_inv,1):'—')+'</td><td class="gd num sm2">'+(r.mib!=null?nf(r.mib,1):'—')+'</td><td class="gd">'+estTag(r.estatus)+'</td>'
+     +'<td class="gr num">'+(p?cp(p.s):'—')+'</td><td class="gr num">'+(p&&p.sE!=null?cp(p.sE):'—')+'</td></tr>';
+    if(CQ.abierto.has(String(r.clave))&&!yaFicha.has(String(r.clave))&&yaFicha.add(String(r.clave)))h+='<tr class="cqx"><td colspan="21"><div class="cqbox" id="cqx-'+escH2(r.clave)+'">⏳ Cargando la ficha de la clave…</div></td></tr>';
   });
-  if(rows.length>CQ.lim)h+='<tr><td colspan="24" class="cq-load"><button class="bsm" onclick="CQ.lim+=300;pintarConsulta()">Mostrar 300 más ('+nf(rows.length-CQ.lim)+' restantes)</button></td></tr>';
-  if(!rows.length)h='<tr><td colspan="24" class="cq-load">Sin claves con estos filtros.</td></tr>';
+  if(rows.length>CQ.lim)h+='<tr><td colspan="21" class="cq-load"><button class="bsm" onclick="CQ.lim+=300;pintarConsulta()">Mostrar 300 más ('+nf(rows.length-CQ.lim)+' restantes)</button></td></tr>';
+  if(!rows.length)h='<tr><td colspan="21" class="cq-load">Sin claves con estos filtros.</td></tr>';
   document.getElementById('cq-body').innerHTML=h;
   document.querySelectorAll('#cq-body tr.cqr').forEach(tr=>tr.onclick=()=>{const c=tr.dataset.c;CQ.abierto.has(c)?CQ.abierto.delete(c):CQ.abierto.add(c);pintarConsulta();});
   CQ.abierto.forEach(c=>{if(document.getElementById('cqx-'+c))pintarFicha(c);});
@@ -2046,9 +2048,9 @@ async function pintarFicha(c){
 function srtCQ(k){CQ.sort=CQ.sort.k===k?{k,d:-CQ.sort.d}:{k,d:1};pintarConsulta();}
 function limpiarCQ(){CQF.forEach(([id])=>{MSX[id].sel.clear();msBtn(id);});document.getElementById('cq-q').value='';['cq-pedir','cq-camb'].forEach(id=>document.getElementById(id).classList.remove('on'));CQ.lim=200;pintarConsulta();}
 function excelCQ(){
-  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Meses inv (sin BO)':r.meses_inv,'Meses inv con BO':r.mib,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,'Estatus':r.estatus,'Pto. reorden':r.reorden,
+  const rows=(CQ.vis||[]).map(r=>{const p=r._p;return{'Fecha':r.fecha,'Semáforo':SLBL[r.semaforo],'Clave':r.clave,'Nombre':r.nombre,'Marca':r.marca,'Grupo':r.grupo,'Comprador':r.comprador,'Rotación':r.clmov,'ABC':r.clasificacion,'Existencias':r.existencias,'BO':r.bo,'Objetivo':r.obj_meses,'T. entrega':r.t_entrega,
     'Consumo antecedente':p?p.A:'','Meses antecedente':p?mesesPlan(p,'A'):'','Estatus antecedente':p?estPlan(p,'A'):'','Consumo pronóstico':p?p.P:'','Meses pronóstico':p?mesesPlan(p,'P'):'','Estatus pronóstico':p?estPlan(p,'P'):'','Variación pronóstico vs antecedente':tempCQ(r).v,'Temporada':P.TEMP_L[tempCQ(r).t],
-    'Demanda portal':p?p.D:'','Meses portal':p?p.mi:'','Estatus portal':p?p.est:'','Propuesta portal':p?p.s:'','Propuesta con empaque':p?p.sE:''};});
+    'Demanda portal':p?p.D:'','Meses portal':r.meses_inv,'Meses portal con BO':r.mib,'Estatus portal':r.estatus,'Propuesta portal':p?p.s:'','Propuesta con empaque':p?p.sE:''};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Consulta');const dd=CQ.dias||[];XLSX.writeFile(wb,'Consulta_claves_'+(dd.length>1?dd[0]+'_a_'+dd[dd.length-1]:dd[0]||'')+'.xlsx');
 }
 

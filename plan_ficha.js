@@ -17,14 +17,15 @@
       sb.from('plan_agotados_mes').select('empresa,mes,dias_agotado').eq('clave',c),
       sb.from('plan_compras_ed').select('mes,cantidad').eq('clave',c),
       sb.from('plan_alarmas').select('fecha_alarma,fecha_fin,tipo,resultado_target,oc_folio,dias_dif').eq('clave',c).order('fecha_alarma',{ascending:false})];
-    if(conHist)q.push(sb.from('detalle_diario').select('fecha,estatus,existencias,back_order,meses_inv').eq('clave',String(c)).order('fecha',{ascending:true}).range(0,999));
+    // Historial día por día con el cálculo del portal (fotos diarias; últimos 30 días calculados)
+    if(conHist)q.push(window.FOTOS?FOTOS.fechas(sb).then(fs=>FOTOS.clave(sb,c,fs.slice(-30))).then(h=>({data:h})).catch(e=>({error:e})):Promise.resolve({data:[]}));
     const r=await Promise.all(q);
     const o={ventas:{},agot:{SANVER:{},MF:{}},ed:{},alarmas:[],hist:[]};
     if(!r[0].error)(r[0].data||[]).forEach(x=>o.ventas[x.empresa]=x.meses||{});
     if(!r[1].error)(r[1].data||[]).forEach(x=>{(o.agot[x.empresa]||(o.agot[x.empresa]={}))[String(x.mes).slice(0,7)]=Number(x.dias_agotado);});
     if(!r[2].error)(r[2].data||[]).forEach(x=>o.ed[String(x.mes).slice(0,7)]=Number(x.cantidad));
     if(!r[3].error)o.alarmas=r[3].data||[];
-    if(conHist&&r[4]&&!r[4].error)o.hist=(r[4].data||[]).map(h=>({...h,fecha:d10(h.fecha),estatus:String(h.estatus||'').toUpperCase()}));
+    if(conHist&&r[4]&&!r[4].error)o.hist=(r[4].data||[]).map(h=>({fecha:h.f,estatus:String(h.est||'').toUpperCase(),existencias:h.ex,back_order:h.boT!=null?h.boT:h.bo,meses_inv:h.mi,mA:h.mA,mP:h.mP,eA:h.eA,eP:h.eP}));
     cache.set(k,o);return o;
   }
 
@@ -47,14 +48,14 @@
     return s+'</svg>';
   }
 
-  // Tira de días: un cuadro por día con el estatus del Excel
+  // Tira de días: un cuadro por día con el estatus del portal de ese día
   function tira(hist,dias){
     if(!hist||!hist.length)return '<div style="color:#64748b;font-size:12px">Sin historial diario de la clave.</div>';
     const h=hist.slice(-(dias||60));
     const cnt={};h.forEach(x=>cnt[x.estatus]=(cnt[x.estatus]||0)+1);
     let racha=0;for(let i=h.length-1;i>=0&&h[i].estatus===h[h.length-1].estatus;i--)racha++;
     const ult=h[h.length-1];
-    const cuadros=h.map(x=>'<span title="'+fF(x.fecha)+': '+esc(x.estatus)+' · exist. '+n(x.existencias)+' · BO '+n(x.back_order)+(x.meses_inv!=null?' · '+n(x.meses_inv,1)+' meses':'')+'" style="display:inline-block;width:9px;height:18px;margin-right:2px;border-radius:2px;background:'+(COL[x.estatus]||'#cbd5e1')+'"></span>').join('');
+    const cuadros=h.map(x=>'<span title="'+fF(x.fecha)+': '+esc(x.estatus)+' · exist. '+n(x.existencias)+' · BO '+n(x.back_order)+(x.meses_inv!=null?' · portal '+n(x.meses_inv,1)+' meses':'')+(x.mA!=null?' · antecedente '+n(x.mA,1)+(x.eA?' ('+esc(x.eA.toLowerCase())+')':''):'')+(x.mP!=null?' · pronóstico '+n(x.mP,1)+(x.eP?' ('+esc(x.eP.toLowerCase())+')':''):'')+'" style="display:inline-block;width:9px;height:18px;margin-right:2px;border-radius:2px;background:'+(COL[x.estatus]||'#cbd5e1')+'"></span>').join('');
     return '<div style="margin-bottom:4px">'+cuadros+'</div><div style="font-size:11.5px;color:#475569">Últimos '+h.length+' días ('+fF(h[0].fecha)+' a '+fF(ult.fecha)+'): '
       +['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO'].filter(e=>cnt[e]).map(e=>'<b style="color:'+COL[e]+'">'+cnt[e]+'</b> en '+e.toLowerCase()).join(' · ')
       +' · hoy lleva <b>'+racha+'</b> día'+(racha===1?'':'s')+' seguidos en '+esc((ult.estatus||'').toLowerCase())+'.</div>';
@@ -70,7 +71,7 @@
     }
     const ocs=ctx.ocs||[];
     const usados=w=>sv.filter(x=>x.usa.includes(w)).map(x=>fM(x.m)).join(', ')||'sin meses válidos';
-    const izq=(ctx.conHist?'<div style="margin-bottom:12px"><b style="font-size:12.5px">Estatus día por día</b> <span style="font-size:11px;color:#64748b">(estatus del Excel; pasa el cursor por cada día)</span>'+tira(d.hist,60)+'</div>':'')
+    const izq=(ctx.conHist?'<div style="margin-bottom:12px"><b style="font-size:12.5px">Estatus día por día</b> <span style="font-size:11px;color:#64748b">(estatus del portal de cada día; pasa el cursor para ver meses con antecedente, pronóstico y portal)</span>'+tira(d.hist,60)+'</div>':'')
       +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:12.5px">Ventas SANVER mes a mes</b><span style="font-size:11px;color:#64748b"><span style="color:#3b82f6">■</span> antecedente · <span style="color:#8b5cf6">■</span> pronóstico · <span style="color:#cbd5e1">■</span> no usado · <span style="color:#fb7185">▨</span> descartado · ⛔ agotado · ED entrega directa restada</span></div>'
       +(r?grafica(sv,d.agot.SANVER):'<div style="color:#64748b;font-size:12px;padding:10px">La clave no está en el último cálculo del portal.</div>')
       +(mf.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas MF (antecedente '+n(r.mfA,1)+' · pronóstico '+n(r.mfP,1)+' · existencia '+n(r.mfI)+')</summary>'+grafica(mf,d.agot.MF)+'</details>':'');
@@ -81,7 +82,7 @@
       +kv('Límites','riesgo entra con menos de '+n(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+n(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+n(r.pm*P.R.FACT_MAX,1)+' · hoy '+n(r.mi,1)+' meses'+(r.miB!=null?' ('+n(r.miB,1)+' con BO)':''))
       +kv('Propuesta',n(r.D,1)+' × ('+n(r.lt,1)+' + '+n(r.pm,1)+') − ('+n(r.ex)+' + '+n(r.bo)+' BO CEDI) = <b>'+n(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+n(r.sE)+'</b>':''))
       +((r.boT||0)>(r.bo||0)?kv('BO','total '+n(r.boT)+' · entrega directa '+n(r.boT-r.bo)+' (no cuenta)'):'')
-      +kv('Estatus','Excel <b>'+esc(r.estX||'—')+'</b> · portal <b>'+esc(r.est)+'</b>')
+      +kv('Estatus','portal <b>'+esc(r.est)+'</b>'+(r.eA?' · antecedente '+esc(r.eA.toLowerCase()):'')+(r.eP?' · pronóstico '+esc(r.eP.toLowerCase()):''))
       +(r.mfI!=null?kv('MF','existencia '+n(r.mfI)+' · '+n(r.mfM,1)+' meses'+(r.mfF?' · <b style="color:#b45309">revisar con gerencia</b> (excedente '+n(r.mfX)+')':'')):'')
       +(r.nt?kv('Notas',esc(r.nt)):'')
       +kv('OCs abiertas',ocs.length?ocs.slice(0,6).map(o=>'OC '+o[0]+' · '+n(o[1])+' pend. · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).join('<br>')+(ocs.length>6?'<br>… y '+(ocs.length-6)+' más':''):'ninguna')

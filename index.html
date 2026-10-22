@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js" charset="utf-8"></script>
+<script src="plan_fotos.js" charset="utf-8"></script>
 <script src="resumen_v2.js" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -1654,27 +1655,42 @@ function sobreInvRegla(detR){
   return{sobreInv:{celdas,meses:dias,grupos:[...grupos].sort(),marcas:[...marcas].sort(),rots:[...rots].sort(),comps:[...comps].sort(),cierre:dias[dias.length-1],regla:{sobre:FM}},
     topExceso:{porDiaComp,dias:[...new Set(Object.keys(tmp).map(k=>k.split('||')[0]))].sort()}};
 }
-async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
-  log('🪶 Histórico de Inventarios V2: preparando versión ligera…');
+// Descuenta las claves restringidas vigentes en faltante y recalcula la serie
+async function sinRestringidas(payload,rawUse,rawDUse,nombre,restr){
+  if(!restr.size)return{p:payload,n:0};
+  const esR=r=>String(r['Clasificacion_estatus de inventario']||'').trim().toUpperCase()==='FALTANTE'&&restr.has(String(r['Clave']).trim()+'||'+String(r['COMPRADOR']||'').trim().toUpperCase());
+  const rawD2=rawDUse.filter(r=>!esR(r));
+  if(rawD2.length===rawDUse.length)return{p:payload,n:0};
+  const dias=new Set(rawD2.map(r=>pD(String(r['Fecha']||''))).filter(Boolean));
+  const raw2=rawUse.filter(r=>!dias.has(pD(String(r['Fecha']||'')))).concat(reconstruirHoja1(rawD2));
+  await new Promise(r=>setTimeout(r,30));
+  return{p:buildData(raw2,rawD2,nombre),n:rawDUse.length-rawD2.length};
+}
+async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre,op){
+  op=op||{};
+  log('🪶 Histórico de Inventarios V2: preparando versión ligera'+(op.portal?' con el cálculo del portal':'')+'…');
   const restr=await restringidasVigentes();
-  let p=payload;
-  if(restr.size){
-    const esR=r=>String(r['Clasificacion_estatus de inventario']||'').trim().toUpperCase()==='FALTANTE'&&restr.has(String(r['Clave']).trim()+'||'+String(r['COMPRADOR']||'').trim().toUpperCase());
-    const rawD2=rawDUse.filter(r=>!esR(r));
-    if(rawD2.length!==rawDUse.length){
-      const dias=new Set(rawD2.map(r=>pD(String(r['Fecha']||''))).filter(Boolean));
-      const raw2=rawUse.filter(r=>!dias.has(pD(String(r['Fecha']||'')))).concat(reconstruirHoja1(rawD2));
-      await new Promise(r=>setTimeout(r,30));
-      p=buildData(raw2,rawD2,nombre);
-      log('   🚫 '+(rawDUse.length-rawD2.length).toLocaleString()+' filas en faltante de claves restringidas descontadas');
-    }
-  }
+  const sr=await sinRestringidas(payload,rawUse,rawDUse,nombre,restr);let p=sr.p;
+  if(sr.n)log('   🚫 '+sr.n.toLocaleString()+' filas en faltante de claves restringidas descontadas');
+  // Bono: hasta noviembre 2026 se califica con el estatus del Excel (series por día de esos meses)
+  let bonoX=null;
+  if(op.excel){try{
+    const x=(await sinRestringidas(op.excel.payload,op.excel.raw,op.excel.rawD,nombre,restr)).p;
+    const H='2026-11-31',cut=o=>{if(!o)return o;const r={};Object.keys(o).forEach(k=>{const v=o[k];r[k]=(v&&typeof v==='object'&&!Array.isArray(v))?(/^\d{4}-\d{2}-\d{2}$/.test(Object.keys(v)[0]||'')?Object.fromEntries(Object.entries(v).filter(([d])=>d<=H)):cut(v)):v;});return r;};
+    const totalByDay=Object.fromEntries(Object.entries(x.totalByDay||{}).filter(([d])=>d<=H));
+    bonoX={fechas:(x.fechas||[]).filter(d=>d<=H),meses:(x.meses||[]).filter(m=>m<='2026-11'),pf:x.pf,skuMes:Object.fromEntries(Object.entries(x.skuMes||{}).filter(([m])=>m<='2026-11')),
+      clavesTotal:Object.fromEntries(Object.entries(x.clavesTotal||{}).filter(([d])=>d<=H)),CDATA:x.CDATA,AREA:x.AREA,compradores:x.compradores,
+      compByDay:cut(x.compByDay),compClByDay:cut(x.compClByDay),totalByDay,clasByDay:cut(x.clasByDay)};
+    log('   🏅 Bono: se guardan las series del Excel hasta noviembre 2026 ('+bonoX.fechas.length+' días).');
+  }catch(e){log('   ⚠️ No se pudo preparar la serie del Excel para el bono: '+e.message);}}
   // Claves en faltante por día (para la lupa del pico): [clave,nombre,marca,comprador,rotación,BO,ABC]
   const faltDia={};
   (p.detR||[]).forEach(r=>{if(r.estatus!=='FALTANTE'||!r.fecha)return;(faltDia[r.fecha]=faltDia[r.fecha]||[]).push([r.clave,String(r.nombre||'').slice(0,60),r.marca,r.comprador,r.clmov,r.bo,r.clasificacion]);});
   const{detR,rowsRes,...ligero}=p;
   // ── Regla nueva de estatus (riesgo entra con T.entrega×1.2 y sale con ×1.4; sobre inventario > Objetivo×1.4) ──
-  try{
+  // Con el cálculo del portal la regla ya viene aplicada: solo se arman los meses de inventario vs objetivo.
+  if(op.portal){try{const si=sobreInvRegla(p.detR||[]);p={...p,sobreInv:si.sobreInv,topExceso:si.topExceso};ligero.difEst={};ligero.regla=null;ligero.fuente='portal';}catch(e){log('   ⚠️ Meses de inventario vs objetivo: '+e.message);}}
+  else try{
     const det=p.detR||[];
     const nueva=P.cadenaExcel(det);
     const COD={FALTANTE:'F',RIESGO:'R',OPTIMO:'O','SOBRE INVENTARIO':'S','SIN COMPRA':'C'};
@@ -1696,7 +1712,7 @@ async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre){
     const pdc={};Object.keys(p.topExceso.porDiaComp).forEach(k=>{if(keep.has(k.split('||')[0]))pdc[k]=p.topExceso.porDiaComp[k];});
     ligero.topExceso={porDiaComp:pdc,dias:(p.topExceso.dias||[]).filter(d=>keep.has(d))};
   }catch(e){log('   ⚠️ No se pudo recortar meses de inventario: '+e.message);}
-  ligero.faltDia=faltDia;ligero.v=2;ligero.restringidas=restr.size;
+  ligero.faltDia=faltDia;ligero.v=2;ligero.restringidas=restr.size;if(bonoX)ligero.bonoX=bonoX;
   const js=JSON.stringify(ligero);const z=await gzipBlob(js);
   const ruta2=z.gz?'payloads/faltantes_v2.json.gz':'payloads/faltantes_v2.json';
   const up=await sb.storage.from('respaldos').upload(ruta2,z.body,{upsert:true,contentType:'application/octet-stream'});
@@ -1802,6 +1818,9 @@ async function procesarExcel(file){
     log('💾 Guardando en base de datos…');
     try{ await guardarDiasNuevos(rawD); }
     catch(e){ log('⚠️ Guardado en base: '+e.message+' (se continúa con el Excel)'); }
+    // ── CÁLCULO DIARIO DEL PORTAL primero: su foto del día es la que alimenta los tableros ──
+    if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
+    else log('ℹ️ Sin Cálculo diario en esta carga: los tableros usan el último día calculado por el portal.');
 
     // ── RECONSTRUIR todo el histórico desde la base de datos ──
     let rawUse=raw, rawDUse=rawD;
@@ -1826,9 +1845,26 @@ async function procesarExcel(file){
       log('⚠️ No se pudo leer la base ('+e.message+'). Se usa el Excel completo.');
     }
 
-    log('🧮 Calculando dashboard de Faltantes (lógica original)…');
+    // Con el estatus del Excel solo se arma el bono (hasta noviembre 2026) y el respaldo si no hay fotos del portal
+    log('🧮 Calculando la serie con el estatus del Excel (solo para el bono hasta nov-2026)…');
     await new Promise(r=>setTimeout(r,50));
-    const payload=buildData(rawUse,rawDUse,file.name);
+    const payloadX=buildData(rawUse,rawDUse,file.name);
+    const rawX=rawUse,rawDX=rawDUse;
+    // ── Estatus y meses de inventario del PORTAL: fotos diarias del Cálculo diario ──
+    let payload=payloadX,fuente='excel';
+    try{
+      const fx=await FOTOS.fechas(sb);
+      if(fx.length){
+        log('📥 Leyendo '+fx.length+' día(s) calculados por el portal ('+fx[0]+' → '+fx[fx.length-1]+')…');
+        const m=await FOTOS.dias(sb,fx);
+        const rawDP=[];[...m.keys()].sort().forEach(f=>m.get(f).forEach(r=>rawDP.push(P.fotoADetalle(r,f))));
+        const rawP=reconstruirHoja1(rawDP);
+        await new Promise(r=>setTimeout(r,30));
+        const pp=buildData(rawP,rawDP,file.name);
+        if(pp&&pp.fechas&&pp.fechas.length){payload=pp;rawUse=rawP;rawDUse=rawDP;fuente='portal';
+          log('   ✅ Tableros con el cálculo del portal: '+rawDP.length.toLocaleString()+' claves-día.');}
+      }else log('⚠️ Todavía no hay días calculados por el portal (Admin → Cálculo diario → Reconstruir historial). Por ahora se usa el Excel.');
+    }catch(e){log('⚠️ No se pudieron leer los días del portal ('+e.message+'). Por ahora se usa el Excel.');}
     if(!payload||!payload.fechas||!payload.fechas.length) throw new Error('El procesamiento no generó fechas. Revisa que Hoja1 tenga las columnas Fecha, COMPRADOR, Clasificacion, Clasificacion de mov y Claves.');
     log('✅ Periodo: '+payload.pf+' → '+payload.uf+' · '+payload.fechas.length+' días · '+payload.compradores.length+' compradores');
 
@@ -1847,7 +1883,7 @@ async function procesarExcel(file){
     const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
     if(up.error) throw new Error('Storage: '+up.error.message);
     // ── V2: versión ligera para Histórico Faltantes (sin el detalle diario completo) ──
-    try{ await publicarFaltantesV2(payload,rawUse,rawDUse,file.name); }
+    try{ await publicarFaltantesV2(payload,rawUse,rawDUse,file.name,fuente==='portal'?{portal:true,excel:{payload:payloadX,raw:rawX,rawD:rawDX}}:{}); }
     catch(e){ log('⚠️ Histórico de Inventarios V2 no se publicó: '+e.message); }
 
     const version=Date.now().toString();
@@ -1993,7 +2029,6 @@ async function procesarExcel(file){
     log('🎉 LISTO. Los 4 dashboards y las alarmas ya muestran la nueva información para todo el equipo.');
     log('   (Si tenías el dashboard abierto, presiona "☁️ Actualizar desde servidor" o recarga la página.)');
   }catch(e){log('❌ ERROR: '+e.message);return;}
-  if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
 }
 // ── Cálculo diario con el mismo archivo: lo corre la página de Cálculo diario (oculta) y aquí se ve el avance ──
 async function calculoAutomatico(file){

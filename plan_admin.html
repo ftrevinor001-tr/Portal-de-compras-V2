@@ -110,6 +110,12 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-calc"></div>
     <div id="calc-res"></div>
   </div>
+  <div class="card">
+    <h2><span class="n">↺</span>Historial del portal por día <small style="color:var(--tx2);font-weight:400">· una vez, o si cambia una regla</small></h2>
+    <p class="d">Cada Cálculo diario guarda una foto del estatus y los meses de inventario del portal de cada clave; con ella se arman el Histórico de Inventarios, la Consulta de clave, el Comparativo diario y el estatus día por día de la ficha. Aquí se reconstruyen los días anteriores con la existencia, el BO y los parámetros guardados de cada día (no genera alarmas ni cambia el cálculo publicado).</p>
+    <div class="row"><label class="d">Desde</label><input type="date" id="rh-desde" value="2026-10-01"><button onclick="run('hist2')">Reconstruir historial</button><span class="d" id="rh-info"></span></div>
+    <div class="log" id="log-hist2"></div>
+  </div>
 
   <div class="card">
     <h2><span class="n">✓</span>Verificación</h2>
@@ -181,6 +187,7 @@ async function run(tipo){
     if(tipo==='hist')await cargaHist(log);
     if(tipo==='ed')await cargaED(log);
     if(tipo==='calc')await cargaCalc(log);
+    if(tipo==='hist2')await reconstruirHistorial(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -310,6 +317,7 @@ async function cargaCalc(log){
     if(f!==pendientes[pendientes.length-1]){antMap=new Map(res.map(r=>[Number(r.c),r]));antFecha=f;}
     if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;}
     await guardarHistEstatus(res,f,log);
+    await guardarFoto(res,f,log);
     if(soloPublicar)break;
     if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
     const a=P.alarmas(prev,null,res,f,restr);
@@ -337,7 +345,7 @@ async function cargaCalc(log){
   if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
   const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
   if(up.error)throw new Error('Storage: '+up.error.message);
-  const resumen={target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),estatus_excel:cuenta(res,'estX'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
+  const resumen={target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
   const{error:eu}=await sb.from('plan_publicacion').upsert({id:'estado',fecha:fUlt,ruta,version:Date.now().toString(),resumen,en_riesgo:[...prev],actualizado_en:new Date().toISOString()},{onConflict:'id'});
   if(eu)throw new Error('plan_publicacion: '+eu.message);
   ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia,oc:ocx};
@@ -373,6 +381,46 @@ async function rachasIniciales(ctx,prevEst,log){
     rsg.forEach(k=>{const pv=ctx.prevEst.get(k);if(pv&&al.has(k)){pv.eD=al.get(k);pv.eDx=false;}});
     log.msg('   listo: '+fmt(falt.filter(k=>ctx.prevEst.get(k)&&ctx.prevEst.get(k).eD).length)+' faltantes y '+fmt(al.size)+' en riesgo con fecha de inicio.');
   }catch(e){log.msg('⚠️ No se pudo calcular la racha inicial ('+(e.message||e)+'): se cuenta desde el cálculo anterior.','w');}
+}
+// ── Foto diaria del portal (Storage plan/dias/AAAA-MM-DD.json.gz) e índice de días (plan_publicacion id 'dias') ──
+async function guardarFoto(res,f,log){
+  try{
+    const js=JSON.stringify({fecha:f,generado:new Date().toISOString(),claves:P.foto(res)});
+    const body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const ruta='plan/dias/'+f+'.json.gz';
+    const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});if(up.error)throw new Error(up.error.message);
+    const{data:ix}=await sb.from('plan_publicacion').select('resumen').eq('id','dias').maybeSingle();
+    const fechas=Object.assign({},(ix&&ix.resumen&&ix.resumen.fechas)||{});
+    const c=e=>res.filter(r=>r.est===e).length;
+    fechas[f]={v:Date.now(),n:res.length,F:c('FALTANTE'),R:c('RIESGO'),O:c('OPTIMO'),S:c('SOBRE INVENTARIO')};
+    const{error}=await sb.from('plan_publicacion').upsert({id:'dias',fecha:Object.keys(fechas).sort().pop(),ruta:'plan/dias/',version:Date.now().toString(),resumen:{fechas},actualizado_en:new Date().toISOString()},{onConflict:'id'});
+    if(error)throw new Error(error.message);
+  }catch(e){log.msg('⚠️ No se guardó la foto del '+f+' para el histórico: '+(e.message||e),'w');}
+}
+// Reconstruye las fotos de días anteriores con lo guardado en detalle_diario (existencia, BO y parámetros de cada día).
+async function reconstruirHistorial(log){
+  const desde=document.getElementById('rh-desde').value||'2026-10-01';
+  const{data:pub}=await sb.from('plan_publicacion').select('fecha').eq('id','estado').maybeSingle();
+  const hasta=pub&&pub.fecha?pub.fecha:new Date().toISOString().slice(0,10);
+  const dias=(await todo(()=>sb.from('dias_cargados').select('fecha').gte('fecha',desde).lte('fecha',hasta).order('fecha'))).map(x=>String(x.fecha).slice(0,10));
+  if(!dias.length)throw new Error('No hay días cargados entre '+desde+' y '+hasta+'.');
+  log.msg('↺ Reconstruyendo '+dias.length+' días del '+dias[0]+' al '+dias[dias.length-1]+'…');
+  const{ctx}=await contexto(log);ctx.prevEst=new Map();ctx.prevFecha=null;
+  for(const f of dias){
+    await pausa();
+    const det=await todo(()=>sb.from('detalle_diario').select('clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,estatus,back_order').eq('fecha',f).order('clave'));
+    const filas=[];const vistos=new Set();
+    det.forEach(r=>{const k=P.clave(r.clave);if(k==null||vistos.has(k))return;vistos.add(k);
+      filas.push({clave:k,nombre:String(r.nombre||'').trim(),unidad:P.norm(r.unidad),grupo:String(r.grupo||'').trim(),marca:String(r.marca||'').trim(),comprador:P.norm(r.comprador),rot:P.norm(r.rotacion),
+        lt:P.num(r.t_entrega),pm:P.num(r.obj_meses),ex:P.num(r.existencias)||0,bo:P.num(r.back_order)||0,estX:P.norm(r.estatus),abc:String(r.clasificacion||'').trim()});});
+    if(!filas.length){log.msg('   '+f+': sin detalle, se omite','w');continue;}
+    const res=P.calcularDia(f,filas,ctx);
+    await guardarHistEstatus(res,f,log);await guardarFoto(res,f,log);
+    ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;
+    const c=e=>res.filter(r=>r.est===e).length;
+    log.msg('   '+f+': '+fmt(res.length)+' claves · faltante '+fmt(c('FALTANTE'))+' · riesgo '+fmt(c('RIESGO'))+' · sobre inv. '+fmt(c('SOBRE INVENTARIO')));
+  }
+  log.msg('🎉 Historial reconstruido. El Histórico de Inventarios se actualiza con la siguiente carga del Excel.');
 }
 async function guardarHistEstatus(res,f,log){
   const{error}=await sb.from('plan_estatus_hist').delete().eq('fecha',f);
@@ -471,7 +519,7 @@ function pintarCalc(r,nuevas,ocx){
   const est=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
   const porComp={};nuevas.forEach(a=>{porComp[a.comprador]=(porComp[a.comprador]||0)+1;});
   document.getElementById('calc-res').innerHTML=
-   '<div class="kpis">'+est.map(e=>'<div class="kpi"><b>'+fmt(r.estatus_portal[e]||0)+'</b><span>'+e+' portal · Excel '+fmt(r.estatus_excel[e]||0)+'</span></div>').join('')
+   '<div class="kpis">'+est.map(e=>'<div class="kpi"><b>'+fmt(r.estatus_portal[e]||0)+'</b><span>'+e+'</span></div>').join('')
    +'<div class="kpi"><b>'+fmt(r.alarmas_nuevas)+'</b><span>Alarmas nuevas</span></div><div class="kpi"><b>'+fmt(r.bandera_mf)+'</b><span>MF con más de '+P.R.MF_MESES_REV+' meses de inventario</span></div></div>'
    +(nuevas.length?'<div class="scroll" style="max-height:220px"><table><tr><th>Comprador</th><th>Alarmas nuevas</th></tr>'+Object.entries(porComp).sort((a,b)=>b[1]-a[1]).map(([c,n])=>'<tr><td>'+c+'</td><td>'+n+'</td></tr>').join('')+'</table></div>':'')
    +(ocx?'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🎯 Target de comprador del mes '+(ocx.tGen?'· '+pct(ocx.tGen.target)+' ('+fmt(ocx.tGen.evaluadas)+' alarmas evaluadas)':'· aún sin alarmas evaluadas')+'</h3>'
@@ -485,7 +533,7 @@ async function descargarCalc(){
   let abiertas=[];
   try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
-    ['ex','Existencias SANVER'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],['estX','Estatus Excel'],
+    ['ex','Existencias SANVER'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
     ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
