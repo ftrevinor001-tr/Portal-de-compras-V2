@@ -103,6 +103,14 @@ td:first-child,th:first-child{text-align:left}
     <div id="ed-lista" style="margin:8px 0"></div>
     <div class="row"><button onclick="guardarSinED()">Guardar compradores</button><span class="d" id="ed-res"></span></div>
   </div>
+  <div class="card">
+    <h2><span class="n">📦</span>Inventario en resguardo con proveedores <small style="color:var(--tx2);font-weight:400">· cuando el proveedor reporte saldo</small></h2>
+    <p class="d">Mercancía nuestra que el proveedor tiene guardada fuera del CEDI. Se <b>suma a la existencia</b> en el Cálculo diario: meses de inventario, estatus (una clave con 0 en el CEDI y resguardo ya no es faltante) y propuesta de compra. Cada saldo cuenta <b>30 días</b> desde su fecha de corte; después deja de sumar hasta que se actualice. Si la mercancía también sigue pendiente en la OC, marca <b>Descontar del BO = SI</b> para no contarla dos veces.<br>
+    Al subir un archivo se <b>reemplaza el saldo de los proveedores que trae</b> (los demás no se tocan); cantidad 0 quita la clave. Se aplica en el siguiente Cálculo diario.</p>
+    <div class="row"><button class="sec" onclick="plantillaResg()">⬇ Plantilla (con lo cargado hoy)</button><input type="file" id="f-resg" accept=".xlsx,.xls,.csv"><button onclick="run('resg')">Cargar resguardo</button></div>
+    <div class="log" id="log-resg"></div>
+    <div id="resg-lista" style="margin-top:10px"></div>
+  </div>
   <div class="card" style="border:2px solid var(--navy2)">
     <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
     <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (promedio de los dos), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
@@ -143,13 +151,14 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarResg();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
   return{clear(){el.innerHTML='';},msg(t,c){const d=document.createElement('div');if(c)d.className=c;d.textContent=t;el.appendChild(d);el.scrollTop=el.scrollHeight;}};}
 const pausa=()=>new Promise(r=>setTimeout(r,30));
 const fmt=n=>Number(n).toLocaleString('es-MX');
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function leerLibro(input,hojas,log){
   const f=document.getElementById(input).files[0];
   if(!f)throw new Error('Primero selecciona el archivo.');
@@ -188,6 +197,7 @@ async function run(tipo){
     if(tipo==='ed')await cargaED(log);
     if(tipo==='calc')await cargaCalc(log);
     if(tipo==='hist2')await reconstruirHistorial(log);
+    if(tipo==='resg')await cargaResg(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -278,6 +288,10 @@ async function contexto(log){
   const restr=new Set();rs.forEach(x=>{if(x.autorizado_en){const d=(Date.now()-new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'))/864e5;if(d>=30)return;}restr.add(Number(x.clave)+'|'+P.norm(x.comprador));});
   log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · restringidas '+restr.size);
   if(!ctx.ventas.SANVER.size)throw new Error('No hay ventas cargadas. Primero usa la sección 1.');
+  // Inventario en resguardo con proveedores (se suma a la existencia; vigencia por día dentro del cálculo)
+  try{ctx.resgRows=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor,cantidad,fecha_corte,desc_bo').order('clave').order('proveedor'));
+    if(ctx.resgRows.length)log.msg('📦 Inventario en resguardo: '+fmt(ctx.resgRows.length)+' registros ('+fmt(new Set(ctx.resgRows.map(r=>r.clave)).size)+' claves); cuenta el que tenga corte de los últimos '+P.R.RESG_DIAS+' días.');}
+  catch(e){ctx.resgRows=[];log.msg('ℹ️ Sin inventario en resguardo ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_12.sql.','w');}
   return{ctx,restr};
 }
 async function cargaCalc(log){
@@ -422,6 +436,62 @@ async function reconstruirHistorial(log){
   }
   log.msg('🎉 Historial reconstruido. El Histórico de Inventarios se actualiza con la siguiente carga del Excel.');
 }
+// ── Inventario en resguardo con proveedores ──
+const hoyISO=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
+async function leerResg(){return todo(()=>sb.from('plan_resguardo').select('*').order('proveedor').order('clave'));}
+async function plantillaResg(){
+  let rows=[];try{rows=await leerResg();}catch(e){}
+  const datos=rows.length?rows.map(r=>({'Clave':r.clave,'Proveedor':r.proveedor,'Cantidad':+r.cantidad,'Fecha de corte':String(r.fecha_corte).slice(0,10),'Descontar del BO (SI/NO)':r.desc_bo?'SI':'NO','Nota':r.nota||''}))
+    :[{'Clave':23462,'Proveedor':'IUSA','Cantidad':5000,'Fecha de corte':hoyISO(),'Descontar del BO (SI/NO)':'NO','Nota':'ejemplo: bórralo'}];
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(datos);ws['!cols']=[{wch:9},{wch:28},{wch:11},{wch:14},{wch:22},{wch:40}];
+  XLSX.utils.book_append_sheet(wb,ws,'Resguardo');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Instrucciones'],['Una fila por clave y proveedor con el saldo que el proveedor tiene en resguardo.'],['Fecha de corte: día del saldo (AAAA-MM-DD). Cuenta 30 días.'],['Descontar del BO: SI si esa mercancía también sigue pendiente en la OC (se resta del BO para no contarla dos veces).'],['Al cargar se reemplaza todo el saldo de cada proveedor que venga en el archivo. Cantidad 0 = quitar la clave.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Resguardo_proveedores_'+hoyISO()+'.xlsx');
+}
+async function cargaResg(log){
+  const wb=await leerLibro('f-resg',null,log);
+  const ws=wb.Sheets['Resguardo']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave. Usa la plantilla.');
+  const H=aoa[hi].map(P.norm);const col=(...n)=>H.findIndex(h=>n.some(x=>h.startsWith(x)));
+  const cC=col('CLAVE'),cP=col('PROVEEDOR'),cQ=col('CANTIDAD','SALDO'),cF=col('FECHA'),cB=col('DESCONTAR'),cN=col('NOTA');
+  if(cC<0||cP<0||cQ<0)throw new Error('Faltan columnas: se necesitan Clave, Proveedor y Cantidad.');
+  const fechaDe=v=>{if(v==null||v==='')return hoyISO();if(typeof v==='number'&&v>20000&&v<80000)return new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10);const f=P.fecha(v);return f||null;};
+  const filas=new Map(),err=[];let dup=0;
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];if(r.every(x=>String(x).trim()===''))continue;
+    const k=P.clave(r[cC]),pv=P.norm(r[cP]),q=P.num(r[cQ]),f=cF>=0?fechaDe(r[cF]):hoyISO();
+    if(k==null){err.push('fila '+(i+1)+': clave no válida');continue;}if(!pv){err.push('fila '+(i+1)+': falta el proveedor');continue;}
+    if(q==null||q<0){err.push('fila '+(i+1)+': cantidad no válida');continue;}if(!f){err.push('fila '+(i+1)+': fecha de corte no válida');continue;}
+    const key=k+'|'+pv;if(filas.has(key))dup++;
+    filas.set(key,{clave:k,proveedor:pv,cantidad:q,fecha_corte:f,desc_bo:cB>=0&&/^S/.test(P.norm(r[cB])),nota:cN>=0?String(r[cN]||'').trim()||null:null,cargado_por:'ADMIN',cargado_en:new Date().toISOString()});}
+  err.slice(0,15).forEach(t=>log.msg('⚠️ '+t,'w'));if(err.length>15)log.msg('⚠️ … y '+(err.length-15)+' filas más con error','w');
+  if(dup)log.msg('⚠️ '+dup+' clave(s) repetidas con el mismo proveedor: se tomó la última fila.','w');
+  if(!filas.size)throw new Error('El archivo no trae filas válidas.');
+  // claves que no están en el último cálculo (solo aviso)
+  try{const pub=(await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle()).data;const E=pub?await leerEstadoPublicado(pub,log):null;
+    if(E&&E.map){const no=[...new Set([...filas.values()].map(x=>x.clave))].filter(k=>!E.map.has(k));if(no.length)log.msg('⚠️ '+no.length+' clave(s) no están en el último cálculo: '+no.slice(0,20).join(', ')+(no.length>20?'…':'')+' (se guardan igual).','w');}}catch(e){}
+  const provs=[...new Set([...filas.values()].map(x=>x.proveedor))];
+  for(const pv of provs){const{error}=await sb.from('plan_resguardo').delete().eq('proveedor',pv);if(error)throw new Error('plan_resguardo: '+error.message+' (¿ya corriste plan_tablas_12.sql?)');}
+  const nuevas=[...filas.values()].filter(x=>x.cantidad>0);
+  if(nuevas.length)await enLotes('plan_resguardo',nuevas,log,{onConflict:'clave,proveedor'});
+  const vence=nuevas.filter(x=>(Date.now()-new Date(x.fecha_corte+'T12:00:00'))/864e5>P.R.RESG_DIAS).length;
+  log.msg('🎉 Resguardo de '+provs.length+' proveedor(es): '+fmt(nuevas.length)+' claves con saldo'+(filas.size-nuevas.length?' · '+(filas.size-nuevas.length)+' quitadas (cantidad 0)':'')+(vence?' · ⚠️ '+vence+' con corte de más de '+P.R.RESG_DIAS+' días (no cuentan)':'')+'. Se aplica en el siguiente Cálculo diario.');
+  await pintarResg();
+}
+async function pintarResg(){
+  const el=document.getElementById('resg-lista');if(!el)return;
+  let rows;try{rows=await leerResg();}catch(e){el.innerHTML='<p class="d">Aún no existe la tabla de resguardo: corre <b>plan_tablas_12.sql</b> en Supabase.</p>';return;}
+  if(!rows.length){el.innerHTML='<p class="d">No hay inventario en resguardo cargado.</p>';return;}
+  const dias=r=>Math.floor((Date.now()-new Date(String(r.fecha_corte).slice(0,10)+'T12:00:00'))/864e5);
+  const vig=rows.filter(r=>dias(r)<=P.R.RESG_DIAS);
+  el.innerHTML='<p class="d"><b>'+fmt(rows.length)+'</b> registros · <b>'+fmt(new Set(rows.map(r=>r.proveedor)).size)+'</b> proveedores · vigentes <b>'+fmt(vig.length)+'</b> ('+fmt(Math.round(vig.reduce((s,r)=>s+(+r.cantidad||0),0)))+' piezas)'+(rows.length-vig.length?' · <span style="color:var(--err)">vencidos '+(rows.length-vig.length)+'</span>':'')+'</p>'
+   +'<div class="scroll"><table><thead><tr><th style="text-align:left">Proveedor</th><th>Clave</th><th>Cantidad</th><th>Corte</th><th>Vigencia</th><th>Desc. BO</th><th style="text-align:left">Nota</th><th></th></tr></thead><tbody>'
+   +rows.map(r=>{const d=dias(r),v=d<=P.R.RESG_DIAS;return '<tr><td style="text-align:left">'+esc(r.proveedor)+'</td><td>'+r.clave+'</td><td>'+fmt(+r.cantidad)+'</td><td>'+String(r.fecha_corte).slice(0,10)+'</td><td style="color:'+(v?'var(--ok)':'var(--err)')+'">'+(v?'vigente · quedan '+(P.R.RESG_DIAS-d)+' días':'vencido, no cuenta')+'</td>'
+     +'<td><input type="checkbox" '+(r.desc_bo?'checked':'')+' onchange="resgBO('+r.clave+',\''+esc(r.proveedor).replace(/'/g,"\\'")+'\',this.checked)"></td><td style="text-align:left;white-space:normal">'+esc(r.nota||'')+'</td>'
+     +'<td><button class="sec" style="padding:3px 9px;font-size:11px" onclick="resgQuitar('+r.clave+',\''+esc(r.proveedor).replace(/'/g,"\\'")+'\')">Quitar</button></td></tr>';}).join('')+'</tbody></table></div>';
+}
+async function resgBO(clave,prov,v){const{error}=await sb.from('plan_resguardo').update({desc_bo:v}).eq('clave',clave).eq('proveedor',prov);if(error)alert('No se guardó: '+error.message);}
+async function resgQuitar(clave,prov){if(!confirm('¿Quitar la clave '+clave+' del resguardo con '+prov+'?'))return;const{error}=await sb.from('plan_resguardo').delete().eq('clave',clave).eq('proveedor',prov);if(error)alert('No se quitó: '+error.message);pintarResg();}
 async function guardarHistEstatus(res,f,log){
   const{error}=await sb.from('plan_estatus_hist').delete().eq('fecha',f);
   if(error){log.msg('⚠️ Historial de estatus no guardado ('+error.message+'). ¿Ya corriste plan_tablas_6.sql?','w');return;}
@@ -533,7 +603,7 @@ async function descargarCalc(){
   let abiertas=[];
   try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
-    ['ex','Existencias SANVER'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
+    ['ex','Existencia para el cálculo (CEDI + resguardo)'],['exC','Existencia CEDI'],['rs','Resguardo con proveedor'],['rsBo','Resguardo descontado del BO'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
     ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});

@@ -293,10 +293,24 @@ P.empaque=(q,e,unidad)=>{
   if(mas>0)return{q:mas,ok:true,tipo:'MASTER'};
   return{q,ok:false};
 };
+// ── Inventario en resguardo con proveedores (oct-2026) ──
+// Cuenta como existencia propia para meses de inventario, estatus (incluido faltante) y propuesta.
+// Vigente en el día f si la fecha de corte es de los últimos RESG_DIAS días (o hasta 7 días posterior al día del Excel).
+P.R.RESG_DIAS=30;
+P.resgMapa=(rows,fecha)=>{
+  const m=new Map();if(!rows||!rows.length)return m;const t=new Date(fecha+'T12:00:00');
+  rows.forEach(r=>{const q=+r.cantidad||0;if(q<=0)return;const fc=String(r.fecha_corte||'').slice(0,10);if(!fc)return;
+    const dd=Math.round((t-new Date(fc+'T12:00:00'))/864e5);if(dd>P.R.RESG_DIAS||dd<-7)return;
+    const k=Number(r.clave);const o=m.get(k)||{q:0,qBo:0,det:[]};o.q+=q;if(r.desc_bo)o.qBo+=q;o.det.push([r.proveedor,q,fc,r.desc_bo?1:0]);m.set(k,o);});
+  return m;
+};
 // Cálculo de un día completo. ctx: {ventas:{SANVER:Map,MF:Map}, ed:Map, agot:Set('EMP|clave|AAAA-MM'), invMF:Map, emp:Map, ultimo:{SANVER,MF}}
 P.calcularDia=(fecha,filas,ctx)=>{
   const ref=fecha.slice(0,7);const out=[];
-  filas.forEach(d=>{
+  const RG=ctx.resgRows?P.resgMapa(ctx.resgRows,fecha):null;
+  filas.forEach(d0=>{
+    // Resguardo: se suma a la existencia (ex = CEDI + resguardo; exC = solo CEDI)
+    const rg=RG&&RG.get(d0.clave)||null;const d=rg?{...d0,ex:(d0.ex||0)+rg.q}:d0;
     const k=d.clave;const lt=d.lt||0,pm=d.pm||0;const N=Math.max(1,Math.ceil(pm||1));
     const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
     const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
@@ -305,7 +319,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est);
     const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
-    const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.round(d.bo*fr*10000)/10000;
+    const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
     const sug=X=>X==null||P.R.EXCLUIR_ROT.includes(d.rot)?null:Math.max(0,Math.ceil(X*(lt+pm)-(d.ex+bo)));
     const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
     // MF
@@ -315,9 +329,9 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
     const r1=x=>x==null?null:Math.round(x*10)/10;
-    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[])];
+    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr);
-    out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
+    out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:r1(D),bD:ap.I!=null?'INTERMITENTE 12 MESES':ap.A!=null&&ap.P!=null?'PROMEDIO ANT+PRON':ap.A!=null?'SOLO ANTECEDENTE':ap.P!=null?'SOLO PRONÓSTICO':'SIN VENTAS',mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
@@ -328,8 +342,8 @@ P.calcularDia=(fecha,filas,ctx)=>{
 const EN_RIESGO=['RIESGO','FALTANTE'];
 // Foto diaria del cálculo del portal (se guarda un archivo por día): lo necesario para el histórico por clave.
 // Meses de inventario con antecedente (mA), pronóstico (mP) y demanda del portal (mi); estatus con cada base.
-P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE'];
-P.foto=res=>res.map(r=>{const o={};P.FOTO_CAMPOS.forEach(k=>{if(r[k]!=null&&r[k]!=='')o[k]=r[k];});const q=x=>x>0?Math.round(r.ex/x*100)/100:null;o.mA=q(r.A);o.mP=q(r.P);return o;});
+P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','exC','rs','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE'];
+P.foto=res=>res.map(r=>{const o={};P.FOTO_CAMPOS.forEach(k=>{if(r[k]!=null&&r[k]!=='')o[k]=r[k];});if(!r.rs){delete o.rs;delete o.exC;}const q=x=>x>0?Math.round(r.ex/x*100)/100:null;o.mA=q(r.A);o.mP=q(r.P);return o;});
 // Rotación con acentos (como la escribe el Excel) para las vistas que agrupan por rotación
 P.ROT_X={'SAGRADOS':'SAGRADOS','ALTA ROTACION':'ALTA ROTACIÓN','MEDIA ROTACION':'MEDIA ROTACIÓN','LENTA ROTACION':'LENTA ROTACIÓN','NUEVOS':'NUEVOS','SIN COMPRA':'SIN COMPRA'};
 // Fila de la foto en el formato de la hoja Detalle (para reutilizar los tableros que leían el Excel):
