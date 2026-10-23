@@ -396,7 +396,7 @@ select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:7px;font-size:1
           <th data-k="dem" onclick="srtCQ('dem')" class="gd num">Demanda<span class="si"></span></th><th data-k="mi" onclick="srtCQ('mi')" class="gd num" title="Meses de inventario del portal sin contar el BO (con esto se calcula el estatus)">Meses<span class="si"></span></th><th data-k="mib" onclick="srtCQ('mib')" class="gd num" title="Meses de inventario del portal contando el BO (referencia)">c/BO<span class="si"></span></th><th data-k="estp" onclick="srtCQ('estp')" class="gd">Estatus<span class="si"></span></th>
           <th data-k="prop" onclick="srtCQ('prop')" class="gr num">Portal<span class="si"></span></th><th class="gr num">Empaque</th></tr>
       </thead><tbody id="cq-body"></tbody></table></div>
-      <p style="margin-top:8px;font-size:11.5px">Todo sale del cálculo del portal de cada día (ya no se usan los meses de inventario ni el estatus del Excel). Semáforo: pasa el cursor por cada color para ver su significado. Antecedente: N meses anteriores al mes en curso; pronóstico: los mismos N meses del año pasado; portal: promedio de ambos (sin meses agotados ni atípicos).</p>
+      <p style="margin-top:8px;font-size:11.5px">Todo sale del cálculo del portal de cada día (ya no se usan los meses de inventario ni el estatus del Excel). Semáforo: pasa el cursor por cada color para ver su significado. Antecedente: N meses anteriores al mes en curso; pronóstico: los mismos N meses del año pasado; portal: la base recomendada (pronóstico si es temporada, si no antecedente; sin meses agotados ni atípicos).</p>
     </div>
   </div>
 
@@ -1832,8 +1832,8 @@ const escH2=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const nf=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fdl=f=>f?f.slice(8,10)+'/'+f.slice(5,7)+'/'+f.slice(0,4):'—';
 const usuarioPortal=()=>{try{return window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){return'';}};
-const ESTC={'FALTANTE':'#e11d48','RIESGO':'#d97706','OPTIMO':'#059669','SOBRE INVENTARIO':'#2563eb','SIN COMPRA':'#94a3b8','SIN CONSUMO':'#94a3b8','NUEVOS':'#64748b'};
-const ESTL={'FALTANTE':'Faltante','RIESGO':'Riesgo','OPTIMO':'Óptimo','SOBRE INVENTARIO':'Sobre inv.','SIN COMPRA':'Sin compra','SIN CONSUMO':'Sin consumo'};
+const ESTC={'FALTANTE':'#e11d48','RIESGO':'#d97706','OPTIMO':'#059669','SOBRE INVENTARIO':'#2563eb','NUEVA':'#0891b2','SIN MOVIMIENTO':'#a16207','SIN COMPRA':'#94a3b8','SIN CONSUMO':'#94a3b8','NUEVOS':'#64748b'};
+const ESTL={'FALTANTE':'Faltante','RIESGO':'Riesgo','OPTIMO':'Óptimo','SOBRE INVENTARIO':'Sobre inv.','NUEVA':'Nueva','SIN MOVIMIENTO':'Sin movimiento','SIN COMPRA':'Sin compra','SIN CONSUMO':'Sin consumo'};
 const SEMC={ROJO:'#e53935',AMARILLO:'#f9a825',NARANJA:'#f57c00',MORADO:'#7b1fa2',VERDE:'#2e7d32',AZUL:'#1565c0'};
 const SEMD={ROJO:'Faltante sin BO, o riesgo sin BO con menos meses que el tiempo de entrega',AMARILLO:'Faltante con BO (ya viene mercancía)',NARANJA:'Menos meses que el tiempo de entrega, con BO',MORADO:'Entre el tiempo de entrega y el objetivo',VERDE:'Óptimo',AZUL:'Sobre inventario'};
 function estTag(e){if(!e)return'<span style="color:#a0a9be">—</span>';const c=ESTC[e]||'#64748b';return'<span class="etag" style="--c:'+c+'"><i></i>'+(ESTL[e]||escH2(e))+'</span>';}
@@ -1961,7 +1961,7 @@ const msPasa=(r,F,excl)=>F.every(([id,fn])=>id===excl||!MSX[id].sel.size||MSX[id
 function msCascada(base,F,lbls,ords){F.forEach(([id,fn])=>{const cnt=new Map();base.forEach(r=>{if(msPasa(r,F,id)){const v=String(fn(r)??'');cnt.set(v,(cnt.get(v)||0)+1);}});msOpts(id,cnt,lbls&&lbls[id],ords&&ords[id]);});}
 const ORD_ROT=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN','NUEVOS','SIN COMPRA'];
 const ordRot=(a,b)=>((ORD_ROT.indexOf(a.v)+1||99)-(ORD_ROT.indexOf(b.v)+1||99))||a.t.localeCompare(b.t,'es');
-const ORD_EST=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
+const ORD_EST=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','NUEVA','SIN MOVIMIENTO','SIN COMPRA'];
 const ordEst=(a,b)=>((ORD_EST.indexOf(a.v)+1||99)-(ORD_EST.indexOf(b.v)+1||99))||a.t.localeCompare(b.t,'es');
 
 const CQ={rows:[],lim:200,sort:{k:'sem',d:1},abierto:new Set()};

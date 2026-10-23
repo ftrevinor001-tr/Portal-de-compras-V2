@@ -104,6 +104,13 @@ td:first-child,th:first-child{text-align:left}
     <div class="row"><button onclick="guardarSinED()">Guardar compradores</button><span class="d" id="ed-res"></span></div>
   </div>
   <div class="card">
+    <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
+    <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
+    <div class="row"><input type="file" id="f-sust" accept=".xlsx,.xls"><button onclick="run('sust')">Cargar sustituciones</button></div>
+    <div class="log" id="log-sust"></div>
+    <div id="sust-res" class="d" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
     <h2><span class="n">📦</span>Inventario en resguardo con proveedores <small style="color:var(--tx2);font-weight:400">· cuando el proveedor reporte saldo</small></h2>
     <p class="d">Mercancía nuestra que el proveedor tiene guardada fuera del CEDI. Se <b>suma a la existencia</b> en el Cálculo diario: meses de inventario, estatus (una clave con 0 en el CEDI y resguardo ya no es faltante) y propuesta de compra. Cada saldo cuenta <b>30 días</b> desde su fecha de corte; después deja de sumar hasta que se actualice. Si la mercancía también sigue pendiente en la OC, marca <b>Descontar del BO = SI</b> para no contarla dos veces.<br>
     Al subir un archivo se <b>reemplaza el saldo de los proveedores que trae</b> (los demás no se tocan); cantidad 0 quita la clave. Se aplica en el siguiente Cálculo diario.</p>
@@ -113,7 +120,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
   <div class="card" style="border:2px solid var(--navy2)">
     <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
-    <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (promedio de los dos), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
+    <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (la base recomendada: pronóstico si es temporada, si no antecedente), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
     <div class="row"><input type="file" id="f-calc" accept=".xlsx,.xlsm"><button onclick="run('calc')">Calcular</button><button class="sec" id="btn-xl" style="display:none" onclick="descargarCalc()">⬇ Descargar resultado (Excel)</button></div>
     <div class="log" id="log-calc"></div>
     <div id="calc-res"></div>
@@ -151,7 +158,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarResg();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -198,6 +205,7 @@ async function run(tipo){
     if(tipo==='calc')await cargaCalc(log);
     if(tipo==='hist2')await reconstruirHistorial(log);
     if(tipo==='resg')await cargaResg(log);
+    if(tipo==='sust')await cargaSust(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -288,6 +296,14 @@ async function contexto(log){
   const restr=new Set();rs.forEach(x=>{if(x.autorizado_en){const d=(Date.now()-new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'))/864e5;if(d>=30)return;}restr.add(Number(x.clave)+'|'+P.norm(x.comprador));});
   log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · restringidas '+restr.size);
   if(!ctx.ventas.SANVER.size)throw new Error('No hay ventas cargadas. Primero usa la sección 1.');
+  // Primera fecha con existencia por clave (NUEVA hasta P.R.DIAS_NUEVA días; después SIN MOVIMIENTO si nunca se vendió)
+  try{const pe=await todo(()=>sb.from('plan_primera_existencia').select('clave,fecha').order('clave'));ctx.primeraEx=new Map(pe.map(r=>[Number(r.clave),String(r.fecha).slice(0,10)]));
+    log.msg('🆕 Primera fecha con existencia: '+fmt(pe.length)+' claves registradas.');}
+  catch(e){ctx.primeraEx=null;log.msg('ℹ️ Sin fechas de primera existencia ('+(e.message||e)+'): las claves que nunca se han vendido quedan como NUEVA. Corre plan_tablas_14.sql.','w');}
+  // Claves sustituidas: la vigente suma la venta de sus claves originales
+  try{const su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));
+    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de '+fmt(new Set(su.map(x=>x.clave_original)).size)+' claves originales.');}}
+  catch(e){ctx.sust=new Map();log.msg('ℹ️ Sin claves sustituidas ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_13.sql.','w');}
   // Inventario en resguardo con proveedores (se suma a la existencia; vigencia por día dentro del cálculo)
   try{ctx.resgRows=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor,cantidad,fecha_corte,desc_bo').order('clave').order('proveedor'));
     if(ctx.resgRows.length)log.msg('📦 Inventario en resguardo: '+fmt(ctx.resgRows.length)+' registros ('+fmt(new Set(ctx.resgRows.map(r=>r.clave)).size)+' claves); cuenta el que tenga corte de los últimos '+P.R.RESG_DIAS+' días.');}
@@ -327,11 +343,13 @@ async function cargaCalc(log){
   if(prevEst&&![...prevEst.map.values()].some(r=>'eD' in r))await rachasIniciales(ctx,prevEst,log);
   for(const f of pendientes){
     await pausa();
+    primerasExistencias(ctx,[...porFecha.get(f).values()],f);
     res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
     if(f!==pendientes[pendientes.length-1]){antMap=new Map(res.map(r=>[Number(r.c),r]));antFecha=f;}
     if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;}
     await guardarHistEstatus(res,f,log);
     await guardarFoto(res,f,log);
+    await guardarPrimerasEx(ctx,log);
     if(soloPublicar)break;
     if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
     const a=P.alarmas(prev,null,res,f,restr);
@@ -428,13 +446,60 @@ async function reconstruirHistorial(log){
       filas.push({clave:k,nombre:String(r.nombre||'').trim(),unidad:P.norm(r.unidad),grupo:String(r.grupo||'').trim(),marca:String(r.marca||'').trim(),comprador:P.norm(r.comprador),rot:P.norm(r.rotacion),
         lt:P.num(r.t_entrega),pm:P.num(r.obj_meses),ex:P.num(r.existencias)||0,bo:P.num(r.back_order)||0,estX:P.norm(r.estatus),abc:String(r.clasificacion||'').trim()});});
     if(!filas.length){log.msg('   '+f+': sin detalle, se omite','w');continue;}
+    primerasExistencias(ctx,filas,f);
     const res=P.calcularDia(f,filas,ctx);
-    await guardarHistEstatus(res,f,log);await guardarFoto(res,f,log);
+    await guardarHistEstatus(res,f,log);await guardarFoto(res,f,log);await guardarPrimerasEx(ctx,log);
     ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;
     const c=e=>res.filter(r=>r.est===e).length;
     log.msg('   '+f+': '+fmt(res.length)+' claves · faltante '+fmt(c('FALTANTE'))+' · riesgo '+fmt(c('RIESGO'))+' · sobre inv. '+fmt(c('SOBRE INVENTARIO')));
   }
   log.msg('🎉 Historial reconstruido. El Histórico de Inventarios se actualiza con la siguiente carga del Excel.');
+}
+// ── Primera fecha con existencia (plan_primera_existencia): NUEVA vs SIN MOVIMIENTO para claves que nunca se han vendido ──
+// Cada día calculado agrega las claves que aparecen con existencia por primera vez; se guarda al final del cálculo.
+function primerasExistencias(ctx,filas,f){
+  if(!ctx.primeraEx)return;ctx._pexNuevas=ctx._pexNuevas||new Map();
+  filas.forEach(d=>{if((d.ex||0)>0&&!ctx.primeraEx.has(d.clave)){ctx.primeraEx.set(d.clave,f);ctx._pexNuevas.set(d.clave,f);}});
+}
+async function guardarPrimerasEx(ctx,log){
+  const m=ctx._pexNuevas;if(!m||!m.size)return;
+  try{await enLotes('plan_primera_existencia',[...m].map(([clave,fecha])=>({clave,fecha,origen:'CALCULO',actualizado_en:new Date().toISOString()})),log,{onConflict:'clave',ignoreDuplicates:true});
+    log.msg('🆕 '+fmt(m.size)+' claves aparecen con existencia por primera vez (se registra su fecha).');m.clear();}
+  catch(e){log.msg('⚠️ No se guardó la primera fecha con existencia: '+(e.message||e),'w');}
+}
+// ── Claves sustituidas ──
+async function cargaSust(log){
+  const wb=await leerLibro('f-sust',null,log);
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>P.norm(r[0])==='IDART');if(hi<0)throw new Error('No encontré el encabezado IDART en la columna A.');
+  const H=aoa[hi].map(P.norm);const cols=H.map((h,j)=>h==='IDART'?j:-1).filter(j=>j>=0);
+  if(cols.length<2)throw new Error('Se necesita al menos una columna IDART de clave original (naranja) además de la vigente.');
+  const iCaso=H.findIndex(h=>h.startsWith('OBSERV'));
+  const pares=[],err=[];
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];const v=P.clave(r[cols[0]]);if(v==null){if(String(r[cols[0]]).trim()!=='')err.push('fila '+(i+1)+': clave vigente no válida');continue;}
+    cols.slice(1).forEach(j=>{const o=P.clave(r[j]);if(o==null||o===v)return;pares.push({clave_vigente:v,clave_original:o,desc_vigente:String(r[cols[0]+1]||'').trim()||null,desc_original:String(r[j+1]||'').trim()||null,caso:iCaso>=0?String(r[iCaso]||'').trim()||null:null});});}
+  err.slice(0,10).forEach(t=>log.msg('⚠️ '+t,'w'));
+  if(!pares.length)throw new Error('El archivo no trae pares de claves válidos.');
+  // únicos y factor = 1 / número de sustitutas de cada original
+  const u=new Map();pares.forEach(p=>u.set(p.clave_vigente+'|'+p.clave_original,p));const lista=[...u.values()];
+  const nSus=new Map();lista.forEach(p=>nSus.set(p.clave_original,(nSus.get(p.clave_original)||0)+1));
+  lista.forEach(p=>{p.factor=Math.round(1/nSus.get(p.clave_original)*1e6)/1e6;p.cargado_en=new Date().toISOString();});
+  // cadenas: una original que también es vigente de otra (A←B←C) — se avisa, no se encadena
+  const vig=new Set(lista.map(p=>p.clave_vigente));const cad=[...new Set(lista.filter(p=>vig.has(p.clave_original)).map(p=>p.clave_original))];
+  if(cad.length)log.msg('⚠️ '+cad.length+' clave(s) son original de una y vigente de otra (cadena): '+cad.slice(0,10).join(', ')+'. Solo se suma un nivel.','w');
+  const rep=[...nSus].filter(([o,n])=>n>1);
+  log.msg('⚙️ '+fmt(vig.size)+' claves vigentes · '+fmt(nSus.size)+' claves originales · '+fmt(lista.length)+' pares'+(rep.length?' · '+rep.length+' originales con varias sustitutas (se reparte en partes iguales)':''));
+  const{error}=await sb.from('plan_sustituciones').delete().gte('clave_vigente',0);if(error)throw new Error('plan_sustituciones: '+error.message+' (¿ya corriste plan_tablas_13.sql?)');
+  await enLotes('plan_sustituciones',lista,log,{onConflict:'clave_vigente,clave_original'});
+  log.msg('🎉 Sustituciones guardadas. Se aplican en el siguiente Cálculo diario.');
+  await pintarSust();
+}
+async function pintarSust(){
+  const el=document.getElementById('sust-res');if(!el)return;
+  try{const r=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));
+    el.innerHTML=r.length?'Cargadas: <b>'+fmt(new Set(r.map(x=>x.clave_vigente)).size)+'</b> claves vigentes con <b>'+fmt(new Set(r.map(x=>x.clave_original)).size)+'</b> claves originales'+(r.some(x=>x.factor<1)?' · '+new Set(r.filter(x=>x.factor<1).map(x=>x.clave_original)).size+' originales repartidas en partes iguales':'')+'.':'No hay sustituciones cargadas.';}
+  catch(e){el.innerHTML='Aún no existe la tabla de sustituciones: corre <b>plan_tablas_13.sql</b> en Supabase.';}
 }
 // ── Inventario en resguardo con proveedores ──
 const hoyISO=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
@@ -603,7 +668,7 @@ async function descargarCalc(){
   let abiertas=[];
   try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
-    ['ex','Existencia para el cálculo (CEDI + resguardo)'],['exC','Existencia CEDI'],['rs','Resguardo con proveedor'],['rsBo','Resguardo descontado del BO'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
+    ['ex','Existencia para el cálculo (CEDI + resguardo)'],['exC','Existencia CEDI'],['rs','Resguardo con proveedor'],['rsBo','Resguardo descontado del BO'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal (base recomendada)'],['bDx','Por qué esa base'],['Dp','Promedio ant+pron (referencia)'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
     ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});

@@ -164,7 +164,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
       <button class="btn" style="margin-left:auto" onclick="excelDetalle()">⬇ Excel</button>
     </div>
     <div class="tw" id="d-tw"><table><thead id="d-head"></thead><tbody id="d-body"></tbody></table></div>
-    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (más de 15 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana), salvo que el pico se repita el mismo mes del año anterior (temporada). Demanda del portal = promedio de antecedente y pronóstico. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO del CEDI); el BO de OCs de entrega directa a sucursal no cuenta. Clic en una clave para ver sus ventas mes a mes.</div>
+    <div class="note">Antecedente: promedio de los N meses anteriores al mes en curso (N = meses objetivo de la clave). Pronóstico: los mismos N meses del año pasado empezando en el mes en curso. No cuentan los meses agotados (más de 15 días sin existencia), los anteriores a la primera venta, los ceros sospechosos de 2025 ni los atípicos (&gt;3× la mediana), salvo que el pico se repita el mismo mes del año anterior (temporada). Demanda del portal = base recomendada: pronóstico si es temporada (varía más de ±50% contra el antecedente), si no antecedente; si la base elegida tiene menos de la mitad de meses válidos se usa la otra; venta intermitente = promedio de 12 meses. Claves sin venta en su historial = <b>NUEVA</b>; con historial pero sin consumo en la ventana = <b>SIN MOVIMIENTO</b>. Las claves vigentes suman la venta de las claves que sustituyeron. Propuesta = consumo × (tiempo de entrega + objetivo) − (existencia + BO del CEDI); el BO de OCs de entrega directa a sucursal no cuenta. Clic en una clave para ver sus ventas mes a mes.</div>
   </section>
 
   <!-- ═════ PEDIDOS ═════ -->
@@ -220,10 +220,12 @@ const EST={
   'RIESGO':{l:'Riesgo',c:'var(--st-r)',i:'⚠️',o:1},
   'OPTIMO':{l:'Óptimo',c:'var(--st-o)',i:'✅',o:2},
   'SOBRE INVENTARIO':{l:'Sobre inventario',c:'var(--st-s)',i:'⬆️',o:3},
-  'SIN CONSUMO':{l:'Sin consumo',c:'var(--st-n)',i:'○',o:4},
-  'SIN COMPRA':{l:'Sin compra',c:'var(--st-n)',i:'⊘',o:5}
+  'NUEVA':{l:'Nueva sin historial',c:'#0891b2',i:'🆕',o:4},
+  'SIN MOVIMIENTO':{l:'Sin movimiento',c:'#a16207',i:'💤',o:5},
+  'SIN CONSUMO':{l:'Sin consumo',c:'var(--st-n)',i:'○',o:6},
+  'SIN COMPRA':{l:'Sin compra',c:'var(--st-n)',i:'⊘',o:7}
 };
-const BASES={D:{l:'Portal',d:'promedio de antecedente y pronóstico (la que usan alarmas y Target)'},A:{l:'Antecedente',d:'consumo real de los N meses anteriores'},P:{l:'Pronóstico',d:'mismos N meses del año pasado, desde el mes en curso'}};
+const BASES={D:{l:'Portal',d:'base recomendada: pronóstico si es temporada, si no antecedente (la que usan alarmas, Target y propuestas)'},A:{l:'Antecedente',d:'consumo real de los N meses anteriores'},P:{l:'Pronóstico',d:'mismos N meses del año pasado, desde el mes en curso'}};
 const RIESGOS=['FALTANTE','RIESGO'];
 // Estatus de una clave con la base elegida (D portal, A antecedente, P pronóstico)
 // El estatus por antecedente/pronóstico se calcula aquí con la misma fórmula (no depende de que el cálculo publicado lo traiga)
@@ -422,7 +424,7 @@ function pintarTablero(){
     +emp.slice(0,6).map(r=>'<div class="it"><b style="color:var(--tx)">'+r.c+'</b> '+esc((r.n||'').slice(0,46))+' — '+(EST[estDe(r,'A')]||{}).l+' → <b>'+(EST[estDe(r,'P')]||{}).l+'</b></div>').join('')
     +'<div style="margin-top:8px"><button class="btn" onclick="verEnDetalle({lista:new Set('+JSON.stringify(emp.map(r=>r.c))+')})">Ver sólo estas en la tabla</button></div></div>':'';
   const ct=conteoEstatus(rows,b);
-  const orden=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO',b==='D'?'SIN COMPRA':'SIN CONSUMO'];
+  const orden=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','NUEVA','SIN MOVIMIENTO',b==='D'?'SIN COMPRA':'SIN CONSUMO'];
   $('tab-cards').innerHTML=orden.map(e=>{const s=EST[e];const n=ct[e]||0;return '<div class="kc" style="--c:'+s.c+'" onclick="verEnDetalle({est:\''+e+'\'})"><div class="t"><i></i>'+s.i+' '+s.l+'</div><div class="n">'+fmtN(n)+'</div><div class="p">'+(tot?Math.round(n/tot*100):0)+'% de '+fmtN(tot)+' claves</div></div>';}).join('');
   // Segunda fila: acciones e indicadores
   const porPedir=rows.filter(r=>malo(r.est)&&(r.s||0)>0).length,mf=rows.filter(r=>r.mfF).length;
@@ -518,7 +520,7 @@ function pintarDetalle(){
   const B=S.base,act=g=>B===g?' act':'';
   const gspan=g=>DCOLS.filter(c=>c.g===g).length;
   const pre=DCOLS.findIndex(c=>c.g==='A');const mid=DCOLS.filter((c,i)=>!c.g&&i>DCOLS.findIndex(c=>c.g==='D')&&i<DCOLS.findIndex(c=>c.g==='Pr')).length;
-  $('d-head').innerHTML='<tr class="grp"><th colspan="'+pre+'"></th><th colspan="'+gspan('A')+'" class="gA">📊 Antecedente<span>N meses anteriores</span></th><th colspan="'+gspan('P')+'" class="gP">🔮 Pronóstico<span>mismos N meses, año pasado</span></th><th colspan="'+gspan('D')+'" class="gD">🧭 Portal<span>promedio de ambos</span></th><th colspan="'+mid+'"></th><th colspan="'+gspan('Pr')+'" class="gPr">🛒 Propuesta<span>unidad de inventario</span></th><th></th></tr>'
+  $('d-head').innerHTML='<tr class="grp"><th colspan="'+pre+'"></th><th colspan="'+gspan('A')+'" class="gA">📊 Antecedente<span>N meses anteriores</span></th><th colspan="'+gspan('P')+'" class="gP">🔮 Pronóstico<span>mismos N meses, año pasado</span></th><th colspan="'+gspan('D')+'" class="gD">🧭 Portal<span>base recomendada</span></th><th colspan="'+mid+'"></th><th colspan="'+gspan('Pr')+'" class="gPr">🛒 Propuesta<span>unidad de inventario</span></th><th></th></tr>'
     +'<tr class="cols">'+DCOLS.map(c=>'<th data-k="'+c.k+'" class="'+(c.num?'num ':'')+(c.g?'g'+c.g+(c.g===B?' act':''):'')+'">'+c.t+(S.sort.k===c.k?(S.sort.d>0?' ▲':' ▼'):'')+'</th>').join('')+'</tr>';
   $('d-head').querySelectorAll('th[data-k]').forEach(h=>h.onclick=()=>{const kk=h.dataset.k;if(S.sort.k===kk)S.sort.d*=-1;else S.sort={k:kk,d:1};pintarDetalle();});
   const cp=v=>v==null?'—':v>0?'<b class="comprar">'+fmtN(v)+'</b>':'<span class="cero">0</span>';
@@ -552,6 +554,7 @@ async function datosClave(c){
   for(const x of [v,ag,ed,al])if(x.error)throw x.error;
   const o={ventas:{},agot:{SANVER:{},MF:{}},ed:{},alarmas:al.data||[]};
   (v.data||[]).forEach(r=>o.ventas[r.empresa]=r.meses||{});(ag.data||[]).forEach(r=>{(o.agot[r.empresa]||(o.agot[r.empresa]={}))[String(r.mes).slice(0,7)]=Number(r.dias_agotado);});(ed.data||[]).forEach(r=>o.ed[String(r.mes).slice(0,7)]=Number(r.cantidad));
+  await P.ventasConSust(sb,c,o);
   CACHE_CLAVE.set(c,o);return o;
 }
 async function pintarExplicacion(c){
@@ -562,10 +565,11 @@ async function pintarExplicacion(c){
     const sv=ex('SANVER'),mf=d.ventas.MF?ex('MF'):[];
     const ocs=S.ocs[c]||[];
     const w=Math.max(320,($('d-tw').clientWidth||900)-30);
-    el.innerHTML='<div class="detbox" style="width:'+w+'px"><div class="dgrid"><div><div class="row" style="justify-content:space-between"><b>Ventas SANVER mes a mes</b><div class="legend" style="margin:0"><span><i style="background:#3b82f6"></i>Antecedente</span><span><i style="background:#8b5cf6"></i>Pronóstico</span><span><i style="background:#cbd5e1"></i>No usado</span><span><i style="background:repeating-linear-gradient(45deg,#fda4af,#fda4af 2px,#fff 2px,#fff 4px)"></i>Descartado</span></div></div>'+graficaMeses(sv,d.agot.SANVER)
-      +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF)+'</details>':'')+'</div>'
+    el.innerHTML='<div class="detbox" style="width:'+w+'px"><div class="dgrid"><div><div class="row" style="justify-content:space-between"><b>Ventas SANVER mes a mes</b><div class="legend" style="margin:0"><span><i style="background:#3b82f6"></i>Antecedente</span><span><i style="background:#8b5cf6"></i>Pronóstico</span><span><i style="background:#cbd5e1"></i>No usado</span><span><i style="background:repeating-linear-gradient(45deg,#fda4af,#fda4af 2px,#fff 2px,#fff 4px)"></i>Descartado</span>'+(d.sust?'<span><i style="background:#f97316"></i>Clave sustituida (franja: mes usado)</span>':'')+'</div></div>'+graficaMeses(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER)
+      +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'')+'</div>'
       +'<div><div class="kv"><b>Antecedente</b><span>'+fmtN(r.A,1)+' / mes · '+(sv.filter(x=>x.usa.includes('ANT')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span><b>Pronóstico</b><span>'+fmtN(r.P,1)+' / mes · '+(sv.filter(x=>x.usa.includes('PRON')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span>'
-      +'<b>Demanda portal</b><span>'+fmtN(r.D,1)+' / mes · '+esc(r.bD)+'</span><b>Meses objetivo (N)</b><span>'+r.N+' · objetivo '+fmtN(r.pm,1)+' · entrega '+fmtN(r.lt,1)+'</span>'
+      +(d.sust?'<b>Claves sustituidas</b><span style="color:#c2410c">suma la venta de '+d.sust.lst.map(x=>'<b>'+x.o+'</b>'+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')+(x.d?' '+esc(x.d.slice(0,40)):'')).join(' · ')+'</span>':'')
+      +'<b>Demanda portal</b><span>'+fmtN(r.D,1)+' / mes · '+esc(r.bD)+(r.bDx?' <span class="mut">('+esc(r.bDx)+')</span>':'')+'</span><b>Meses objetivo (N)</b><span>'+r.N+' · objetivo '+fmtN(r.pm,1)+' · entrega '+fmtN(r.lt,1)+'</span>'
       +'<b>Límites</b><span>riesgo entra con menos de '+fmtN(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+fmtN(r.pm*P.R.FACT_MAX,1)+' · hoy '+fmtN(r.mi,1)+' meses ('+fmtN(r.miB,1)+' con BO)</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+(r.rs>0?' existencia, incluye '+fmtN(r.rs)+' en resguardo':'')+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
       +(r.rs>0?'<b>Resguardo</b><span>CEDI '+fmtN(r.exC)+' + resguardo '+fmtN(r.rs)+' = '+fmtN(r.ex)+' · '+esc(rgDet(r))+'</span>':'')
       +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+fmtN(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
@@ -573,7 +577,7 @@ async function pintarExplicacion(c){
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
   }catch(e){el.innerHTML='<div class="err">No se pudo leer el historial de la clave: '+esc(e.message||e)+'</div>';}
 }
-function graficaMeses(arr,agot){
+function graficaMeses(arr,agot,parte){
   if(!arr.length)return '<div class="empty">Sin ventas cargadas.</div>';
   const W=820,H=210,pl=40,pb=44,pt=16;const mx=Math.max(1,...arr.map(x=>Math.max(x.venta||0,x.limpia||0)));const bw=(W-pl-6)/arr.length;
   let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-height:230px"><defs><pattern id="hz" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="#fff"/><rect width="2.4" height="5" fill="#fda4af"/></pattern></defs>';
@@ -583,12 +587,16 @@ function graficaMeses(arr,agot){
     const fill=x.excluido?'url(#hz)':x.usa.includes('ANT')?'#3b82f6':x.usa.includes('PRON')?'#8b5cf6':'#cbd5e1';
     const tit=fmtMes(x.m)+': venta '+fmtN(x.venta)+(x.ed?' · ED restada → '+fmtN(x.limpia):'')+(x.valor!=null&&x.valor!==v?' · se usa '+fmtN(x.valor,1):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='temporada'?' · pico de temporada: el mismo mes del año anterior también fue alto, se usa completo':'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+((agot||{})[x.m]?' · '+agot[x.m]+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
     s+='<rect x="'+x0+'" y="'+(bh?y0:H-pb-1)+'" width="'+(bw-4)+'" height="'+Math.max(bh,1)+'" rx="2" fill="'+fill+'" stroke="'+(x.excluido?'#fb7185':'none')+'"><title>'+esc(tit)+'</title></rect>';
+    // parte de la venta que viene de claves sustituidas (naranja, arriba de la barra)
+    const ps=parte&&parte[x.m];if(ps&&bh>0){const q=ps.reduce((a,y)=>a+y[1],0),rt=Math.min(1,q/Math.max(x.venta||0,q));const hh=bh*rt;
+      s+='<rect x="'+x0+'" y="'+y0+'" width="'+(bw-4)+'" height="'+Math.max(hh,1)+'" rx="2" fill="#f97316" opacity="'+(x.excluido?.45:.9)+'"><title>'+esc(fmtMes(x.m)+': '+fmtN(q,q<10?1:0)+' de '+fmtN(x.venta)+' vienen de la clave sustituida '+ps.map(y=>y[0]+' ('+fmtN(y[1],y[1]<10?1:0)+')').join(', ')+(x.excluido?' · mes NO usado: '+x.excluido:''))+'</title></rect>';
+        if(!x.excluido&&x.usa.length)s+='<rect x="'+x0+'" y="'+y0+'" width="'+(bw-4)+'" height="4" rx="1" fill="'+(x.usa.includes('ANT')?'#3b82f6':'#8b5cf6')+'"><title>'+(x.usa.includes('ANT')?'Usado en antecedente':'Usado en pronóstico')+'</title></rect>';}
     if(x.ed)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-3)+'" font-size="9" text-anchor="middle" fill="#b45309">ED</text>';
     if((agot||{})[x.m]>=P.R.DIAS_AGOTADO)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-(x.ed?12:3))+'" font-size="9" text-anchor="middle" fill="#e11d48">⛔</text>';
     s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(H-pb+13)+'" font-size="9.5" text-anchor="middle" fill="#64748b">'+MESES[+x.m.slice(5,7)].slice(0,3)+'</text>';
     if(x.m.slice(5,7)==='01'||i===0)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(H-pb+26)+'" font-size="9.5" text-anchor="middle" fill="#2563eb">'+x.m.slice(0,4)+'</text>';
   });
-  return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado.</div>';
+  return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado'+(parte&&Object.keys(parte).length?' · <span style="color:#f97316">■</span> venta de la clave sustituida':'')+'.</div>';
 }
 function excelDetalle(){
   const lq=listaClaves(S.f.q),DFx=lq?DF.filter(([id])=>!esComp(id)):DF;

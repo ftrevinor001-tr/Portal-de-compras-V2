@@ -1826,6 +1826,10 @@ async function procesarExcel(file){
     log('💾 Guardando en base de datos…');
     try{ await guardarDiasNuevos(rawD); }
     catch(e){ log('⚠️ Guardado en base: '+e.message+' (se continúa con el Excel)'); }
+    // ── Primera fecha con existencia por clave (hoja Historico de faltantes): separa NUEVA de SIN MOVIMIENTO ──
+    let rawH=null;const wsHist0=wb.Sheets['Historico de faltantes'];
+    if(wsHist0){log('⚙️ Leyendo Historico de faltantes…');await new Promise(r=>setTimeout(r,50));rawH=XLSX.utils.sheet_to_json(wsHist0,{raw:false,defval:''});
+      try{await registrarPrimeraExistencia(rawH);}catch(e){log('⚠️ Primera fecha con existencia: '+e.message);}}
     // ── CÁLCULO DIARIO DEL PORTAL primero: su foto del día es la que alimenta los tableros ──
     if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
     else log('ℹ️ Sin Cálculo diario en esta carga: los tableros usan el último día calculado por el portal.');
@@ -1969,11 +1973,9 @@ async function procesarExcel(file){
     RES.alarmas=null; // forzar recarga de Mi Resumen
 
     // ── MONITOR DE INVENTARIO ──
-    const wsHist=wb.Sheets['Historico de faltantes'];
-    if(wsHist){
+    if(rawH){
       log('⚙️ Procesando Historico de faltantes (Monitor)… puede tardar 1-2 min');
       await new Promise(r=>setTimeout(r,50));
-      const rawH=XLSX.utils.sheet_to_json(wsHist,{raw:false,defval:''});
       log('   '+rawH.length.toLocaleString()+' filas');
       const miMap={};payload.detR.forEach(r=>{const cm=String(r.clmov||'').trim().toUpperCase();if(r.fecha===payload.uf&&cm!=='NUEVOS'&&cm!=='SIN COMPRA')miMap[String(r.clave).trim()]=parseFloat(r.meses_inv);});
       const mon=construirMonitor(rawH,miMap);
@@ -2037,6 +2039,18 @@ async function procesarExcel(file){
     log('🎉 LISTO. Los 4 dashboards y las alarmas ya muestran la nueva información para todo el equipo.');
     log('   (Si tenías el dashboard abierto, presiona "☁️ Actualizar desde servidor" o recarga la página.)');
   }catch(e){log('❌ ERROR: '+e.message);return;}
+}
+// Guarda/adelanta en plan_primera_existencia el primer día con existencia de cada clave según la hoja Historico de faltantes
+async function registrarPrimeraExistencia(rawH){
+  const min=new Map();
+  rawH.forEach(r=>{const ex=parseFloat(String(r['Existencias']||'').replace(/,/g,''));if(!(ex>0))return;const k=parseInt(String(r['Clave']||'').trim(),10);const f=pD(r['Día/ mes.1']);if(!k||!f)return;if(!min.has(k)||f<min.get(k))min.set(k,f);});
+  if(!min.size)return;
+  let ya;try{ya=await tgPaginar(()=>sb.from('plan_primera_existencia').select('clave,fecha').order('clave',{ascending:true}));}
+  catch(e){log('ℹ️ Aún no existe la tabla plan_primera_existencia (corre plan_tablas_14.sql): no se separan NUEVA y SIN MOVIMIENTO.');return;}
+  const act=new Map(ya.map(r=>[Number(r.clave),String(r.fecha).slice(0,10)]));
+  const filas=[...min].filter(([k,f])=>!act.has(k)||f<act.get(k)).map(([clave,fecha])=>({clave,fecha,origen:'HISTORICO',actualizado_en:new Date().toISOString()}));
+  for(let i=0;i<filas.length;i+=500){const{error}=await sb.from('plan_primera_existencia').upsert(filas.slice(i,i+500),{onConflict:'clave'});if(error)throw new Error(error.message);}
+  log('   🆕 Primera fecha con existencia: '+min.size.toLocaleString()+' claves en la hoja · '+filas.length.toLocaleString()+' nuevas o más antiguas guardadas.');
 }
 // ── Cálculo diario con el mismo archivo: lo corre la página de Cálculo diario (oculta) y aquí se ve el avance ──
 async function calculoAutomatico(file){
