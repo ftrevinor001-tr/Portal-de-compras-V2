@@ -221,7 +221,12 @@ P.valor=(s,m)=>{
   if(x<=P.R.ATIPICO*med)return{v:x};
   // Pico de temporada: si el mismo mes del año anterior (o el de antes o el de después) también vendió
   // más de TEMP_REPITE × la mediana, el pico se repite cada año y se usa completo (no se descarta ni se topa).
-  if(P.R.TEMP_REPITE>0)for(let k=-1;k<=1;k++){const v=s[P.ym(m,-12+k)]||0;if(v>P.R.TEMP_REPITE*med)return{v:x,at:'temporada'};}
+  if(P.R.TEMP_REPITE>0){const L=P.R.TEMP_REPITE*med;
+    for(let k=-1;k<=1;k++){const v=s[P.ym(m,-12+k)]||0;if(v>L)return{v:x,at:'temporada'};}
+    // …o el mismo mes (±1) del año siguiente, cuando ya hay venta cargada de ese año: el pico se volvió a dar
+    for(let k=-1;k<=1;k++){const v=s[P.ym(m,12+k)]||0;if(v>L)return{v:x,at:'temporada'};}
+    // …o el mes anterior o el siguiente también vendieron fuerte: es una temporada de varios meses, no un pico aislado
+    if((s[P.ym(m,-1)]||0)>L||(s[P.ym(m,1)]||0)>L)return{v:x,at:'temporada'};}
   return m<P.R.ANIO_LIMPIO?{v:null,at:'descartado'}:{v:P.R.ATIPICO*med,at:'topado'};
 };
 P.R.TEMP_REPITE=2;
