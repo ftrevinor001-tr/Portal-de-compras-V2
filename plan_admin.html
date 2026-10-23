@@ -106,8 +106,10 @@ td:first-child,th:first-child{text-align:left}
   <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
     <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
-    <div class="row"><input type="file" id="f-sust" accept=".xlsx,.xls"><button onclick="run('sust')">Cargar sustituciones</button></div>
+    <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
+    <div class="row"><input type="file" id="f-sust" accept=".xlsx,.xls"><button onclick="run('sust')">Cargar sustituciones o factores</button><button class="sec" onclick="run('sustx')">⬇ Pares con unidad distinta</button></div>
     <div class="log" id="log-sust"></div>
+    <div class="log" id="log-sustx"></div>
     <div id="sust-res" class="d" style="margin-top:8px"></div>
   </div>
   <div class="card">
@@ -206,6 +208,7 @@ async function run(tipo){
     if(tipo==='hist2')await reconstruirHistorial(log);
     if(tipo==='resg')await cargaResg(log);
     if(tipo==='sust')await cargaSust(log);
+    if(tipo==='sustx')await bajarConversiones(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -301,8 +304,9 @@ async function contexto(log){
     log.msg('🆕 Primera fecha con existencia: '+fmt(pe.length)+' claves registradas.');}
   catch(e){ctx.primeraEx=null;log.msg('ℹ️ Sin fechas de primera existencia ('+(e.message||e)+'): las claves que nunca se han vendido quedan como NUEVA. Corre plan_tablas_14.sql.','w');}
   // Claves sustituidas: la vigente suma la venta de sus claves originales
-  try{const su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));
-    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de '+fmt(new Set(su.map(x=>x.clave_original)).size)+' claves originales.');}}
+  try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
+    catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
+    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de sus claves originales'+(ctx.sustOmit.length?' · ⚠️ '+ctx.sustOmit.length+' pares NO se suman por unidad distinta (captura su factor en la tarjeta de sustituciones)':'')+'.');}}
   catch(e){ctx.sust=new Map();log.msg('ℹ️ Sin claves sustituidas ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_13.sql.','w');}
   // Inventario en resguardo con proveedores (se suma a la existencia; vigencia por día dentro del cálculo)
   try{ctx.resgRows=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor,cantidad,fecha_corte,desc_bo').order('clave').order('proveedor'));
@@ -468,8 +472,39 @@ async function guardarPrimerasEx(ctx,log){
   catch(e){log.msg('⚠️ No se guardó la primera fecha con existencia: '+(e.message||e),'w');}
 }
 // ── Claves sustituidas ──
+// Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión
+async function paresConEscala(log){
+  const su=await todo(()=>sb.from('plan_sustituciones').select('*').order('clave_vigente').order('clave_original'));
+  const ks=[...new Set(su.flatMap(x=>[Number(x.clave_vigente),Number(x.clave_original)]))];const V=new Map();
+  for(let i=0;i<ks.length;i+=200){const d=await todo(()=>sb.from('plan_ventas').select('clave,meses').eq('empresa','SANVER').in('clave',ks.slice(i,i+200)).order('clave'));d.forEach(r=>V.set(Number(r.clave),r.meses||{}));}
+  const av=m=>{const x=Object.values(m||{}).filter(q=>q>0);return x.length?x.reduce((a,b)=>a+b,0)/x.length:null;};
+  return su.map(x=>{const a=av(V.get(Number(x.clave_vigente))),b=av(V.get(Number(x.clave_original)));const r=a&&b?a/b:null;
+    return{...x,va:a,vo:b,ratio:r,fuera:r!=null&&(r>P.R.SUST_RATIO||r<1/P.R.SUST_RATIO)};});
+}
+async function bajarConversiones(log){
+  log.msg('📥 Revisando la escala de venta de cada par…');
+  const L=(await paresConEscala(log)).filter(x=>x.fuera||(x.conv!=null));
+  if(!L.length){log.msg('🎉 Ningún par tiene escala de venta distinta.');return;}
+  const rd=v=>v==null?'':Math.round(v*100)/100;
+  const rows=L.map(x=>({'Clave vigente':x.clave_vigente,'Descripción vigente':x.desc_vigente||'','Clave original':x.clave_original,'Descripción original':x.desc_original||'',
+    'Venta prom. vigente (meses con venta)':rd(x.va),'Venta prom. original (meses con venta)':rd(x.vo),'Veces':rd(x.ratio),'FACTOR':x.conv!=null?+x.conv:'',
+    'Estado':x.conv!=null?'con factor: se suma × FACTOR':'NO se suma hasta capturar FACTOR'}));
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[{wch:10},{wch:40},{wch:10},{wch:40},{wch:14},{wch:14},{wch:9},{wch:9},{wch:34}];
+  XLSX.utils.book_append_sheet(wb,ws,'Conversiones');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['FACTOR = cuántas unidades de la clave vigente equivalen a 1 unidad de la clave original.'],['Ejemplo: la original se vendía por bote de 946 ml y la vigente en mililitros → FACTOR 946.'],['"Veces" es solo una referencia (venta promedio vigente ÷ original); no siempre es el factor exacto.'],['Deja FACTOR vacío para no sumar la venta de la original. Sube este archivo en la misma tarjeta: solo actualiza los factores.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Sustituciones_unidad_distinta.xlsx');
+  log.msg('⬇ '+L.filter(x=>x.conv==null).length+' pares sin factor (no se suman) · '+L.filter(x=>x.conv!=null).length+' con factor.');
+}
 async function cargaSust(log){
   const wb=await leerLibro('f-sust',null,log);
+  // Archivo de factores (hoja Conversiones): solo actualiza conv
+  if(wb.Sheets['Conversiones']){
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets['Conversiones'],{raw:true,defval:''});let n=0,q=0;
+    for(const r of rows){const v=P.clave(r['Clave vigente']),o=P.clave(r['Clave original']);if(v==null||o==null)continue;const f=P.num(r['FACTOR']);
+      const{error}=await sb.from('plan_sustituciones').update({conv:f>0?f:null}).eq('clave_vigente',v).eq('clave_original',o);if(error)throw new Error(error.message+' (¿corriste la versión nueva de plan_tablas_13.sql?)');f>0?n++:q++;}
+    log.msg('🎉 Factores guardados: '+n+' pares con factor'+(q?' · '+q+' sin factor (no se suman)':'')+'. Se aplican en el siguiente Cálculo diario.');
+    await pintarSust();return;
+  }
   const ws=wb.Sheets[wb.SheetNames[0]];
   const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
   const hi=aoa.findIndex(r=>P.norm(r[0])==='IDART');if(hi<0)throw new Error('No encontré el encabezado IDART en la columna A.');
@@ -490,9 +525,12 @@ async function cargaSust(log){
   if(cad.length)log.msg('⚠️ '+cad.length+' clave(s) son original de una y vigente de otra (cadena): '+cad.slice(0,10).join(', ')+'. Solo se suma un nivel.','w');
   const rep=[...nSus].filter(([o,n])=>n>1);
   log.msg('⚙️ '+fmt(vig.size)+' claves vigentes · '+fmt(nSus.size)+' claves originales · '+fmt(lista.length)+' pares'+(rep.length?' · '+rep.length+' originales con varias sustitutas (se reparte en partes iguales)':''));
+  // conserva los factores ya capturados
+  try{const ant=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,conv').order('clave_vigente'));const cm=new Map(ant.filter(x=>x.conv!=null).map(x=>[x.clave_vigente+'|'+x.clave_original,x.conv]));lista.forEach(p=>{const c=cm.get(p.clave_vigente+'|'+p.clave_original);if(c!=null)p.conv=c;});}catch(e){}
   const{error}=await sb.from('plan_sustituciones').delete().gte('clave_vigente',0);if(error)throw new Error('plan_sustituciones: '+error.message+' (¿ya corriste plan_tablas_13.sql?)');
   await enLotes('plan_sustituciones',lista,log,{onConflict:'clave_vigente,clave_original'});
   log.msg('🎉 Sustituciones guardadas. Se aplican en el siguiente Cálculo diario.');
+  try{const L=await paresConEscala(log);const f=L.filter(x=>x.fuera&&x.conv==null);if(f.length)log.msg('⚠️ '+f.length+' pares venden en escala muy distinta (más de '+P.R.SUST_RATIO+' veces): su venta NO se suma hasta capturar el factor. Usa «⬇ Pares con unidad distinta».','w');}catch(e){}
   await pintarSust();
 }
 async function pintarSust(){

@@ -317,7 +317,16 @@ P.resgMapa=(rows,fecha)=>{
 };
 // ── Claves sustituidas (oct-2026) ──
 // La clave vigente toma el historial de venta de la(s) clave(s) que sustituyó; si una original tiene n sustitutas, a cada una le toca 1/n.
-P.sustMapa=rows=>{const m=new Map();(rows||[]).forEach(r=>{const v=Number(r.clave_vigente);if(!v)return;(m.get(v)||m.set(v,[]).get(v)).push({o:Number(r.clave_original),f:Number(r.factor)||1,d:r.desc_original||''});});return m;};
+P.sustMapa=rows=>{const m=new Map();(rows||[]).forEach(r=>{const v=Number(r.clave_vigente);if(!v)return;(m.get(v)||m.set(v,[]).get(v)).push({o:Number(r.clave_original),f:Number(r.factor)||1,cv:r.conv!=null&&+r.conv>0?+r.conv:null,d:r.desc_original||''});});return m;};
+// Unidad distinta: si la venta mensual promedio de la vigente y la de la original difieren más de SUST_RATIO veces (p. ej. mililitros vs piezas),
+// sin factor de conversión capturado NO se suma la original. Regresa el multiplicador a usar (conv) o null si no se suma.
+P.R.SUST_RATIO=10;
+P.sustConv=(own,orig,cv)=>{
+  if(cv)return cv;
+  const av=m=>{const x=Object.values(m||{}).filter(q=>q>0);return x.length?x.reduce((a,b)=>a+b,0)/x.length:null;};
+  const a=av(own),b=av(orig);if(a==null||b==null)return 1;
+  const r=a/b;return r>P.R.SUST_RATIO||r<1/P.R.SUST_RATIO?null:1;
+};
 // own + Σ factor × original, por mes. parte[m] = [[clave original, cantidad]] para pintarlo distinto en la gráfica.
 P.mezclarSust=(own,origs)=>{
   const s=Object.assign({},own||{});const parte={};
@@ -333,18 +342,25 @@ P.ventasConSust=async(sb,c,o)=>{
     if(error||!su||!su.length)return o;
     const ks=su.map(x=>Number(x.clave_original));
     const[v,e]=await Promise.all([sb.from('plan_ventas').select('empresa,clave,meses').in('clave',ks),sb.from('plan_compras_ed').select('clave,mes,cantidad').in('clave',ks)]);
-    const lst=su.map(x=>({o:Number(x.clave_original),f:Number(x.factor)||1,d:x.desc_original||''}));const parte={};
+    const lst0=su.map(x=>({o:Number(x.clave_original),f:Number(x.factor)||1,cv:x.conv!=null&&+x.conv>0?+x.conv:null,d:x.desc_original||''}));const parte={};
+    // misma revisión de unidad que el Cálculo diario (con la venta SANVER)
+    const vS=k=>((v.data||[]).find(r=>r.empresa==='SANVER'&&Number(r.clave)===k)||{}).meses;
+    const lst=[],omit=[];lst0.forEach(x=>{const cv=P.sustConv(o.ventas.SANVER,vS(x.o),x.cv);if(cv==null)omit.push(x);else lst.push({...x,f:x.f*cv,cv});});
+    if(!lst.length){o.sust={lst:[],omit,parte:{}};return o;}
     ['SANVER','MF'].forEach(emp=>{const og=lst.map(x=>({o:x.o,f:x.f,meses:((v.data||[]).find(r=>r.empresa===emp&&Number(r.clave)===x.o)||{}).meses})).filter(x=>x.meses);
       if(og.length){const mz=P.mezclarSust(o.ventas[emp],og);o.ventas[emp]=mz.meses;parte[emp]=mz.parte;}});
     const edO={};(e.data||[]).forEach(r=>{const k=Number(r.clave);(edO[k]=edO[k]||{})[String(r.mes).slice(0,7)]=Number(r.cantidad);});
     const og=lst.map(x=>({o:x.o,f:x.f,meses:edO[x.o]})).filter(x=>x.meses);if(og.length)o.ed=P.mezclarSust(o.ed,og).meses;
-    o.sust={lst,parte};
+    o.sust={lst,omit,parte};
   }catch(err){}
   return o;
 };
 // Aplica las sustituciones a las ventas y compras ED del contexto del cálculo (ctx.ventas.SANVER/MF, ctx.ed)
 P.aplicarSust=(ctx,rows)=>{
-  const M=P.sustMapa(rows);ctx.sust=M;let n=0;
+  const M0=P.sustMapa(rows);const M=new Map();ctx.sustOmit=[];
+  // revisión de unidad con la venta SANVER original (antes de sumar nada)
+  M0.forEach((l,v)=>{const ok=[];l.forEach(x=>{const cv=P.sustConv(ctx.ventas.SANVER.get(v),ctx.ventas.SANVER.get(x.o),x.cv);if(cv==null)ctx.sustOmit.push([v,x.o]);else ok.push({...x,f:x.f*cv,cv});});if(ok.length)M.set(v,ok);});
+  ctx.sust=M;let n=0;
   M.forEach((lst,v)=>{n++;
     ['SANVER','MF'].forEach(emp=>{const V=ctx.ventas[emp];if(!V)return;const og=lst.map(x=>({o:x.o,f:x.f,meses:V.get(x.o)})).filter(x=>x.meses);
       if(og.length)V.set(v,P.mezclarSust(V.get(v),og).meses);});
@@ -397,7 +413,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
     const r1=x=>x==null?null:Math.round(x*10)/10;
-    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')).join(', ')]:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
+    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
