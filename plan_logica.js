@@ -254,7 +254,7 @@ P.antPron=(s,ref,N,agot,ultimo,primero)=>{
   const inter=w.length>=6&&nv<=P.R.INTERMITENTE;
   if(ini==null)notas.push('sin ventas en el historial');
   else if(ini>P.ym(ref,-12))notas.push('primera venta '+ini);
-  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,I:inter?avg(w):null,notas};
+  return{A:avg(a),P:avg(p),nA:a.length,nP:p.length,I:inter?avg(w):null,W:avg(w),nW:w.length,notas};
 };
 // Estatus por meses de inventario. prev = estatus del día anterior (para el margen entre 1.2 y 1.4)
 P.clasificar=(mi,lt,pm,prev)=>{
@@ -304,6 +304,8 @@ P.R.RESG_DIAS=30;
 P.R.DIAS_NUEVA=90;
 // Demanda mínima para considerar que hay consumo (1 pieza al año); abajo de esto la clave queda SIN MOVIMIENTO
 P.R.D_MIN=1/12;
+// Venta irregular: base elegida fuera de [promedio 12 meses ÷ 3, × 3] → se usa el promedio de 12 meses
+P.R.IRREG=3;
 // Cómo se detecta temporada: INDICE = pronóstico vs antecedente del año pasado (quita la tendencia general); DIRECTO = pronóstico vs antecedente de hoy
 P.R.TEMP_MODO='INDICE';
 P.resgMapa=(rows,fecha)=>{
@@ -368,8 +370,12 @@ P.calcularDia=(fecha,filas,ctx)=>{
     // para no confundir una baja general de ventas con temporada. Aly = antecedente de hace 12 meses.
     const ly=P.R.TEMP_MODO==='INDICE'?P.antPron(sv.s,P.ym(ref,-12),N,m=>ctx.agot.has('SANVER|'+k+'|'+m),P.ym(ref,-13),ctx.primero&&ctx.primero.SANVER):null;
     const br=P.baseRec({A:ap.A,P:ap.P,N,pm,nA:ap.nA,nP:ap.nP,bD:ap.I!=null?'INTERMITENTE 12 MESES':'',D:Dprom,Aly:ly?ly.A:undefined,nAly:ly?ly.nA:undefined});
-    // Menos de 1 pieza al año (p. ej. fracciones por ajustes) no es consumo real: cuenta como sin consumo
-    const D=br.c>=P.R.D_MIN?br.c:0;
+    // Venta irregular: si la base elegida se aleja más de IRREG veces del promedio de los 12 meses válidos, se usa ese promedio
+    // (ventas por lotes, meses recientes casi en cero, o claves sustituidas vendidas en otra unidad)
+    let c0=br.c,irr=null;
+    if(br.b!=='INTER'&&ap.W>0&&ap.nW>=6&&(!(c0>0)||c0<ap.W/P.R.IRREG||c0>ap.W*P.R.IRREG)){irr={b:br.b,c:c0};c0=ap.W;}
+    // 1 pieza al año o menos (p. ej. fracciones por ajustes) no es consumo real: cuenta como sin consumo
+    const D=c0>P.R.D_MIN*1.0001?c0:0;
     // ¿Tiene venta en su historial (incluidas sus claves sustituidas)? Sin venta nunca = NUEVA
     const hv0=Object.values(ctx.ventas.SANVER.get(k)||{}).some(v=>v>0);
     // Nunca vendida: NUEVA solo si tiene existencia desde hace poco (≤ DIAS_NUEVA); si ya tiene rato en inventario = SIN MOVIMIENTO
@@ -394,7 +400,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')).join(', ')]:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
-      A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',bDx:br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
+      A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
@@ -622,10 +628,11 @@ P.leerSurtimiento=aoa=>{
 // · Temporada (pronóstico ±TEMP_VAR contra antecedente) → PRONÓSTICO: los mismos meses del año pasado ya traen la temporada.
 //   Salvo que el pronóstico tenga menos de la mitad de meses válidos (agotados o clave nueva) → antecedente.
 // · Sin temporada → ANTECEDENTE (lo más reciente); si el antecedente tiene menos meses válidos que el pronóstico → pronóstico.
-P.BASE_L={ANT:'Antecedente',PRON:'Pronóstico',INTER:'Intermitente (12 meses)'};
+P.BASE_L={ANT:'Antecedente',PRON:'Pronóstico',INTER:'Promedio 12 meses'};
 P.baseRec=p=>{
   const A=p.A>0?p.A:null,Pr=p.P>0?p.P:null,N=Number(p.N)||Math.max(1,Math.ceil(Number(p.pm)||1)),nA=p.nA,nP=p.nP;
   if(p.bD==='INTERMITENTE 12 MESES'&&p.D>0)return{b:'INTER',c:p.D,por:'venta intermitente: se usa el promedio de 12 meses'};
+  if(p.bD==='IRREGULAR 12 MESES'&&p.D>0)return{b:'INTER',c:p.D,por:p.bDx||'venta irregular: se usa el promedio de 12 meses'};
   // Si ya viene del Cálculo diario (oct-2026: la demanda del portal ES la base recomendada), se respeta tal cual
   if((p.bD==='ANTECEDENTE'||p.bD==='PRONÓSTICO')&&p.D>0)return{b:p.bD==='ANTECEDENTE'?'ANT':'PRON',c:p.D,por:p.bDx||''};
   if(A==null&&Pr==null)return{b:null,c:null,por:'sin consumo'};
