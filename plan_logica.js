@@ -302,6 +302,10 @@ P.empaque=(q,e,unidad)=>{
 P.R.RESG_DIAS=30;
 // Clave nunca vendida: es NUEVA si su primera existencia tiene hasta DIAS_NUEVA días; con más, SIN MOVIMIENTO
 P.R.DIAS_NUEVA=90;
+// Demanda mínima para considerar que hay consumo (1 pieza al año); abajo de esto la clave queda SIN MOVIMIENTO
+P.R.D_MIN=1/12;
+// Cómo se detecta temporada: INDICE = pronóstico vs antecedente del año pasado (quita la tendencia general); DIRECTO = pronóstico vs antecedente de hoy
+P.R.TEMP_MODO='INDICE';
 P.resgMapa=(rows,fecha)=>{
   const m=new Map();if(!rows||!rows.length)return m;const t=new Date(fecha+'T12:00:00');
   rows.forEach(r=>{const q=+r.cantidad||0;if(q<=0)return;const fc=String(r.fecha_corte||'').slice(0,10);if(!fc)return;
@@ -360,8 +364,12 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
     // Demanda del portal = base recomendada (oct-2026): pronóstico si es temporada, si no antecedente; intermitente = promedio 12 meses
     const Dprom=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
-    const br=P.baseRec({A:ap.A,P:ap.P,N,pm,nA:ap.nA,nP:ap.nP,bD:ap.I!=null?'INTERMITENTE 12 MESES':'',D:Dprom});
-    const D=br.c>0?br.c:0;
+    // Temporada (oct-2026): el pronóstico se compara contra el antecedente DEL AÑO PASADO (mismo N, meses previos), no contra el de hoy,
+    // para no confundir una baja general de ventas con temporada. Aly = antecedente de hace 12 meses.
+    const ly=P.R.TEMP_MODO==='INDICE'?P.antPron(sv.s,P.ym(ref,-12),N,m=>ctx.agot.has('SANVER|'+k+'|'+m),P.ym(ref,-13),ctx.primero&&ctx.primero.SANVER):null;
+    const br=P.baseRec({A:ap.A,P:ap.P,N,pm,nA:ap.nA,nP:ap.nP,bD:ap.I!=null?'INTERMITENTE 12 MESES':'',D:Dprom,Aly:ly?ly.A:undefined,nAly:ly?ly.nA:undefined});
+    // Menos de 1 pieza al año (p. ej. fracciones por ajustes) no es consumo real: cuenta como sin consumo
+    const D=br.c>=P.R.D_MIN?br.c:0;
     // ¿Tiene venta en su historial (incluidas sus claves sustituidas)? Sin venta nunca = NUEVA
     const hv0=Object.values(ctx.ventas.SANVER.get(k)||{}).some(v=>v>0);
     // Nunca vendida: NUEVA solo si tiene existencia desde hace poco (≤ DIAS_NUEVA); si ya tiene rato en inventario = SIN MOVIMIENTO
@@ -582,12 +590,14 @@ P.otifResumen=(lineas,clave)=>{
 // Temporada: variación fuerte entre antecedente y pronóstico (pronóstico = mismos meses del año pasado que vienen).
 // SUBE: el pronóstico es 50% (ajustable en pantalla) o más arriba del antecedente (y al menos 1 unidad/mes más) · BAJA: el mismo % o más abajo · ESTABLE: el resto.
 P.R.TEMP_VAR=0.50;P.R.TEMP_MIN=1;
-P.temporada=(A,Pr)=>{
+// Umbral de temporada para elegir la base del cálculo (pronóstico vs antecedente del año pasado): ±75%
+P.R.TEMP_CALC=0.75;
+P.temporada=(A,Pr,umb)=>{const U=umb!=null?umb:P.R.TEMP_VAR;
   if(A==null||Pr==null)return{t:'SIN DATO',v:null};
   if(!(A>0))return Pr>=P.R.TEMP_MIN?{t:'SUBE',v:null}:{t:'ESTABLE',v:null};
   const v=(Pr-A)/A;
-  if(v>=P.R.TEMP_VAR&&Pr-A>=P.R.TEMP_MIN)return{t:'SUBE',v};
-  if(v<=-P.R.TEMP_VAR&&A-Pr>=P.R.TEMP_MIN)return{t:'BAJA',v};
+  if(v>=U&&Pr-A>=P.R.TEMP_MIN)return{t:'SUBE',v};
+  if(v<=-U&&A-Pr>=P.R.TEMP_MIN)return{t:'BAJA',v};
   return{t:'ESTABLE',v};
 };
 P.TEMP_L={SUBE:'↑ Sube fuerte (temporada)',BAJA:'↓ Baja fuerte',ESTABLE:'Sin cambio fuerte','SIN DATO':'Sin antecedente o pronóstico'};
@@ -621,12 +631,20 @@ P.baseRec=p=>{
   if(A==null&&Pr==null)return{b:null,c:null,por:'sin consumo'};
   if(Pr==null)return{b:'ANT',c:A,por:'no hay pronóstico válido'};
   if(A==null)return{b:'PRON',c:Pr,por:'no hay antecedente válido'};
-  const t=P.temporada(A,Pr),pc=Math.round((t.v||0)*100);
+  // Con Aly (antecedente del año pasado) la temporada se mide dentro del mismo año: pronóstico vs los meses previos del año pasado
+  const conLY=p.Aly!==undefined;const Aly=p.Aly>0?p.Aly:null;
+  if(conLY&&(Aly==null||(p.nAly!=null&&p.nAly<N/2))){
+    if(nA!=null&&nP!=null&&nA<nP&&nA<N/2)return{b:'PRON',c:Pr,por:'el antecedente solo tiene '+nA+' de '+N+' meses válidos'};
+    return{b:'ANT',c:A,por:'sin historial suficiente del año pasado para medir temporada: se usa lo más reciente'};}
+  const t=conLY?P.temporada(Aly,Pr,P.R.TEMP_CALC):P.temporada(A,Pr),pc=Math.round((t.v||0)*100);
   if(t.t==='SUBE'||t.t==='BAJA'){
+    if(conLY){
+      if(nP!=null&&nP<N/2)return{b:'ANT',c:A,por:'temporada ('+(pc>0?'+':'')+pc+'% el año pasado), pero el pronóstico solo tiene '+nP+' de '+N+' meses válidos'};
+      return{b:'PRON',c:Pr,por:'temporada: el año pasado estos meses '+(t.t==='SUBE'?'subieron':'bajaron')+' '+Math.abs(pc)+'% contra los meses previos'};}
     if(nP!=null&&nP<N/2)return{b:'ANT',c:A,por:'temporada ('+(pc>0?'+':'')+pc+'%), pero el pronóstico solo tiene '+nP+' de '+N+' meses válidos'};
     return{b:'PRON',c:Pr,por:'temporada: los mismos meses del año pasado '+(t.t==='SUBE'?'suben':'bajan')+' '+Math.abs(pc)+'% contra lo reciente'};}
   if(nA!=null&&nP!=null&&nA<nP)return{b:'PRON',c:Pr,por:'sin temporada, pero el antecedente solo tiene '+nA+' de '+N+' meses válidos'};
-  return{b:'ANT',c:A,por:'sin temporada (±'+Math.round(P.R.TEMP_VAR*100)+'%): se usa lo más reciente'};
+  return{b:'ANT',c:A,por:conLY?'sin temporada (el año pasado estos meses variaron '+(pc>0?'+':'')+pc+'% contra los previos; umbral ±'+Math.round(P.R.TEMP_CALC*100)+'%): se usa lo más reciente':'sin temporada (±'+Math.round(P.R.TEMP_VAR*100)+'%): se usa lo más reciente'};
 };
 // Propuesta del portal con o sin BO del CEDI: consumo × (T. entrega + Objetivo) − (existencia + BO)
 P.propSug=(p,c,conBO)=>c>0&&!P.R.SIN_SUG_ROT.includes(p.rot)?Math.max(0,P.ceil3(c*((Number(p.lt)||0)+(Number(p.pm)||0))-((Number(p.ex)||0)+(conBO===false?0:(Number(p.bo)||0))))):null;
