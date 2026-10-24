@@ -26,7 +26,7 @@
     if(!r[2].error)(r[2].data||[]).forEach(x=>o.ed[String(x.mes).slice(0,7)]=Number(x.cantidad));
     if(!r[3].error)o.alarmas=r[3].data||[];
     if(conHist&&r[4]&&!r[4].error)o.hist=(r[4].data||[]).map(h=>({fecha:h.f,estatus:String(h.est||'').toUpperCase(),existencias:h.ex,back_order:h.boT!=null?h.boT:h.bo,meses_inv:h.mi,mA:h.mA,mP:h.mP,eA:h.eA,eP:h.eP}));
-    await P.ventasConSust(sb,c,o);
+    await P.edExtraClave(sb,c,o);await P.ventasConSust(sb,c,o);
     cache.set(k,o);return o;
   }
 

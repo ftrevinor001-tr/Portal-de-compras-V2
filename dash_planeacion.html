@@ -554,7 +554,7 @@ async function datosClave(c){
   for(const x of [v,ag,ed,al])if(x.error)throw x.error;
   const o={ventas:{},agot:{SANVER:{},MF:{}},ed:{},alarmas:al.data||[]};
   (v.data||[]).forEach(r=>o.ventas[r.empresa]=r.meses||{});(ag.data||[]).forEach(r=>{(o.agot[r.empresa]||(o.agot[r.empresa]={}))[String(r.mes).slice(0,7)]=Number(r.dias_agotado);});(ed.data||[]).forEach(r=>o.ed[String(r.mes).slice(0,7)]=Number(r.cantidad));
-  await P.ventasConSust(sb,c,o);
+  await P.edExtraClave(sb,c,o);await P.ventasConSust(sb,c,o);
   CACHE_CLAVE.set(c,o);return o;
 }
 async function pintarExplicacion(c){

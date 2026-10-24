@@ -556,6 +556,26 @@ P.destinoED=obs=>{
   for(const f of P.R.ED_FRASES)if(new RegExp('(?:^|[^A-Z])'+escRx(f)+'(?![A-Z])').test(o))return f;
   return null;
 };
+// ── Entregas directas extra para limpiar la venta (además del archivo Compras por ID) ──
+// 1) Recepciones (plan_recepciones) de OCs marcadas como entrega directa a un lugar SIN sucursal (Lugares/Frases configurados):
+//    Compras por ID las registra como "ENTREGA EN CEDI". 2) Ajustes manuales capturados en Admin (plan_config id 'ed_manual').
+// Por clave-mes: max(Compras por ID, recepciones) + manual.
+P.esLugarExtra=d=>!!d&&!P.SUCURSALES.includes(d)&&d!=='VALLES'&&d!=='DEL CARMEN';
+P.edAuto=(recep,lineas)=>{const m=new Map();(recep||[]).forEach(r=>{const l=lineas.get(Number(r.folio)+'|'+Number(r.clave));if(!l||!l.entrega_directa||!P.esLugarExtra(l.destino))return;
+  const k=Number(r.clave),mes=String(r.fecha).slice(0,7),q=+r.cantidad||0;if(q<=0)return;const o=m.get(k)||{};o[mes]=(o[mes]||0)+q;m.set(k,o);});return m;};
+P.edManualMapa=list=>{const m=new Map();(Array.isArray(list)?list:[]).forEach(x=>{const k=Number(x.clave),mes=String(x.mes||'').slice(0,7),q=+x.cantidad||0;if(!k||!/^\d{4}-\d{2}$/.test(mes)||q<=0)return;const o=m.get(k)||{};o[mes]=(o[mes]||0)+q;m.set(k,o);});return m;};
+P.mezclarED=(ed,auto,man)=>{const out=Object.assign({},ed||{});
+  Object.entries(auto||{}).forEach(([m,q])=>{out[m]=Math.max(out[m]||0,q);});Object.entries(man||{}).forEach(([m,q])=>{out[m]=(out[m]||0)+q;});return out;};
+// Para las fichas: agrega a o.ed (compras ED de la clave) las recepciones a lugares sin sucursal y los ajustes manuales
+P.edExtraClave=async(sb,c,o)=>{
+  try{const k=Number(c);const[rc,ln,cf]=await Promise.all([sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').eq('clave',k),
+      sb.from('plan_oc_lineas').select('folio,clave,destino,entrega_directa').eq('clave',k).eq('entrega_directa',true),
+      sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle()]);
+    const L=new Map((ln.data||[]).map(l=>[Number(l.folio)+'|'+Number(l.clave),l]));const a=P.edAuto(rc.data||[],L).get(k);const mn=P.edManualMapa(cf.data&&cf.data.valor).get(k);
+    if(a||mn){o.ed=P.mezclarED(o.ed,a,mn);o.edExtra={auto:a||null,manual:mn||null};}
+  }catch(e){}
+  return o;
+};
 // Compradores que reciben en sucursal y después mueven la mercancía al CEDI: sus OCs NO son entrega directa
 // aunque Observaciones traiga una sucursal. La lista se edita en Cálculo diario (tabla plan_config); esta es la de arranque.
 P.R.SIN_ED_DEF=['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA'];

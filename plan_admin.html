@@ -94,6 +94,9 @@ td:first-child,th:first-child{text-align:left}
     <h2><span class="n">5</span>Compras: entregas directas y costos <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
     <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Toma las filas ENTREGAS DIRECTAS y las suma por clave y mes; en el cálculo se <b>restan de la venta</b> de ese mes desde enero 2024 (si la venta es menor, el mes queda en 0). Reemplaza los meses que vengan en el archivo. También guarda el <b>costo unitario de compra</b> de cada clave (TOTAL ÷ CANT REC de sus últimos 3 meses con compra), que se usa para medir la afectación en dinero de las claves críticas.</p>
     <div class="row"><input type="file" id="f-ed" accept=".xlsx"><button onclick="run('ed')">Cargar compras ED</button></div>
+    <p class="d" style="margin-top:12px"><b>Entregas directas que el archivo trae como "ENTREGA EN CEDI"</b> (p. ej. a un lugar sin sucursal como Rayón). Desde que el portal sigue las OCs, las recepciones de OCs marcadas como entrega directa por <b>Lugares/Frases</b> se restan solas de la venta de su mes. Para meses anteriores captúralas aquí: una por renglón <b>clave, AAAA-MM, cantidad, nota</b> (p. ej. <span style="font-family:monospace">30871, 2026-08, 328, OC 113345 Rayón</span>).</p>
+    <div class="row" style="align-items:flex-start"><textarea id="ed-man" rows="4" style="width:460px;font-family:monospace;font-size:12px" placeholder="30871, 2026-08, 328, OC 113345 Rayón"></textarea>
+      <div style="align-self:flex-end"><button onclick="guardarEDManual()">Guardar ajustes</button><div class="d" id="ed-man-res" style="margin-top:6px;max-width:360px"></div></div></div>
     <div class="log" id="log-ed"></div>
   </div>
 
@@ -167,7 +170,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -310,6 +313,14 @@ async function contexto(log){
   try{const pe=await todo(()=>sb.from('plan_primera_existencia').select('clave,fecha').order('clave'));ctx.primeraEx=new Map(pe.map(r=>[Number(r.clave),String(r.fecha).slice(0,10)]));
     log.msg('🆕 Primera fecha con existencia: '+fmt(pe.length)+' claves registradas.');}
   catch(e){ctx.primeraEx=null;log.msg('ℹ️ Sin fechas de primera existencia ('+(e.message||e)+'): las claves que nunca se han vendido quedan como NUEVA. Corre plan_tablas_14.sql.','w');}
+  // Entregas directas extra: recepciones de OCs a lugares sin sucursal (Lugares/Frases) y ajustes manuales
+  try{const[rc,ln,cf]=await Promise.all([todo(()=>sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').order('folio').order('clave')),
+      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,destino,entrega_directa').eq('entrega_directa',true).order('folio').order('clave')),
+      sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle()]);
+    const L=new Map(ln.map(l=>[Number(l.folio)+'|'+Number(l.clave),l]));const A=P.edAuto(rc,L),M=P.edManualMapa(cf.data&&cf.data.valor);let n=0;
+    new Set([...A.keys(),...M.keys()]).forEach(k=>{ctx.ed.set(k,P.mezclarED(ctx.ed.get(k),A.get(k),M.get(k)));n++;});
+    if(n)log.msg('🚚 Entregas directas extra restadas de la venta: '+fmt(A.size)+' claves por recepciones a lugares sin sucursal · '+fmt(M.size)+' por ajuste manual.');}
+  catch(e){log.msg('ℹ️ Entregas directas extra no aplicadas: '+(e.message||e),'w');}
   // Claves sustituidas: la vigente suma la venta de sus claves originales
   try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
     catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
@@ -617,6 +628,18 @@ async function cargarSinED(forzar){
   return SIN_ED;
 }
 const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+// Ajustes manuales de entrega directa (plan_config id 'ed_manual'): se restan de la venta del mes en el cálculo
+async function pintarEDManual(){try{const{data}=await sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle();
+  document.getElementById('ed-man').value=((data&&data.valor)||[]).map(x=>[x.clave,x.mes,x.cantidad,x.nota||''].join(', ').replace(/, $/,'')).join('\n');}catch(e){}}
+async function guardarEDManual(){
+  const out=document.getElementById('ed-man-res');const lst=[],err=[];
+  document.getElementById('ed-man').value.split('\n').map(x=>x.trim()).filter(Boolean).forEach((ln,i)=>{const p=ln.split(/[,;\t]/).map(x=>x.trim());
+    const k=P.clave(p[0]),mes=String(p[1]||'').replace(/^(\d{4})-(\d)$/,'$1-0$2'),q=P.num(p[2]);
+    if(k==null||!/^\d{4}-\d{2}$/.test(mes)||!(q>0)){err.push('renglón '+(i+1));return;}lst.push({clave:k,mes,cantidad:q,nota:p.slice(3).join(', ')||null});});
+  if(err.length){out.textContent='❌ Revisa: '+err.join(', ')+' (formato: clave, AAAA-MM, cantidad, nota)';return;}
+  const{error}=await sb.from('plan_config').upsert({id:'ed_manual',valor:lst,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  out.textContent=error?'❌ '+error.message:'✅ '+lst.length+' ajustes guardados. Se aplican en el siguiente Cálculo diario.';
+}
 // Lugares y frases extra de entrega directa (plan_config id 'ed_destinos')
 async function cargarCfgED(){
   try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data)P.aplicarCfgED(data.valor);}catch(e){}
