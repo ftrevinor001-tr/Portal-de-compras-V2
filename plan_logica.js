@@ -197,7 +197,7 @@ P.detalle=wb=>{
 };
 
 // ── Reglas de cálculo (acordadas con Compras, oct-2026) ──
-P.R={ED_DESDE:'2025-01',ED_HASTA:'2025-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:16,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
+P.R={ED_DESDE:'2024-01',ED_HASTA:'2099-12',ANIO_LIMPIO:'2026-01',DIAS_AGOTADO:16,ATIPICO:3,MIN_MESES_MEDIANA:3,VENTANA_ATRAS:12,
      FACT_ENTREGA:1.4,FACT_MAX:1.4,EXCLUIR_ROT:['SIN COMPRA','NUEVOS'],
      // Rotaciones sin propuesta de compra (oct-2026: NUEVOS sí lleva propuesta si tiene consumo, igual que en Propuestas de compra)
      SIN_SUG_ROT:['SIN COMPRA']};
@@ -209,7 +209,8 @@ P.ym=(ym,k)=>{let[y,m]=ym.split('-').map(Number);m+=k;while(m>12){m-=12;y++;}whi
 // Serie de ventas de una clave ya limpia de entregas directas (solo 2025, nunca negativa)
 P.serie=(meses,ed)=>{
   const s=Object.assign({},meses||{});const notas=[];
-  if(ed)Object.keys(ed).forEach(m=>{if(m>=P.R.ED_DESDE&&m<=P.R.ED_HASTA&&s[m]!=null&&s[m]>=ed[m]){s[m]=s[m]-ed[m];notas.push(m);}});
+  // Entregas directas (Compras por ID) desde ED_DESDE: se restan de la venta del mes; si la venta es menor, el mes queda en 0 (no negativo)
+  if(ed)Object.keys(ed).forEach(m=>{if(m>=P.R.ED_DESDE&&m<=P.R.ED_HASTA&&s[m]!=null&&ed[m]>0){s[m]=Math.max(0,Math.round((s[m]-ed[m])*10000)/10000);notas.push(m);}});
   return{s,ed:notas};
 };
 // Valor de un mes después de la regla de atípicos: null = descartado
@@ -383,8 +384,11 @@ P.calcularDia=(fecha,filas,ctx)=>{
     // Resguardo: se suma a la existencia (ex = CEDI + resguardo; exC = solo CEDI)
     const rg=RG&&RG.get(d0.clave)||null;const d=rg?{...d0,ex:(d0.ex||0)+rg.q}:d0;
     const k=d.clave;const lt=d.lt||0,pm=d.pm||0;const N=Math.max(1,Math.ceil(pm||1));
-    const sv=P.serie(ctx.ventas.SANVER.get(k),ctx.ed.get(k));
-    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),ctx.ultimo.SANVER,ctx.primero&&ctx.primero.SANVER);
+    // El mes en curso (y posteriores) se ve en la gráfica pero NO cuenta para el cálculo: se quita de la serie
+    const cut=x=>{const o={};Object.keys(x||{}).forEach(m=>{if(m<ref)o[m]=x[m];});return o;};
+    const uS=ctx.ultimo.SANVER&&ctx.ultimo.SANVER>=ref?P.ym(ref,-1):ctx.ultimo.SANVER,uM=ctx.ultimo.MF&&ctx.ultimo.MF>=ref?P.ym(ref,-1):ctx.ultimo.MF;
+    const sv=P.serie(cut(ctx.ventas.SANVER.get(k)),ctx.ed.get(k));
+    const ap=P.antPron(sv.s,ref,N,m=>ctx.agot.has('SANVER|'+k+'|'+m),uS,ctx.primero&&ctx.primero.SANVER);
     // Demanda del portal = base recomendada (oct-2026): pronóstico si es temporada, si no antecedente; intermitente = promedio 12 meses
     const Dprom=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A??ap.P??0));
     // Temporada (oct-2026): el pronóstico se compara contra el antecedente DEL AÑO PASADO (mismo N, meses previos), no contra el de hoy,
@@ -398,7 +402,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     // 1 pieza al año o menos (p. ej. fracciones por ajustes) no es consumo real: cuenta como sin consumo
     const D=c0>P.R.D_MIN*1.0001?c0:0;
     // ¿Tiene venta en su historial (incluidas sus claves sustituidas)? Sin venta nunca = NUEVA
-    const hv0=Object.values(ctx.ventas.SANVER.get(k)||{}).some(v=>v>0);
+    const hv0=Object.values(sv.s).some(v=>v>0);
     // Nunca vendida: NUEVA solo si tiene existencia desde hace poco (≤ DIAS_NUEVA); si ya tiene rato en inventario = SIN MOVIMIENTO
     const pex=!hv0&&ctx.primeraEx?ctx.primeraEx.get(k):null;const pexOk=pex&&pex<=fecha?pex:null;
     const dsx=pexOk?Math.round((new Date(fecha+'T12:00:00')-new Date(pexOk+'T12:00:00'))/864e5):null;
@@ -412,8 +416,8 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const sug=X=>X==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(X*(lt+pm)-(d.ex+bo)));
     const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
     // MF
-    const smf=P.serie(ctx.ventas.MF.get(k),null);
-    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),ctx.ultimo.MF,ctx.primero&&ctx.primero.MF);
+    const smf=P.serie(cut(ctx.ventas.MF.get(k)),null);
+    const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),uM,ctx.primero&&ctx.primero.MF);
     const Dm=apm.I!=null?apm.I:(apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0));
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
@@ -452,7 +456,9 @@ P.diasRacha=(eD,fecha)=>eD&&fecha?Math.round((new Date(fecha+'T12:00:00')-new Da
 // ── Explicación mes a mes de una clave (tablero): qué meses entraron al antecedente y al pronóstico y por qué se descartaron otros.
 // Usa exactamente las mismas reglas que P.antPron (hay prueba que lo verifica).
 P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
-  const sv=P.serie(meses,ed);const s=sv.s;const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
+  if(ultimo&&ultimo>=ref)ultimo=P.ym(ref,-1);
+  const sv=P.serie(meses,ed);const sAll=sv.s;const s={};Object.keys(sAll).forEach(m=>{if(m<ref)s[m]=sAll[m];});   // igual que el cálculo: sin el mes en curso
+  const fin=ultimo&&ultimo<P.ym(ref,-1)?ultimo:P.ym(ref,-1);
   const conVenta=Object.keys(s).filter(m=>s[m]>0).sort();const ini=conVenta[0]||null;const hi=ultimo||fin;
   const por=m=>ini==null||m<ini?'antes de la primera venta':agot(m)?'agotado (más de '+(P.R.DIAS_AGOTADO-1)+' días sin existencia)':P.sospechoso(s,m,primero,hi)?'cero sospechoso de agotado':null;
   const out=new Map();
@@ -464,6 +470,8 @@ P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
   let n=0;for(let i=0;i<P.R.VENTANA_ATRAS&&n<N;i++){const m=P.ym(fin,-i);if(reg(m,'ANT'))n++;}
   for(let i=0;i<N;i++){const m=P.ym(ref,i-12);if(ultimo&&m>ultimo)continue;reg(m,'PRON');}
   for(let i=1;i<=24;i++){const m=P.ym(ref,-i);if(!out.has(m)&&(!ultimo||m<=ultimo))reg(m,null);}
+  // Mes en curso: solo para seguimiento (venta parcial), no cuenta para el cálculo
+  if(meses&&meses[ref]!=null)out.set(ref,{m:ref,venta:meses[ref],limpia:sAll[ref]!=null?sAll[ref]:meses[ref],ed:sv.ed.includes(ref),usa:[],actual:true});
   return[...out.values()].sort((a,b)=>a.m<b.m?-1:1);
 };
 // Fracción del BO que llega al CEDI por clave = pendiente de OCs al CEDI ÷ pendiente total (CEDI + entrega directa).
@@ -532,12 +540,20 @@ P.ocLineas=wb=>{
 // "CEMENTO BLANCO MORA" (marca) o "RECOLECCION TAMPICO".
 P.R.SANVER_SUC_ES_ED=false;  // "SANVER ALAMO", "SANVER LA FUENTE": entran al CEDI (confirmado por Compras, 14-oct-2026)
 P.SUCURSALES=['AHUATENO','ALAMO','ARISTA','ATLAPEXCO','BODEGA','CENTRO','CHICONTEPEC','COATZINTLA','DEL CARMEN','EL CARMEN','EBANO','LA FUENTE','LA RIVERA','MANTE','MARTINEZ','MERCADO','MORA','NARANJOS','PINTURAS','PUEBLO VIEJO','TAMIAHUA','TAMPICO','TEMPOAL','TIHUATLAN','TUXPAN','VALLES','VALLEZ','ZACATIPAN'];
+// Lugares y frases extra de entrega directa (se configuran en Cálculo diario → Entregas directas; plan_config id 'ed_destinos')
+P.R.ED_LUGARES=[];P.R.ED_FRASES=[];
+P.aplicarCfgED=v=>{const L=x=>(Array.isArray(x)?x:[]).map(P.norm).filter(Boolean);P.R.ED_LUGARES=L(v&&v.lugares);P.R.ED_FRASES=L(v&&v.frases);};
+const escRx=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 P.destinoED=obs=>{
   const o=P.norm(obs).replace(/^[^A-Z0-9]+/,'');if(!o)return null;
-  const ALT='(?:CIUDAD |CD\\.? )?('+P.SUCURSALES.join('|')+')(?![A-Z])',SUC='(?:SUC(?:URSAL)?\\.? )?';
+  const LUG=[...P.SUCURSALES,...P.R.ED_LUGARES.map(escRx)].sort((a,b)=>b.length-a.length);
+  const ALT='(?:CIUDAD |CD\\.? )?('+LUG.join('|')+')(?![A-Z])',SUC='(?:SUC(?:URSAL)?\\.? )?';
   const pre='(?:MAS FERRE(?:TERIAS)?\\.? (?:SANVER )?|MF )?'+(P.R.SANVER_SUC_ES_ED?'(?:SANVER (?!FORTE))?':'');
   const rx=[new RegExp('^'+pre+SUC+ALT),new RegExp('ENTREGA(?:R)? (?:EN )?'+SUC+ALT),new RegExp('(?:^|[^A-Z])SUC(?:URSAL)?\\.? '+ALT),new RegExp('(?:^|[^A-Z])PARA (?:LA )?'+SUC+ALT)];
   for(const r of rx){const m=o.match(r);if(m)return m[1]==='VALLEZ'?'VALLES':m[1]==='EL CARMEN'?'DEL CARMEN':m[1];}
+  // Lugares extra (obras, ciudades sin sucursal) en cualquier parte del texto, y frases que indican entrega directa
+  for(const l of P.R.ED_LUGARES)if(new RegExp('(?:^|[^A-Z])'+escRx(l)+'(?![A-Z])').test(o))return l;
+  for(const f of P.R.ED_FRASES)if(new RegExp('(?:^|[^A-Z])'+escRx(f)+'(?![A-Z])').test(o))return f;
   return null;
 };
 // Compradores que reciben en sucursal y después mueven la mercancía al CEDI: sus OCs NO son entrega directa

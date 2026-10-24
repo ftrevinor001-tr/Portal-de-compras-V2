@@ -573,6 +573,8 @@ let SIN_ED=new Set((window.P&&P.R&&P.R.SIN_ED_DEF)||['IVAN','MYRIAM VIDA CHRISTE
 async function cargarSinED(){
   try{const sb=window.sbGet();const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
     if(!error&&data&&Array.isArray(data.valor))SIN_ED=new Set(data.valor.map(normNom));}catch(e){console.warn('plan_config:',e.message);}
+  // lugares y frases extra de entrega directa (misma regla que Cálculo diario)
+  try{const sb=window.sbGet();const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data&&window.P&&P.aplicarCfgED)P.aplicarCfgED(data.valor);}catch(e){}
 }
 function normalizeOrders(estadoMap){
   allOrders.forEach(o => {

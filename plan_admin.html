@@ -92,7 +92,7 @@ td:first-child,th:first-child{text-align:left}
 
   <div class="card">
     <h2><span class="n">5</span>Compras: entregas directas y costos <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
-    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Toma las filas ENTREGAS DIRECTAS y las suma por clave y mes para limpiar las ventas (reemplaza los meses que vengan en el archivo). También guarda el <b>costo unitario de compra</b> de cada clave (TOTAL ÷ CANT REC de sus últimos 3 meses con compra), que se usa para medir la afectación en dinero de las claves críticas.</p>
+    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Toma las filas ENTREGAS DIRECTAS y las suma por clave y mes; en el cálculo se <b>restan de la venta</b> de ese mes desde enero 2024 (si la venta es menor, el mes queda en 0). Reemplaza los meses que vengan en el archivo. También guarda el <b>costo unitario de compra</b> de cada clave (TOTAL ÷ CANT REC de sus últimos 3 meses con compra), que se usa para medir la afectación en dinero de las claves críticas.</p>
     <div class="row"><input type="file" id="f-ed" accept=".xlsx"><button onclick="run('ed')">Cargar compras ED</button></div>
     <div class="log" id="log-ed"></div>
   </div>
@@ -102,6 +102,13 @@ td:first-child,th:first-child{text-align:left}
     <p class="d">Una OC es <b>entrega directa</b> cuando Observaciones trae una sucursal. Marca aquí a los compradores que reciben en una sucursal y de ahí mueven la mercancía al CEDI: sus OCs cuentan como <b>entrega en CEDI</b> (entran a OTIF, Target, BO del CEDI y vencidas). Al guardar se corrigen también las OCs ya registradas.</p>
     <div id="ed-lista" style="margin:8px 0"></div>
     <div class="row"><button onclick="guardarSinED()">Guardar compradores</button><span class="d" id="ed-res"></span></div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>Otros lugares o frases de entrega directa.</b> Además de las sucursales, una OC es entrega directa si Observaciones trae alguno de estos <b>lugares</b> (ciudades sin sucursal, obras, clientes; p. ej. "ENTREGAR EN RAYON") o alguna de estas <b>frases</b> (p. ej. "ENTREGA DIRECTA"). Se busca la palabra completa, sin importar mayúsculas ni acentos. Uno por renglón. Al guardar se corrigen también las OCs ya registradas.</p>
+    <div class="row" style="align-items:flex-start">
+      <div><div class="d" style="margin-bottom:4px">Lugares</div><textarea id="ed-lug" rows="5" style="width:260px" placeholder="RAYON&#10;OZULUAMA"></textarea></div>
+      <div><div class="d" style="margin-bottom:4px">Frases</div><textarea id="ed-fra" rows="5" style="width:260px" placeholder="ENTREGA DIRECTA&#10;DIRECTO A CLIENTE"></textarea></div>
+      <div style="align-self:flex-end"><button onclick="guardarCfgED()">Guardar lugares y frases</button><div class="d" id="ed-res2" style="margin-top:6px;max-width:420px"></div></div>
+    </div>
   </div>
   <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
@@ -160,7 +167,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -610,6 +617,30 @@ async function cargarSinED(forzar){
   return SIN_ED;
 }
 const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+// Lugares y frases extra de entrega directa (plan_config id 'ed_destinos')
+async function cargarCfgED(){
+  try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data)P.aplicarCfgED(data.valor);}catch(e){}
+  return{lugares:P.R.ED_LUGARES,frases:P.R.ED_FRASES};
+}
+async function pintarCfgED(){const c=await cargarCfgED();document.getElementById('ed-lug').value=c.lugares.join('\n');document.getElementById('ed-fra').value=c.frases.join('\n');}
+async function guardarCfgED(){
+  const out=document.getElementById('ed-res2');out.textContent='Guardando…';
+  const lista=id=>[...new Set(document.getElementById(id).value.split(/\n|,/).map(P.norm).filter(x=>x.length>=3))];
+  const valor={lugares:lista('ed-lug'),frases:lista('ed-fra')};
+  const{error}=await sb.from('plan_config').upsert({id:'ed_destinos',valor,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(error){out.textContent='❌ No se guardó: '+error.message;return;}
+  P.aplicarCfgED(valor);pintarCfgED();
+  // Corregir las OCs ya registradas: se vuelve a leer el destino de cada folio con su observación guardada
+  try{
+    const sinED=await cargarSinED();
+    const rows=await todo(()=>sb.from('plan_oc_lineas').select('folio,comprador,observaciones,destino,entrega_directa').order('folio').order('clave'));
+    const porFolio=new Map();rows.forEach(r=>{if(!porFolio.has(r.folio))porFolio.set(r.folio,r);});
+    let n=0;
+    for(const [f,r] of porFolio){const d=P.destinoED(r.observaciones||'');const ed=P.esED(d,r.comprador,sinED);
+      if((d||null)!==(r.destino||null)||!!ed!==!!r.entrega_directa){const{error:e}=await sb.from('plan_oc_lineas').update({destino:d,entrega_directa:ed}).eq('folio',f);if(e)throw e;n++;}}
+    out.textContent='✅ Guardado: '+valor.lugares.length+' lugares y '+valor.frases.length+' frases. '+(n?n+' OCs ya registradas cambiaron de clasificación. ':'Ninguna OC registrada cambió. ')+'El próximo cálculo diario recalcula el BO del CEDI, OTIF y Target.';
+  }catch(e){out.textContent='✅ Guardado, pero no se pudieron corregir las OCs registradas: '+(e.message||e)+'. Se corrigen con el próximo cálculo diario.';}
+}
 async function pintarSinED(){
   const set=await cargarSinED(true);const el=document.getElementById('ed-lista');
   el.innerHTML=[...new Set([...COMPRADORES_ED,...set])].sort().map(c=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-size:13px"><input type="checkbox" value="'+c+'"'+(set.has(c)?' checked':'')+'> '+c+'</label>').join('');
@@ -633,7 +664,8 @@ async function procesarOCs(wb,fecha,log,res,prevEst){
   const cur=P.ocLineas(wb);
   if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
   const enc=P.ocEncabezados(wb);
-  const sinED=await cargarSinED();
+  const sinED=await cargarSinED();await cargarCfgED();
+  if(P.R.ED_LUGARES.length||P.R.ED_FRASES.length)log.msg('   Entrega directa también por: '+[...P.R.ED_LUGARES,...P.R.ED_FRASES].join(', '));
   cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=P.esED(l.destino,l.comprador||(e&&e.comprador),sinED);});
   log.msg('   Compradores que reciben en sucursal y mueven al CEDI (no cuentan como entrega directa): '+[...sinED].join(', '));
   log.msg('   '+fmt([...cur.values()].filter(l=>l.entrega_directa).length)+' líneas son de entrega directa a sucursal (no cuentan para OTIF, Target ni vencidas del CEDI)');
