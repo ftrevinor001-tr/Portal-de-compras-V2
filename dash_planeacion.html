@@ -350,7 +350,7 @@ async function recargar(){
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
     const js=JSON.parse(txt);
-    S.claves=js.claves||[];S.byClave=new Map(S.claves.map(r=>[Number(r.c),r]));S.ocs=js.ocs||{};S.fecha=js.fecha;S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
+    S.byClave=new Map((js.claves||[]).map(r=>[Number(r.c),r]));S.claves=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));/* producción: solo se consulta desde la ficha del insumo */S.ocs=js.ocs||{};S.fecha=js.fecha;S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
     $('corte').textContent='Cálculo al '+fmtF(S.fecha)+' · '+fmtN(S.claves.length)+' claves';
     try{const cs=await todo(()=>sb.from('plan_costos').select('clave,costo,mes').order('clave'));S.costos=new Map(cs.map(x=>[Number(x.clave),{c:Number(x.costo),mes:String(x.mes||'').slice(0,7)}]));S.costoErr=null;}
     catch(e){S.costos=new Map();S.costoErr=e.message||String(e);}
@@ -575,6 +575,8 @@ async function pintarExplicacion(c){
       +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+fmtN(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
+    // Producción: productos donde se usa este insumo (solo informativo)
+    if(r.bp&&r.bp.length){const vp=await P.ventasProductos(sb,r.bp);const bx=el.querySelector('.detbox');if(bx)bx.insertAdjacentHTML('beforeend',P.produccionHTML(r,k=>S.byClave.get(Number(k)),vp,ref));}
   }catch(e){el.innerHTML='<div class="err">No se pudo leer el historial de la clave: '+esc(e.message||e)+'</div>';}
 }
 function graficaMeses(arr,agot,parte){

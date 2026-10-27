@@ -22,7 +22,7 @@
     const comp=new Map(cmp.filter(c=>c.fecha).map(c=>[Number(c.folio),d10(c.fecha)]));
     const lt=new Map((est.claves||[]).map(r=>[Number(r.c),r.lt]));
     const otif=cer.map(l=>P.otifLinea({...l,fecha_oc:d10(l.fecha_oc),fecha_entrega:d10(l.fecha_entrega)},recs.get(Number(l.folio)+'|'+Number(l.clave)),comp,lt.get(Number(l.clave)))).filter(x=>x&&x.mes===mes);
-    return{fecha:est.fecha,mes,claves:est.claves||[],ocs:est.ocs||{},alarmas:al.map(a=>({...a,fecha_alarma:d10(a.fecha_alarma)})),otif};
+    return{fecha:est.fecha,mes,claves:(est.claves||[]).filter(r=>!r.pr&&!P.esProd(r)),ocs:est.ocs||{},alarmas:al.map(a=>({...a,fecha_alarma:d10(a.fecha_alarma)})),otif};
   }
 
   function aplicar(alarmas,v){

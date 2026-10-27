@@ -2043,6 +2043,7 @@ async function pintarFicha(c){
     const w=Math.max(320,(document.getElementById('cq-tw').clientWidth||900)-40);
     el.style.width=w+'px';
     el.innerHTML=FICHA.html(r,d,{fecha:plan.fecha||G.uf,ventasHasta:plan.ventasHasta,ventasDesde:plan.ventasDesde,ocs:plan.ocs[Number(c)]||plan.ocs[c]||[],conHist:true});
+    if(r&&r.bp&&r.bp.length){const vp=await P.ventasProductos(sbc(),r.bp);el.insertAdjacentHTML('beforeend',P.produccionHTML(r,k=>plan.byClave.get(String(k)),vp,(plan.fecha||G.uf||'').slice(0,7)));}
   }catch(e){el.innerHTML='<span style="color:#c0392b">No se pudo cargar la ficha: '+escH2(e.message||e)+'</span>';}
 }
 function srtCQ(k){CQ.sort=CQ.sort.k===k?{k,d:-CQ.sort.d}:{k,d:1};pintarConsulta();}

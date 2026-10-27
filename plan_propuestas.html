@@ -234,7 +234,7 @@ const conProp=r=>{const b=P.baseRec(r);return (P.propSug(r,b.c,true)||0)>0;};
 function candidatas(){const base=candBase();return window.MS?base.filter(r=>MS.pasa(r,NF)):base;}
 function candBase(){
   const comp=COMPRADORES.includes(quien())?quien():$('f-comp').value;const modo=$('n-modo').value,q=($('n-q').value||'').trim().toUpperCase();
-  return [...S.byClave.values()].filter(r=>(!comp||r.comp===comp)&&r.rot!=='SIN COMPRA'&&(modo==='todas'||((r.est==='RIESGO'||r.est==='FALTANTE')&&conProp(r)))
+  return [...S.byClave.values()].filter(r=>!r.pr&&!P.esProd(r)&&(!comp||r.comp===comp)&&r.rot!=='SIN COMPRA'&&(modo==='todas'||((r.est==='RIESGO'||r.est==='FALTANTE')&&conProp(r)))
     &&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)||(r.m||'').toUpperCase().includes(q))).sort((a,b)=>(a.mi??-1)-(b.mi??-1));
 }
 function pintarNueva(){

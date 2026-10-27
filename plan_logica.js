@@ -425,7 +425,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
-      A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
+      A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
@@ -485,7 +485,7 @@ P.fracBoCEDI=(cur,enc,sinED)=>{
 // Conteo de claves por estatus para la tendencia del tablero (una fila por comprador, base y estatus)
 P.histEstatus=(res,fecha)=>{
   const g={};const add=(c,b,e)=>{if(!e)return;const k=c+'|'+b+'|'+e;g[k]=(g[k]||0)+1;};
-  res.forEach(r=>{const c=r.comp||'(SIN COMPRADOR)';add(c,'PORTAL',r.est);add(c,'ANT',r.eA||'SIN CONSUMO');add(c,'PRON',r.eP||'SIN CONSUMO');add(c,'EXCEL',r.estX||'(VACÍO)');});
+  res.forEach(r=>{if(r.pr)return;const c=r.comp||'(SIN COMPRADOR)';add(c,'PORTAL',r.est);add(c,'ANT',r.eA||'SIN CONSUMO');add(c,'PRON',r.eP||'SIN CONSUMO');add(c,'EXCEL',r.estX||'(VACÍO)');});
   return Object.entries(g).map(([k,n])=>{const[c,b,e]=k.split('|');return{fecha,comprador:c,base:b,estatus:e,claves:n};});
 };
 // Lo que sugería el portal (último cálculo publicado) cuando aparece una OC nueva
@@ -503,6 +503,7 @@ P.precisionOC=(ped,sug)=>{
 P.alarmas=(prev,prevEst,res,fecha,restr)=>{
   const nuevas=[],cierres=[],set=[];
   res.forEach(r=>{
+    if(r.pr)return;   // producción no genera alarmas
     const enR=EN_RIESGO.includes(r.est);if(enR)set.push(r.c);
     if(enR&&!prev.has(r.c)){
       if(P.R.EXCLUIR_ROT.includes(r.rot)||!r.D)return;
@@ -576,6 +577,46 @@ P.edExtraClave=async(sb,c,o)=>{
   }catch(e){}
   return o;
 };
+// ── Producción (oct-2026) ──
+// Claves de comprador PRODUCCION: se calculan igual pero NO cuentan en faltantes, bono, alarmas, seguimiento ni conteos.
+P.esProd=r=>P.norm(r&&(r.comp!=null?r.comp:r.comprador))==='PRODUCCION';
+// Hoja "Base produccion": producto (ID) ← insumo (CLAVE). Cantidad Requerida es por unidad de compra del producto (p. ej. paquete de 10);
+// la venta del producto viene en su unidad básica, así que el factor por unidad vendida = Cantidad Requerida ÷ PZASXUNIDAD BV del producto
+// (comprobado con la venta: cuadra en 247 de 267 insumos cuyos productos vienen por paquete).
+P.baseProduccion=wb=>{
+  const ws=P.hoja(wb,['Base produccion','Base producción']);if(!ws)return null;
+  const aoa=P.aoa(ws);const h=P.header(aoa,['ID','CLAVE','CANTIDAD REQUERIDA']);if(!h)return null;
+  const iD=h.cols.indexOf('DESCRIPCION'),iZ=h.cols.indexOf('PZASXUNIDAD BV'),out=[],vis=new Set();
+  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const pr=P.clave(r[h.idx.ID]),ins=P.clave(r[h.idx.CLAVE]),q=P.num(r[h.idx['CANTIDAD REQUERIDA']]);
+    if(pr==null||ins==null||!(q>0))continue;const k=pr+'|'+ins;if(vis.has(k))continue;vis.add(k);
+    const z=iZ>=0?P.num(r[iZ]):null;out.push([pr,ins,Math.round(q/(z>0?z:1)*1e6)/1e6]);}
+  return out;
+};
+// Venta mensual de los productos de un insumo (para la ficha)
+P.ventasProductos=async(sb,bp)=>{const m=new Map();if(!bp||!bp.length)return m;
+  try{const{data}=await sb.from('plan_ventas').select('clave,meses').eq('empresa','SANVER').in('clave',bp.map(x=>Number(x[0])));(data||[]).forEach(r=>m.set(Number(r.clave),r.meses||{}));}catch(e){}return m;};
+// Bloque "Producción" de la ficha de un insumo. r = fila del insumo; get(clave) = fila del cálculo del producto; vp = Map(clave→meses); ref = AAAA-MM del cálculo
+P.produccionHTML=(r,get,vp,ref)=>{
+  if(!r||!r.bp||!r.bp.length)return'';
+  const e=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const n=(v,d)=>v==null||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{maximumFractionDigits:d==null?(Math.abs(v)<10?1:0):d});
+  const COL={FALTANTE:'#e11d48',RIESGO:'#d97706',OPTIMO:'#059669','SOBRE INVENTARIO':'#2563eb',NUEVA:'#0891b2','SIN MOVIMIENTO':'#a16207','SIN COMPRA':'#94a3b8'};
+  const tag=t=>t?'<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;color:'+(COL[t]||'#64748b')+';background:'+(COL[t]||'#64748b')+'1a">'+e(t.charAt(0)+t.slice(1).toLowerCase())+'</span>':'—';
+  const MES=['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  let tot=0;const av=[];
+  const filas=r.bp.map(([pc,q])=>{const p=get(pc);const v=vp&&vp.get(Number(pc))||{};
+    const ult=[];for(let i=6;i>=1;i--){const m=P.ym(ref,-i);ult.push(MES[+m.slice(5,7)]+' '+n(v[m]||0,0));}
+    const eq=p&&p.D>0?p.D*q:null;if(eq)tot+=eq;
+    if(p&&(p.est==='FALTANTE'||p.est==='RIESGO'))av.push(pc+' en '+p.est.toLowerCase()+': con la existencia del insumo ('+n(r.exC!=null?r.exC:r.ex)+') se pueden producir '+n(Math.floor((r.exC!=null?r.exC:r.ex)/q),0)+' piezas');
+    return '<tr><td><b>'+pc+'</b> <span style="color:#64748b">'+e(p?(p.n||'').slice(0,46):'(no viene en el cálculo del día)')+'</span></td><td style="text-align:right">'+n(q,3)+'</td><td style="text-align:right">'+(p?n(p.ex,0):'—')+'</td><td style="text-align:right">'+(p?n(p.D):'—')+'</td><td style="text-align:right">'+(p&&p.mi!=null?n(p.mi):'—')+'</td><td>'+(p?tag(p.est):'—')+'</td><td style="text-align:right">'+(eq!=null?n(eq):'—')+'</td><td style="color:#64748b;font-size:11px">'+ult.join(' · ')+'</td></tr>';}).join('');
+  const exI=r.exC!=null?r.exC:r.ex;
+  return '<div style="margin-top:12px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:10px 12px"><b style="font-size:12.5px;color:#9a3412">🏭 Producción</b> <span style="font-size:11.5px;color:#64748b">este insumo se usa en '+r.bp.length+' producto'+(r.bp.length>1?'s':'')+' (solo informativo: las claves de producción no cuentan en faltantes ni seguimiento)</span>'
+    +'<div style="overflow-x:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:#9a3412;text-align:left"><th>Producto</th><th style="text-align:right" title="Cantidad de insumo por unidad vendida del producto (Cantidad Requerida ÷ piezas por unidad)">Insumo por unidad</th><th style="text-align:right">Exist.</th><th style="text-align:right">Demanda/mes</th><th style="text-align:right">Meses</th><th>Estatus</th><th style="text-align:right">Consumo equiv. insumo/mes</th><th>Venta últimos 6 meses</th></tr></thead><tbody>'+filas+'</tbody></table></div>'
+    +'<div style="font-size:12px;margin-top:6px">Consumo equivalente total: <b>'+n(tot)+'</b> / mes'+(r.D>0?' ('+Math.round(tot/r.D*100)+'% de la demanda del insumo, '+n(r.D)+')':'')+(tot>0?' · la existencia del insumo ('+n(exI,0)+') alcanza para <b>'+n(exI/tot)+'</b> meses de producción':'')+'</div>'
+    +(av.length?'<div style="font-size:12px;color:#b45309;margin-top:4px">⚠️ '+av.map(e).join('<br>⚠️ ')+'</div>':'')+'</div>';
+};
+// Mapa insumo → [[producto, cantidad por unidad de producto]]
+P.bomInsumos=lst=>{const m=new Map();(lst||[]).forEach(([pr,ins,q])=>{(m.get(ins)||m.set(ins,[]).get(ins)).push([pr,q]);});return m;};
 // Compradores que reciben en sucursal y después mueven la mercancía al CEDI: sus OCs NO son entrega directa
 // aunque Observaciones traiga una sucursal. La lista se edita en Cálculo diario (tabla plan_config); esta es la de arranque.
 P.R.SIN_ED_DEF=['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA'];

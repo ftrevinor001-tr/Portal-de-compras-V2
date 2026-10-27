@@ -1429,7 +1429,7 @@ function construirMonitor(rawH, miMap){
   const rows=rawH.map(r=>({f:pD(r['Día/ mes.1']),c:String(r['Clave']||'').trim(),n:String(r['Nombre']||'').trim(),
     m:String(r['Marca']||'').trim(),cp:String(r['COMPRADOR']||'').trim().toUpperCase(),
     cl:String(r['Clasificación']||'').trim(),cr:String(r['Clasificacion']||'').trim().toUpperCase(),
-    est:String(r['Clasificacion 2']||'').trim().toUpperCase(),miv:parseFloat(String(r['Meses de inventario']||'').replace(/,/g,''))})).filter(r=>r.f&&r.c&&r.cr!=='NUEVOS'&&r.cr!=='SIN COMPRA');
+    est:String(r['Clasificacion 2']||'').trim().toUpperCase(),miv:parseFloat(String(r['Meses de inventario']||'').replace(/,/g,''))})).filter(r=>r.f&&r.c&&r.cr!=='NUEVOS'&&r.cr!=='SIN COMPRA'&&r.cp!=='PRODUCCION');
   const fechas=[...new Set(rows.map(r=>r.f))].sort();
   if(!fechas.length)throw new Error('La hoja Historico de faltantes no tiene fechas válidas.');
   const firstDate=fechas[0],lastDate=fechas[fechas.length-1];

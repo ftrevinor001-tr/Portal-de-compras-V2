@@ -333,7 +333,7 @@ async function contexto(log){
   return{ctx,restr};
 }
 async function cargaCalc(log){
-  const wb=await leerLibro('f-calc',['Detalle','Productos Incluidos en','RP01-23 Ordenes de Compra'],log);
+  const wb=await leerLibro('f-calc',['Detalle','Productos Incluidos en','RP01-23 Ordenes de Compra','Base produccion'],log);
   const porFecha=P.detalle(wb);
   const fechas=[...porFecha.keys()].sort();
   if(!fechas.length)throw new Error('La hoja Detalle no trae fechas válidas.');
@@ -350,6 +350,8 @@ async function cargaCalc(log){
   let soloPublicar=false;
   if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
   const{ctx,restr}=await contexto(log);
+  // Producción: relación insumo → producto (hoja Base produccion; si no viene, la última guardada)
+  await baseProduccion(wb,ctx,log);
   // BO de entregas directas: no llega al CEDI, se quita del BO para la propuesta
   try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb),await cargarSinED());log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
   // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
@@ -459,7 +461,7 @@ async function reconstruirHistorial(log){
   const dias=(await todo(()=>sb.from('dias_cargados').select('fecha').gte('fecha',desde).lte('fecha',hasta).order('fecha'))).map(x=>String(x.fecha).slice(0,10));
   if(!dias.length)throw new Error('No hay días cargados entre '+desde+' y '+hasta+'.');
   log.msg('↺ Reconstruyendo '+dias.length+' días del '+dias[0]+' al '+dias[dias.length-1]+'…');
-  const{ctx}=await contexto(log);ctx.prevEst=new Map();ctx.prevFecha=null;
+  const{ctx}=await contexto(log);ctx.prevEst=new Map();ctx.prevFecha=null;await baseProduccion(null,ctx,log);
   for(const f of dias){
     await pausa();
     const det=await todo(()=>sb.from('detalle_diario').select('clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,estatus,back_order').eq('fecha',f).order('clave'));
@@ -476,6 +478,16 @@ async function reconstruirHistorial(log){
     log.msg('   '+f+': '+fmt(res.length)+' claves · faltante '+fmt(c('FALTANTE'))+' · riesgo '+fmt(c('RIESGO'))+' · sobre inv. '+fmt(c('SOBRE INVENTARIO')));
   }
   log.msg('🎉 Historial reconstruido. El Histórico de Inventarios se actualiza con la siguiente carga del Excel.');
+}
+// ── Producción: hoja Base produccion (producto ← insumo × cantidad) guardada en plan_config id 'base_produccion' ──
+async function baseProduccion(wb,ctx,log){
+  let lst=null;try{lst=wb?P.baseProduccion(wb):null;}catch(e){}
+  if(lst&&lst.length){
+    const{error}=await sb.from('plan_config').upsert({id:'base_produccion',valor:lst,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+    if(error)log.msg('⚠️ No se guardó la Base de producción: '+error.message,'w');
+  }else{try{const{data}=await sb.from('plan_config').select('valor').eq('id','base_produccion').maybeSingle();lst=data&&Array.isArray(data.valor)?data.valor:null;}catch(e){}}
+  ctx.bom=P.bomInsumos(lst||[]);
+  if(lst&&lst.length)log.msg('🏭 Base de producción: '+fmt(new Set(lst.map(x=>x[0])).size)+' productos y '+fmt(ctx.bom.size)+' insumos. Las claves de comprador PRODUCCION se calculan pero no cuentan en faltantes, alarmas ni seguimiento.');
 }
 // ── Primera fecha con existencia (plan_primera_existencia): NUEVA vs SIN MOVIMIENTO para claves que nunca se han vendido ──
 // Cada día calculado agrega las claves que aparecen con existencia por primera vez; se guarda al final del cálculo.
