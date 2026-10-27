@@ -487,6 +487,7 @@ async function baseProduccion(wb,ctx,log){
     if(error)log.msg('⚠️ No se guardó la Base de producción: '+error.message,'w');
   }else{try{const{data}=await sb.from('plan_config').select('valor').eq('id','base_produccion').maybeSingle();lst=data&&Array.isArray(data.valor)?data.valor:null;}catch(e){}}
   ctx.bom=P.bomInsumos(lst||[]);
+  const nP=P.aplicarProduccion(ctx);if(nP)log.msg('🏭 Consumo por producción sumado a la venta de '+fmt(nP)+' insumos (venta SANVER de sus productos × insumo por unidad; sin MF ni reempaques de la misma clave).');
   if(lst&&lst.length)log.msg('🏭 Base de producción: '+fmt(new Set(lst.map(x=>x[0])).size)+' productos y '+fmt(ctx.bom.size)+' insumos. Las claves de comprador PRODUCCION se calculan pero no cuentan en faltantes, alarmas ni seguimiento.');
 }
 // ── Primera fecha con existencia (plan_primera_existencia): NUEVA vs SIN MOVIMIENTO para claves que nunca se han vendido ──

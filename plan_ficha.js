@@ -26,11 +26,11 @@
     if(!r[2].error)(r[2].data||[]).forEach(x=>o.ed[String(x.mes).slice(0,7)]=Number(x.cantidad));
     if(!r[3].error)o.alarmas=r[3].data||[];
     if(conHist&&r[4]&&!r[4].error)o.hist=(r[4].data||[]).map(h=>({fecha:h.f,estatus:String(h.est||'').toUpperCase(),existencias:h.ex,back_order:h.boT!=null?h.boT:h.bo,meses_inv:h.mi,mA:h.mA,mP:h.mP,eA:h.eA,eP:h.eP}));
-    await P.edExtraClave(sb,c,o);await P.ventasConSust(sb,c,o);
+    await P.edExtraClave(sb,c,o);await P.ventasConProduccion(sb,c,o);await P.ventasConSust(sb,c,o);
     cache.set(k,o);return o;
   }
 
-  function grafica(arr,agot,parte){
+  function grafica(arr,agot,parte,pprod){
     if(!arr.length)return '<div style="padding:16px;color:#64748b">Sin ventas cargadas.</div>';
     const W=820,H=200,pl=40,pb=40,pt=14;const mx=Math.max(1,...arr.map(x=>Math.max(x.venta||0,x.limpia||0)));const bw=(W-pl-6)/arr.length;
     let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-height:220px"><defs><pattern id="pfz" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="#fff"/><rect width="2.4" height="5" fill="#fda4af"/></pattern><pattern id="pfact" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#ccfbf1"/><rect width="3" height="6" fill="#14b8a6"/></pattern></defs>';
@@ -42,6 +42,8 @@
       const tit=fM(x.m)+': venta '+n(x.venta)+(x.ed?' · ED restada → '+n(x.limpia):'')+(x.excluido?' · NO SE USA: '+x.excluido:'')+(x.atipico==='temporada'?' · pico de temporada (se repite el año anterior o el siguiente, o dura varios meses): se usa completo':'')+(x.atipico==='topado'?' · atípico topado a 3× mediana':'')+(ag?' · '+ag+' días agotado':'')+(x.usa.length?' · usado en '+x.usa.map(u=>u==='ANT'?'antecedente':'pronóstico').join(' y '):'');
       s+='<rect x="'+x0+'" y="'+(bh?y0:H-pb-1)+'" width="'+(bw-4)+'" height="'+Math.max(bh,1)+'" rx="2" fill="'+fill+'" stroke="'+(x.actual?'#0f766e':x.excluido?'#fb7185':'none')+'"'+(x.actual?' stroke-dasharray="3 2"':'')+'><title>'+esc(x.actual?fM(x.m)+' (MES ACTUAL, venta parcial): '+n(x.venta)+' · solo seguimiento, no cuenta para el cálculo':tit)+'</title></rect>';
       if(x.actual)s+='<text x="'+(x0+(bw-4)/2)+'" y="'+(y0-3)+'" font-size="9" font-weight="700" text-anchor="middle" fill="#0f766e">actual</text>';
+      const pp=pprod&&pprod[x.m];if(pp&&bh>0){const q=pp.reduce((a,y)=>a+y[1],0),hh=bh*Math.min(1,q/Math.max(x.venta||0,q));
+        s+='<rect x="'+x0+'" y="'+(H-pb-hh)+'" width="'+(bw-4)+'" height="'+Math.max(hh,1)+'" rx="2" fill="#db2777" opacity="'+(x.excluido?.4:.75)+'"><title>'+esc(fM(x.m)+': '+n(q)+' de '+n(x.venta)+' es consumo por producción de '+pp.map(y=>y[0]+' ('+n(y[1])+')').join(', '))+'</title></rect>';}
       const ps=parte&&parte[x.m];if(ps&&bh>0){const q=ps.reduce((a,y)=>a+y[1],0),hh=bh*Math.min(1,q/Math.max(x.venta||0,q));
         s+='<rect x="'+x0+'" y="'+y0+'" width="'+(bw-4)+'" height="'+Math.max(hh,1)+'" rx="2" fill="#f97316" opacity="'+(x.excluido?.45:.9)+'"><title>'+esc(fM(x.m)+': '+n(q)+' de '+n(x.venta)+' vienen de la clave sustituida '+ps.map(y=>y[0]+' ('+n(y[1])+')').join(', '))+'</title></rect>';
         if(!x.excluido&&x.usa.length)s+='<rect x="'+x0+'" y="'+y0+'" width="'+(bw-4)+'" height="4" rx="1" fill="'+(x.usa.includes('ANT')?'#3b82f6':'#8b5cf6')+'"><title>'+(x.usa.includes('ANT')?'Usado en antecedente':'Usado en pronóstico')+'</title></rect>';}
@@ -77,8 +79,8 @@
     const ocs=ctx.ocs||[];
     const usados=w=>sv.filter(x=>x.usa.includes(w)).map(x=>fM(x.m)).join(', ')||'sin meses válidos';
     const izq=(ctx.conHist?'<div style="margin-bottom:12px"><b style="font-size:12.5px">Estatus día por día</b> <span style="font-size:11px;color:#64748b">(estatus del portal de cada día; pasa el cursor para ver meses con antecedente, pronóstico y portal)</span>'+tira(d.hist,60)+'</div>':'')
-      +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:12.5px">Ventas SANVER mes a mes</b><span style="font-size:11px;color:#64748b"><span style="color:#3b82f6">■</span> antecedente · <span style="color:#8b5cf6">■</span> pronóstico · <span style="color:#cbd5e1">■</span> no usado · <span style="color:#fb7185">▨</span> descartado · ⛔ agotado · ED entrega directa restada · <span style="color:#14b8a6">▨</span> mes actual (no cuenta)'+(d.sust?' · <span style="color:#f97316">■</span> venta de clave sustituida':'')+'</span></div>'
-      +(r?grafica(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER):'<div style="color:#64748b;font-size:12px;padding:10px">La clave no está en el último cálculo del portal.</div>')
+      +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:12.5px">Ventas SANVER mes a mes</b><span style="font-size:11px;color:#64748b"><span style="color:#3b82f6">■</span> antecedente · <span style="color:#8b5cf6">■</span> pronóstico · <span style="color:#cbd5e1">■</span> no usado · <span style="color:#fb7185">▨</span> descartado · ⛔ agotado · ED entrega directa restada · <span style="color:#14b8a6">▨</span> mes actual (no cuenta)'+(d.prod?' · <span style="color:#db2777">■</span> consumo por producción':'')+(d.sust?' · <span style="color:#f97316">■</span> venta de clave sustituida':'')+'</span></div>'
+      +(r?grafica(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER,d.prod&&d.prod.parte):'<div style="color:#64748b;font-size:12px;padding:10px">La clave no está en el último cálculo del portal.</div>')
       +(mf.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas MF (antecedente '+n(r.mfA,1)+' · pronóstico '+n(r.mfP,1)+' · existencia '+n(r.mfI)+')</summary>'+grafica(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'');
     const kv=(k,v)=>'<b style="color:#64748b;font-weight:600">'+k+'</b><span style="overflow-wrap:anywhere;min-width:0">'+v+'</span>';
     const der=r?'<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'

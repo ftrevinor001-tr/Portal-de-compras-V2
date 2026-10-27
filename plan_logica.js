@@ -422,7 +422,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
     const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
     const r1=x=>x==null?null:Math.round(x*10)/10;
-    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
+    const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(ctx.prodCons&&ctx.prodCons.has(k)?['incluye consumo de producción de '+ctx.prodCons.get(k).map(x=>x[0]).join(', ')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
@@ -610,10 +610,31 @@ P.produccionHTML=(r,get,vp,ref)=>{
     if(p&&(p.est==='FALTANTE'||p.est==='RIESGO'))av.push(pc+' en '+p.est.toLowerCase()+': con la existencia del insumo ('+n(r.exC!=null?r.exC:r.ex)+') se pueden producir '+n(Math.floor((r.exC!=null?r.exC:r.ex)/q),0)+' piezas');
     return '<tr><td><b>'+pc+'</b> <span style="color:#64748b">'+e(p?(p.n||'').slice(0,46):'(no viene en el cálculo del día)')+'</span></td><td style="text-align:right">'+n(q,3)+'</td><td style="text-align:right">'+(p?n(p.ex,0):'—')+'</td><td style="text-align:right">'+(p?n(p.D):'—')+'</td><td style="text-align:right">'+(p&&p.mi!=null?n(p.mi):'—')+'</td><td>'+(p?tag(p.est):'—')+'</td><td style="text-align:right">'+(eq!=null?n(eq):'—')+'</td><td style="color:#64748b;font-size:11px">'+ult.join(' · ')+'</td></tr>';}).join('');
   const exI=r.exC!=null?r.exC:r.ex;
-  return '<div style="margin-top:12px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:10px 12px"><b style="font-size:12.5px;color:#9a3412">🏭 Producción</b> <span style="font-size:11.5px;color:#64748b">este insumo se usa en '+r.bp.length+' producto'+(r.bp.length>1?'s':'')+' (solo informativo: las claves de producción no cuentan en faltantes ni seguimiento)</span>'
+  return '<div style="margin-top:12px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:10px 12px"><b style="font-size:12.5px;color:#9a3412">🏭 Producción</b> <span style="font-size:11.5px;color:#64748b">este insumo se usa en '+r.bp.length+' producto'+(r.bp.length>1?'s':'')+' (su consumo ya está sumado en la venta del insumo; las claves de producción no cuentan en faltantes ni seguimiento)</span>'
     +'<div style="overflow-x:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:#9a3412;text-align:left"><th>Producto</th><th style="text-align:right" title="Cantidad de insumo por unidad vendida del producto (Cantidad Requerida ÷ piezas por unidad)">Insumo por unidad</th><th style="text-align:right">Exist.</th><th style="text-align:right">Demanda/mes</th><th style="text-align:right">Meses</th><th>Estatus</th><th style="text-align:right">Consumo equiv. insumo/mes</th><th>Venta últimos 6 meses</th></tr></thead><tbody>'+filas+'</tbody></table></div>'
-    +'<div style="font-size:12px;margin-top:6px">Consumo equivalente total: <b>'+n(tot)+'</b> / mes'+(r.D>0?' ('+Math.round(tot/r.D*100)+'% de la demanda del insumo, '+n(r.D)+')':'')+(tot>0?' · la existencia del insumo ('+n(exI,0)+') alcanza para <b>'+n(exI/tot)+'</b> meses de producción':'')+'</div>'
+    +'<div style="font-size:12px;margin-top:6px">Consumo equivalente total: <b>'+n(tot)+'</b> / mes'+(r.D>0?' (demanda del insumo '+n(r.D)+', que ya lo incluye)':'')+(tot>0?' · la existencia del insumo ('+n(exI,0)+') alcanza para <b>'+n(exI/tot)+'</b> meses de producción':'')+'</div>'
     +(av.length?'<div style="font-size:12px;color:#b45309;margin-top:4px">⚠️ '+av.map(e).join('<br>⚠️ ')+'</div>':'')+'</div>';
+};
+// Consumo por producción (oct-2026): la Plantilla de ventas trae la venta NETA (directa). A cada insumo se le suma, por mes,
+// la venta SANVER de sus productos × insumo por unidad vendida. No cuentan las ventas MF (no salen de producción del CEDI)
+// ni las autoreferencias producto = insumo (reempaque de la misma clave).
+P.aplicarProduccion=(ctx)=>{
+  if(!ctx.bom||!ctx.bom.size)return 0;const V=ctx.ventas.SANVER;const add=new Map();ctx.prodCons=new Map();
+  ctx.bom.forEach((lst,ins)=>{const og=lst.filter(([p])=>Number(p)!==Number(ins)).map(([p,f])=>({o:Number(p),f,meses:V.get(Number(p))})).filter(x=>x.meses);
+    if(!og.length)return;add.set(ins,P.mezclarSust(V.get(ins),og).meses);ctx.prodCons.set(ins,og.map(x=>[x.o,x.f]));});
+  add.forEach((m,k)=>V.set(k,m));return add.size;
+};
+// Para la ficha: suma a o.ventas.SANVER del insumo el consumo de sus productos y deja o.prod = {lst:[[producto,factor]], parte:{mes:[[producto,cant]]}}
+let _bomCache=null;
+P.ventasConProduccion=async(sb,c,o)=>{
+  try{
+    if(!_bomCache){const{data}=await sb.from('plan_config').select('valor').eq('id','base_produccion').maybeSingle();_bomCache=P.bomInsumos(data&&Array.isArray(data.valor)?data.valor:[]);}
+    const lst=(_bomCache.get(Number(c))||[]).filter(([p])=>Number(p)!==Number(c));if(!lst.length)return o;
+    const{data}=await sb.from('plan_ventas').select('clave,meses').eq('empresa','SANVER').in('clave',lst.map(x=>Number(x[0])));
+    const og=lst.map(([p,f])=>({o:Number(p),f,meses:((data||[]).find(r=>Number(r.clave)===Number(p))||{}).meses})).filter(x=>x.meses);
+    if(!og.length)return o;const mz=P.mezclarSust(o.ventas.SANVER,og);o.ventas.SANVER=mz.meses;o.prod={lst,parte:mz.parte};
+  }catch(e){}
+  return o;
 };
 // Mapa insumo → [[producto, cantidad por unidad de producto]]
 P.bomInsumos=lst=>{const m=new Map();(lst||[]).forEach(([pr,ins,q])=>{(m.get(ins)||m.set(ins,[]).get(ins)).push([pr,q]);});return m;};
