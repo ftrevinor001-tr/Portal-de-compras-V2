@@ -482,8 +482,8 @@ function loadTab(i){ // i = 1..5 (iframes)
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
 const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html',11:'plan_calendario.html'};
 // Calendario de pedidos → abre Propuestas de compra con las claves del pedido listas para crear el folio
-function abrirPropuestaCon(claves,origen){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');
-  fr.src='plan_propuestas.html?claves='+encodeURIComponent(claves.join(','))+'&origen='+encodeURIComponent(origen||'')+'&t='+Date.now();switchTab(9);}
+function abrirPropuestaCon(claves,origen,todas){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');
+  fr.src='plan_propuestas.html?claves='+encodeURIComponent(claves.join(','))+'&grupo='+encodeURIComponent((todas||[]).join(','))+'&origen='+encodeURIComponent(origen||'')+'&t='+Date.now();switchTab(9);}
 window.abrirPropuestaCon=abrirPropuestaCon;
 // Abre un comparativo en la pestaña Comparativos (lo usa Propuestas de compra)
 function abrirComparativo(id){const fr=document.getElementById('fr-10');const l=document.getElementById('ld-10');if(l)l.classList.remove('hidden');fr.src='comparativos.html'+(id?'?cmp='+encodeURIComponent(id):'');switchTab(10);}

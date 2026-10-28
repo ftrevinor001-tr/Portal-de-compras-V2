@@ -95,7 +95,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600
     </div>
     <div class="row" style="margin-top:12px">
       <select id="f-comp" onchange="calcular()"></select>
-      <select id="f-ag" onchange="calcular()"><option value="PROV">Agrupar por proveedor</option><option value="MARCA">Agrupar por marca</option><option value="GRUPO">Agrupar por grupo</option></select>
+      <select id="f-ag" onchange="calcular()"><option value="PROV">Agrupar por proveedor</option><option value="MARCA">Agrupar por marca</option><option value="GRUPO">Agrupar por grupo</option><option value="COMPRADOR">Agrupar por comprador</option></select>
       <select id="f-h" onchange="calcular()"><option value="30">Próximos 30 días</option><option value="60">Próximos 60 días</option><option value="90" selected>Próximos 90 días</option></select>
       <span id="f-marca"></span><span id="f-grupo"></span>
       <input type="search" id="f-q" placeholder="Buscar proveedor, marca o clave…" oninput="pintar()" style="width:240px">
@@ -236,7 +236,7 @@ function pintar(){
     ||'<tr><td colspan="10" class="mut">No hay pedidos en el horizonte con estos filtros.</td></tr>';
   const sinP=G.length-rows.length;
   if(S.diaF){$('lista-pie').innerHTML='Mostrando solo los pedidos del <b>'+fCorta(S.diaF)+'</b> ('+nf(rows.length)+') · <a class="lk" onclick="S.diaF=null;pintar()">ver todos</a>';if(S.vista==='cal')pintarCal();return;}
-  $('lista-pie').textContent=nf(rows.length)+' '+($('f-ag').value==='PROV'?'proveedores':'grupos')+' con pedido en los próximos '+H+' días'+(sinP?' · '+nf(sinP)+' sin pedido en el horizonte (inventario suficiente)':'')+'. Ordenado por fecha del próximo pedido.';
+  $('lista-pie').textContent=nf(rows.length)+' '+({PROV:'proveedores',COMPRADOR:'compradores'}[$('f-ag').value]||'grupos')+' con pedido en los próximos '+H+' días'+(sinP?' · '+nf(sinP)+' sin pedido en el horizonte (inventario suficiente)':'')+'. Ordenado por fecha del próximo pedido.';
   if(S.vista==='cal')pintarCal();
 }
 function vista(v){S.vista=v;if(v==='cal'&&S.diaF){S.diaF=null;pintar();}$('v-lista').classList.toggle('on',v==='lista');$('v-cal').classList.toggle('on',v==='cal');$('w-lista').style.display=v==='lista'?'':'none';$('w-cal').style.display=v==='cal'?'':'none';if(v==='cal')pintarCal();}
@@ -269,7 +269,7 @@ function pintarDet(){
     +(r.minimo_monto?'<span>Mínimo: <b>'+mxn(r.minimo_monto)+'</b></span>':'')+(r.minimo_piezas?'<span>Mínimo piezas: <b>'+nf(r.minimo_piezas)+'</b></span>':'')
     +(r.flete_completo?'<span>Flete completo: <b>'+(r.monto_flete?mxn(r.monto_flete):'sí')+'</b></span>':'')+(r.lead_time_dias?'<span>Entrega real: <b>'+nf(r.lead_time_dias)+' días</b></span>':'')
     +(r.contacto?'<span>Contacto: <b>'+esc(r.contacto)+'</b></span>':'')+(r.notas?'<span>Notas: '+esc(r.notas)+'</span>':'')
-    +'<span class="mut">'+nf(g.claves)+' claves con consumo'+(g.ag==='PROV'?'':' · agrupado por '+(g.ag==='MARCA'?'marca':'grupo'))+'</span>';
+    +'<span class="mut">'+nf(g.claves)+' claves con consumo'+(g.ag==='PROV'?'':' · agrupado por '+({MARCA:'marca',GRUPO:'grupo',COMPRADOR:'comprador'}[g.ag]))+'</span>';
   $('det-p').innerHTML=g.pedidos.length?g.pedidos.map((p,i)=>'<button class="'+(i===S.ped?'on':'')+'" onclick="S.ped='+i+';pintarDet()">'+(p.atr>0?'⚠️ ':'')+fCorta(p.f)+' · '+p.claves+' cl · '+mxn(p.valor)+'</button>').join(''):'<span class="d">Sin pedidos en el horizonte.</span>';
   const p=g.pedidos[S.ped];
   if(!p){$('det-b').innerHTML='';$('det-acc').innerHTML='';return;}
@@ -285,8 +285,11 @@ function pintarDet(){
 function crearProp(comp,i){
   const g=S.cal.find(x=>x.g===S.sel);if(!g)return;const p=g.pedidos[i];if(!p)return;
   const ks=p.lineas.filter(l=>(l.comp||'—')===comp).map(l=>l.c);if(!ks.length)return;
-  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g.g);return;}}catch(e){}
-  window.open('plan_propuestas.html?claves='+ks.join(',')+'&origen='+encodeURIComponent(g.g),'_blank');
+  // Todas las claves asignadas a ese proveedor / marca / grupo del mismo comprador (aunque hoy no les toque), para poder sumarlas al folio
+  const ag=g.ag,kg=P.provKey(g.g);
+  const todas=S.claves.filter(r=>(r.comp||'—')===comp&&(ag==='MARCA'?(r.m||'SIN MARCA')===g.g:ag==='GRUPO'?(r.g||'SIN GRUPO')===g.g:ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR')===g.g:P.provKey((S.F.prov.get(Number(r.c))||{}).p||'')===kg)).map(r=>Number(r.c));
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g.g,todas);return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g.g),'_blank');
 }
 // ── Excel ──
 function filasXL(gs,soloPed){

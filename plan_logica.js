@@ -740,7 +740,7 @@ P.temporada=(A,Pr,umb)=>{const U=umb!=null?umb:P.R.TEMP_VAR;
 };
 P.TEMP_L={SUBE:'↑ Sube fuerte (temporada)',BAJA:'↓ Baja fuerte',ESTABLE:'Sin cambio fuerte','SIN DATO':'Sin antecedente o pronóstico'};
 // ── Propuestas de compra (folio): lectura de lo pegado de surtimiento y semáforo por clave ──
-P.R.PROP_TOL=0.20;P.R.PROP_DIF_MESES=0.5;
+P.R.PROP_TOL=0.20;P.R.PROP_DIF_MESES=0.5;P.R.PROP_ROJO_MESES=1;
 // aoa = filas de la hoja donde el comprador pegó surtimiento (con encabezados). Toma cada dato por el nombre de su columna.
 P.leerSurtimiento=aoa=>{
   const C={id:h=>h==='ID',pedido:h=>h==='PEDIDO',pron:h=>h==='PRON'||h.startsWith('PRON '),anteo:h=>h.startsWith('ANTE'),redond:h=>h.startsWith('REDOND'),
@@ -802,31 +802,43 @@ P.propLinea=(p,s,o)=>{
   const lo=r2(Math.min(lt*P.R.FACT_ENTREGA,pm)),hi=r2(pm*P.R.FACT_MAX),bajo=r2(Math.min(lt*P.R.FACT_ENTRA_RIESGO,pm));
   const inR=m=>m!=null&&m>=lo&&m<=hi,fuera=m=>m!=null&&(m>hi||m<bajo);
   const near=sug=>sug==null?false:sug>0?Math.abs(ped-sug)/sug<=P.R.PROP_TOL:ped<=0;
-  const ls=[lA,lP].filter(m=>m!=null);const r1=x=>Math.round(x*10)/10,av=[];
+  const r1=x=>Math.round(x*10)/10,av=[],fN=x=>Math.round(x).toLocaleString('es-MX'),fM=x=>r1(x).toLocaleString('es-MX',{minimumFractionDigits:1,maximumFractionDigits:1});
+  // Semáforo (oct-2026): se mide en MESES de inventario con la base recomendada, no en %.
+  // Verde: pide lo recomendado (±20% o ±0.5 meses) o al llegar queda dentro del objetivo.
+  // Rojo: lo pedido CAUSA el problema: pide de más y al llegar queda más de 1 mes arriba del máximo, o pide de menos y al llegar sigue en riesgo.
+  // Amarillo: lo demás (se aleja de lo recomendado sin llegar a rojo): pide motivo.
+  const c=br.c>0?br.c:null,dif=sR==null?null:ped-sR,dm=c&&dif!=null?r2(dif/c):null;
+  const dmX=(x,sx)=>x>0&&sx!=null?r2((ped-sx)/x):null;
+  const rangoTxt='objetivo ('+fM(lo)+' a '+fM(hi)+' meses)';
+  const difTxt=dif==null?'':(dif>0?'pide '+fN(dif)+' pzs más que lo recomendado (+'+fM(dm)+' meses)':'pide '+fN(-dif)+' pzs menos que lo recomendado (−'+fM(-dm)+' meses)');
+  let sem,por;
+  if(!c){sem=ped>0?'AMARILLO':'VERDE';por=ped>0?'Sin consumo en el portal: se compra sin historial de venta':'Sin consumo y no se pide';}
+  else if(ped<=0&&(sR||0)<=0){sem='VERDE';por='No requiere compra y no se pide (al llegar '+fM(lR)+' meses)';}
+  else if(near(sR)||Math.abs(dm)<=P.R.PROP_DIF_MESES){sem='VERDE';por='Pide lo recomendado'+(dif?' ('+(dif>0?'+':'−')+fN(Math.abs(dif))+' pzs'+(Math.abs(dm)>=0.05?', '+(dm>0?'+':'−')+fM(Math.abs(dm))+' meses':'')+')':'')+'; al llegar '+fM(lR)+' meses';}
+  else if(inR(lR)){sem='VERDE';por='Al llegar queda con '+fM(lR)+' meses, dentro del '+rangoTxt+'; '+difTxt;}
+  // Lo que el pedido mismo agrega al exceso (o al faltante): si la clave ya venía en sobre inventario, solo cuenta lo que se pide de más
+  else if(dif>0&&lR>hi&&Math.min(dm,lR-hi)>P.R.PROP_ROJO_MESES){sem='ROJO';por='Sobre inventario: al llegar quedaría con '+fM(lR)+' meses, '+fM(lR-hi)+' arriba del máximo ('+fM(hi)+'); '+difTxt;}
+  else if(dif<0&&lR<bajo&&(Math.min(-dm,bajo-lR)>P.R.PROP_ROJO_MESES||lR<=0.5)){sem='ROJO';por='Sigue en riesgo: al llegar quedaría con '+fM(lR)+' meses, abajo del mínimo ('+fM(bajo)+'); '+difTxt;}
+  else{sem='AMARILLO';const ya=lR-dm;por=(lR>hi?(ya>hi?'Ya está en sobre inventario sin comprar ('+fM(ya)+' meses al llegar, máximo '+fM(hi)+')':'Al llegar quedaría con '+fM(lR)+' meses, '+fM(lR-hi)+' arriba del máximo ('+fM(hi)+')'):lR<bajo?'Al llegar quedaría con '+fM(lR)+' meses, '+fM(bajo-lR)+' abajo del mínimo ('+fM(bajo)+')':lR<lo?'Al llegar quedaría con '+fM(lR)+' meses, abajo del objetivo ('+fM(lo)+') sin llegar a riesgo':'Al llegar '+fM(lR)+' meses')+'; '+difTxt;}
+  av.push(por);
   const otra=br.b==='ANT'?'PRON':br.b==='PRON'?'ANT':null,lO=otra==='ANT'?lA:otra==='PRON'?lP:null,sO=otra==='ANT'?sA:otra==='PRON'?sP:null;
-  let sem;
-  if(br.b&&inR(lR)&&near(sR))sem='VERDE';
-  else if(otra&&inR(lO)&&near(sO)){sem='AMARILLO';av.push('Cuadra con '+P.BASE_L[otra].toLowerCase()+', pero el portal recomienda '+P.BASE_L[br.b].toLowerCase()+' ('+br.por+')');}
-  else if(inR(lA)||inR(lP)||inR(lR))sem='AMARILLO';
-  else if(ls.length&&ls.every(fuera))sem='ROJO';
-  else sem='AMARILLO';
-  if(!ls.length)av.push('Sin consumo en el portal: no se pueden calcular meses');
-  if(ls.length&&ls.every(m=>m>hi))av.push('Al llegar queda en sobre inventario (más de Objetivo × '+P.R.FACT_MAX+' = '+r1(hi)+' meses)');
-  if(ls.length&&ls.every(m=>m<bajo))av.push('Al llegar sigue en riesgo (menos de '+r1(bajo)+' meses)');
+  if(sem!=='VERDE'&&otra&&inR(lO)&&near(sO))av.push('Cuadra con '+P.BASE_L[otra].toLowerCase()+' (al llegar '+fM(lO)+' meses), pero el portal recomienda '+P.BASE_L[br.b].toLowerCase()+': '+br.por);
   // Meses de surtimiento vs portal. Si no cuadran pero sí cuadran con el BO al revés, se avisa del "¿Considerar BO?"
   const tol=P.R.PROP_DIF_MESES,alt=c=>c>0?r2(((Number(p.ex)||0)+(conBO?0:bo)+ped)/c):null;let avBO=false;
+  const dd=[];
   const difM=(sm,m,c,t)=>{if(sm==null||m==null||Math.abs(sm-m)<=tol)return;const x=alt(c);
-    if(bo>0&&x!=null&&Math.abs(sm-x)<=tol){avBO=true;return;}av.push('Meses con '+t+': surtimiento '+r1(sm)+' vs portal '+r1(m));};
+    if(bo>0&&x!=null&&Math.abs(sm-x)<=tol){avBO=true;return;}dd.push('meses con '+t+' '+r1(sm)+' (portal '+r1(m)+')');};
   difM(s.anteo,mA,p.A,'antecedente');difM(s.pron,mP,p.P,'pronóstico');
   if(avBO)av.push(conBO?'Surtimiento calculó los meses sin BO (¿Considerar BO? = No); el folio está con BO':'Surtimiento calculó los meses con BO; el folio está sin BO');
-  if(s.te!=null&&Math.abs(s.te-lt)>0.01)av.push('T. entrega: surtimiento '+s.te+' vs portal '+lt);
-  if(s.pmax!=null&&Math.abs(s.pmax-pm)>0.01)av.push('Pedido máximo: surtimiento '+s.pmax+' vs objetivo del portal '+pm);
-  if(s.exist!=null&&Math.abs(s.exist-(Number(p.ex)||0))>0.5)av.push('Existencia: surtimiento '+s.exist+' vs portal '+p.ex);
-  if(s.bo!=null&&p.boT!=null&&Math.abs(s.bo-(Number(p.boT)||0))>0.5)av.push('BO: surtimiento '+s.bo+' vs portal '+p.boT);
+  if(s.te!=null&&Math.abs(s.te-lt)>0.01)dd.push('T. entrega '+s.te+' (portal '+lt+')');
+  if(s.pmax!=null&&Math.abs(s.pmax-pm)>0.01)dd.push('pedido máximo '+s.pmax+' (objetivo portal '+pm+')');
+  const exP=Number(p.ex)||0;if(s.exist!=null&&Math.abs(s.exist-exP)>Math.max(1,exP*0.02))dd.push('existencia '+fN(s.exist)+' (portal '+fN(exP)+')');
+  if(s.bo!=null&&p.boT!=null&&Math.abs(s.bo-(Number(p.boT)||0))>Math.max(1,(Number(p.boT)||0)*0.02))dd.push('BO '+fN(s.bo)+' (portal '+fN(p.boT)+')');
+  if(dd.length)av.push('Surtimiento trae datos distintos al portal: '+dd.join('; ')+'. Revisa que el Excel del día sea el mismo.');
   if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+(p.mfB!=null?' sobre su número base ('+p.mfB+')':'')+' para devolución estratégica');
   if(p.ocs>0)av.push(p.ocs+(p.ocs===1?' OC abierta':' OCs abiertas')+' al CEDI');
   const v=x=>x>0?(ped-x)/x:null;
-  return{...out,sem,mA,mP,mR,lA,lP,lR,lo,hi,varA:v(sA),varP:v(sP),varR:v(sR),difR:sR==null?null:ped-sR,avisos:av};
+  return{...out,sem,por,mA,mP,mR,lA,lP,lR,lo,hi,bajo,varA:v(sA),varP:v(sP),varR:v(sR),difR:dif,dmR:dm,dmA:dmX(p.A,sA),dmP:dmX(p.P,sP),avisos:av};
 };
 P.PROP_MOTIVOS=['Mínimo de compra o flete del proveedor','Múltiplo de empaque','Temporada','Venta especial o proyecto','Compra de oportunidad o cambio de precio','Proveedor con entregas incumplidas (más stock de seguridad)','Redistribución de MF','Clave nueva o en lanzamiento','Reducir inventario o descontinuar','Otro (explicar en comentario)'];
 // ══ Calendario de pedidos por proveedor (oct-2026) ══
@@ -863,7 +875,7 @@ P.calendario=(filas,o)=>{
     if(r.pr||P.esProd(r)||P.R.SIN_SUG_ROT.includes(r.rot))return;const D=Number(P.baseRec(r).c)||0;if(!(D>0)||D<P.R.D_MIN)return;
     const k=Number(r.c),pv=prov.get(k)||{p:'MARCA '+(r.m||'SIN MARCA'),o:'MARCA'};
     // por proveedor se agrupa con la llave (sin SA DE CV, puntos, mayúsculas) y se muestra el nombre más usado
-    const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):P.provKey(pv.p);
+    const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):P.provKey(pv.p);
     if(ag==='PROV'){const n=NOM.get(g)||new Map();n.set(pv.p,(n.get(pv.p)||0)+1);NOM.set(g,n);}
     const rg=regla(g),lt=rg&&rg.lead_time_dias>0?rg.lead_time_dias/MD:(Number(r.lt)||0),pm=Number(r.pm)||0,rop=lt*P.R.FACT_ENTRA_RIESGO,meta=lt+pm;
     const pos=((Number(r.ex)||0)+(Number(r.bo)||0))/D;
