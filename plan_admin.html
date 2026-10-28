@@ -114,6 +114,12 @@ td:first-child,th:first-child{text-align:left}
     </div>
   </div>
   <div class="card">
+    <h2><span class="n">🏬</span>Número base de Mas Ferre <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Inventario que deben mantener <b>entre todas las tiendas MF</b> por clave (fijo). En el Cálculo diario: si MF tiene más de <b>4 meses</b> de inventario y su existencia está arriba de su número base, se marca <b>revisar con gerencia</b> (devolución estratégica) con excedente = existencia MF − número base. Si MF está abajo de su base, la ficha muestra cuánto falta por distribuir a tiendas (informativo, no cambia la propuesta). Claves sin número base siguen la regla de meses. Archivo con columnas <b>Clave</b> y <b>Número base</b>; cada carga reemplaza la lista completa.</p>
+    <div class="row"><input type="file" id="f-mfb" accept=".xlsx,.xls,.csv"><button onclick="run('mfb')">Cargar número base</button><button class="sec" onclick="plantillaMFB()">⬇ Plantilla</button><span class="d" id="mfb-res"></span></div>
+    <div class="log" id="log-mfb"></div>
+  </div>
+  <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
     <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
     <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
@@ -170,7 +176,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -218,6 +224,7 @@ async function run(tipo){
     if(tipo==='hist2')await reconstruirHistorial(log);
     if(tipo==='resg')await cargaResg(log);
     if(tipo==='sust')await cargaSust(log);
+    if(tipo==='mfb')await cargaMFB(log);
     if(tipo==='sustx')await bajarConversiones(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
@@ -321,6 +328,9 @@ async function contexto(log){
     new Set([...A.keys(),...M.keys()]).forEach(k=>{ctx.ed.set(k,P.mezclarED(ctx.ed.get(k),A.get(k),M.get(k)));n++;});
     if(n)log.msg('🚚 Entregas directas extra restadas de la venta: '+fmt(A.size)+' claves por recepciones a lugares sin sucursal · '+fmt(M.size)+' por ajuste manual.');}
   catch(e){log.msg('ℹ️ Entregas directas extra no aplicadas: '+(e.message||e),'w');}
+  // Número base de Mas Ferre
+  try{const mb=await todo(()=>sb.from('plan_mf_base').select('clave,base').order('clave'));ctx.mfBase=new Map(mb.map(r=>[Number(r.clave),Number(r.base)]));if(mb.length)log.msg('🏬 Número base MF: '+fmt(mb.length)+' claves.');}
+  catch(e){ctx.mfBase=new Map();}
   // Claves sustituidas: la vigente suma la venta de sus claves originales
   try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
     catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
@@ -501,6 +511,19 @@ async function guardarPrimerasEx(ctx,log){
   try{await enLotes('plan_primera_existencia',[...m].map(([clave,fecha])=>({clave,fecha,origen:'CALCULO',actualizado_en:new Date().toISOString()})),log,{onConflict:'clave',ignoreDuplicates:true});
     log.msg('🆕 '+fmt(m.size)+' claves aparecen con existencia por primera vez (se registra su fecha).');m.clear();}
   catch(e){log.msg('⚠️ No se guardó la primera fecha con existencia: '+(e.message||e),'w');}
+}
+// ── Número base de Mas Ferre (plan_mf_base) ──
+function plantillaMFB(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Clave','Número base'],[23462,120]]),'Numero base');XLSX.writeFile(wb,'Numero_base_MasFerre.xlsx');}
+async function pintarMFB(){const el=document.getElementById('mfb-res');try{const{count,error}=await sb.from('plan_mf_base').select('clave',{count:'exact',head:true});if(error)throw error;el.textContent=count?fmt(count)+' claves con número base cargado.':'Sin número base cargado.';}catch(e){el.textContent='Aún no existe la tabla: corre plan_tablas_15.sql.';}}
+async function cargaMFB(log){
+  const wb=await leerLibro('f-mfb',null,log);const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave.');
+  const H=aoa[hi].map(P.norm);const iC=H.indexOf('CLAVE'),iB=H.findIndex(h=>h.includes('BASE'));if(iB<0)throw new Error('No encontré la columna Número base.');
+  const m=new Map();let mal=0;for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]),b=P.num(aoa[i][iB]);if(k==null){if(String(aoa[i][iC]).trim())mal++;continue;}if(b==null||b<0){mal++;continue;}m.set(k,b);}
+  if(!m.size)throw new Error('El archivo no trae claves con número base.');
+  const{error}=await sb.from('plan_mf_base').delete().gte('clave',0);if(error)throw new Error('plan_mf_base: '+error.message+' (¿ya corriste plan_tablas_15.sql?)');
+  await enLotes('plan_mf_base',[...m].map(([clave,base])=>({clave,base,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('🎉 Número base de '+fmt(m.size)+' claves guardado'+(mal?' · '+mal+' renglones sin clave o número válido':'')+'. Se aplica en el siguiente Cálculo diario.');pintarMFB();
 }
 // ── Claves sustituidas ──
 // Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión
@@ -776,7 +799,7 @@ async function descargarCalc(){
   const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
     ['ex','Existencia para el cálculo (CEDI + resguardo)'],['exC','Existencia CEDI'],['rs','Resguardo con proveedor'],['rsBo','Resguardo descontado del BO'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal (base recomendada)'],['bDx','Por qué esa base'],['Dp','Promedio ant+pron (referencia)'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
     ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
-    ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
+    ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfB','Número base MF'],['mfFalta','Falta por distribuir a tiendas'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
   const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Planeación');
   const alH={clave:'Clave',comprador:'Comprador',rotacion:'Rotación',fecha_alarma:'Fecha alarma',tipo:'Tipo',n_meses:'N meses',antecedente:'Antecedente',pronostico:'Pronóstico',demanda:'Demanda portal',

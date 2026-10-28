@@ -249,7 +249,7 @@ function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(
 // Lo que se congela del portal por clave
 function snap(r){
   const ocs=(S.ocs[r.c]||S.ocs[String(r.c)]||[]).filter(o=>!o[4]).length;
-  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,exC:r.exC??null,rs:r.rs||0,rsD:r.rsD||null,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,ocs};
+  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,exC:r.exC??null,rs:r.rs||0,rsD:r.rsD||null,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,mfB:r.mfB??null,ocs};
 }
 async function crearFolio(){
   const claves=claveNueva().filter(k=>S.byClave.has(k));if(!claves.length){toast('Marca o pega al menos una clave');return;}
@@ -273,6 +273,8 @@ async function crearFolio(){
 async function abrirFolio(folio){
   const f=S.folios.find(x=>x.folio===folio)||(await sb.from('plan_propuestas').select('*').eq('folio',folio).maybeSingle()).data;if(!f){toast('No encontré el folio');return;}
   S.actual=f;S.lineas=await todo(()=>sb.from('plan_propuesta_lineas').select('*').eq('folio',folio).order('clave'));
+  // costo unitario de compra (plan_costos) para valuar las claves que no traen Inversión de surtimiento
+  S.costos=new Map();try{const ks=S.lineas.map(l=>Number(l.clave));for(let i=0;i<ks.length;i+=200){const{data}=await sb.from('plan_costos').select('clave,costo').in('clave',ks.slice(i,i+200));(data||[]).forEach(r=>S.costos.set(Number(r.clave),Number(r.costo)));}}catch(e){}
   $('folio').style.display='block';pintarFolio();$('folio').scrollIntoView({behavior:'smooth'});
 }
 const editable=()=>S.actual&&['BORRADOR','REGRESADO'].includes(S.actual.estado);
@@ -289,7 +291,8 @@ function pintarFolio(){
   let on=pasos.findIndex(p=>!p[1]);$('f-pasos').innerHTML=pasos.map((p,i)=>'<span class="paso '+(p[1]?'hecho':i===on?'on':'')+'">'+(p[1]?'✓ ':'')+p[0]+'</span>').join('');
   const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
   const piezas=L.reduce((s,l)=>s+(Number(l.pedido_aut??l.pedido)||0),0);
-  $('f-kpis').innerHTML='<div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>';
+  const VF=valorFolio(),RG=rangoDe(VF.total);
+  $('f-kpis').innerHTML='<div class="kpi" title="Inversión de surtimiento'+(VF.est?'; '+VF.est+' claves valuadas con costo de compra':'')+(VF.sin?'; '+VF.sin+' sin precio':'')+'"><b>'+mxn(VF.total)+'</b><span>valor · autoriza '+RG[1]+(RG[0]==='DIRECTOR'?'':' o superior')+'</span></div><div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>';
   const ed=editable(),adm=S.esAdmin||quien()==='ADMIN';
   let acc='';
   if(ed)acc+='<button class="sec" onclick="descargarPlantilla()">⬇ Plantilla</button><button onclick="$(\'f-arch\').value=\'\';$(\'f-arch\').click()">⬆ Subir plantilla con surtimiento</button><button class="ok" onclick="enviar()" '+(conS===L.length&&L.length&&!falt?'':'disabled title="Faltan claves con surtimiento o motivos"')+'>Enviar a autorización</button>';
@@ -350,21 +353,43 @@ async function enviar(){
   const f=S.lineas.filter(faltaMotivo);if(f.length){toast('Faltan motivos en '+f.length+' claves (en rojo también el comentario)');return;}
   await cambiarEstado({estado:'EN REVISION',enviado_en:new Date().toISOString(),comentario:null,codigo:await codigoFolio('EN REVISION')},'✓ Folio enviado a autorización');
 }
+// ── Rangos de autorización por valor del folio (oct-2026) ──
+// Cada puesto autoriza hasta su límite (y todo lo menor). El comprador solo autoriza sus propios folios.
+const AUT_RANGOS=[['COMPRADOR','Comprador',100000],['JEFE','Jefe de Compras',500000],['GERENTE','Gerente de Compras',1000000],['DIRECTOR','Director',Infinity]];
+const nNom=x=>P.norm(x||'');
+function nivelU(u){const p=nNom(u.puesto);if(/COSTO/.test(p))return null;if(/DIRECTOR/.test(p))return'DIRECTOR';if(/GERENTE/.test(p))return'GERENTE';if(/JEFE/.test(p))return'JEFE';
+  if(u.rol==='COMPRADOR')return'COMPRADOR';return(u.rol==='ADMIN'||u.rol==='APROBADOR')?'JEFE':null;}
+const limiteN=n=>{const r=AUT_RANGOS.find(x=>x[0]===n);return r?r[2]:0;};
+const rangoDe=v=>AUT_RANGOS.find(x=>v<=x[2]);
+const mismoComp=(u,comp)=>{const a=nNom(u.nombre),b=nNom(comp);return!!a&&!!b&&(a===b||a.startsWith(b+' ')||b.startsWith(a+' '));};
+// Valor del folio: Inversión de surtimiento (ajustada si se autoriza otra cantidad); si no trae, cantidad × costo de compra
+function valorFolio(){
+  let total=0,est=0,sin=0;
+  (S.lineas||[]).forEach(l=>{const q=Number(l.pedido_aut??l.pedido)||0;if(q<=0)return;const s=l.surt||{},inv=Number(s.inversion)||0,ps=Number(s.pedido)||0;
+    if(inv>0){total+=ps>0&&q!==ps?inv*q/ps:inv;}else{const c=S.costos&&S.costos.get(Number(l.clave));if(c>0){total+=q*c;est++;}else sin++;}});
+  return{total:Math.round(total*100)/100,est,sin};
+}
+const mxn=v=>'$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:0,maximumFractionDigits:0});
 // ── Autorización con nombre + PIN (usuarios y PIN del portal de comparativos) ──
 // Autorizan el Jefe o el Gerente de Compras: aprobadores de comparativos cuyo puesto no es de Costos.
 let PINACC=null;
-async function autorizadores(){
+async function autorizadores(accion,valor){
   const{data,error}=await sbc().from('cmp_usuarios').select('id,nombre,rol,puesto,activo').order('nombre');
   if(error)throw new Error('No pude leer los autorizadores del portal de comparativos: '+error.message);
-  return (data||[]).filter(u=>u.activo!==false&&u.rol!=='COMPRADOR'&&!/COSTO/i.test(u.puesto||''));
+  const us=(data||[]).filter(u=>u.activo!==false);
+  if(accion!=='AUTORIZAR')return us.filter(u=>u.rol!=='COMPRADOR'&&!/COSTO/i.test(u.puesto||''));
+  // Autorizar: puesto con límite suficiente para el valor del folio; el comprador, solo su propio folio
+  return us.filter(u=>{const n=nivelU(u);if(!n||limiteN(n)<valor)return false;return n!=='COMPRADOR'||mismoComp(u,S.actual.comprador);})
+    .sort((a,b)=>limiteN(nivelU(a))-limiteN(nivelU(b)));
 }
 async function pinAbrir(accion){
-  let us;try{us=await autorizadores();}catch(e){toast('❌ '+e.message);return;}
-  if(!us.length){toast('❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
+  const V=valorFolio(),rg=rangoDe(V.total);
+  let us;try{us=await autorizadores(accion,V.total);}catch(e){toast('❌ '+e.message);return;}
+  if(!us.length){toast(accion==='AUTORIZAR'?'❌ Nadie con rango para autorizar '+mxn(V.total)+' ('+rg[1]+' o superior). Dalo de alta con ese puesto en Comparativos → Administración.':'❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
   PINACC=accion;const aut=accion==='AUTORIZAR';
   $('pin-tit').textContent=(aut?'Autorizar ':'Regresar ')+'folio '+S.actual.folio;
-  $('pin-sub').textContent=aut?'Al autorizar, las cantidades pasan a la pestaña Comparativos como un comparativo en borrador para '+S.actual.comprador+'.':'El folio regresa al comprador con tu comentario.';
-  $('pin-u').innerHTML='<option value="">— ¿Quién '+(aut?'autoriza':'regresa')+'? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+  $('pin-sub').textContent=(aut?'Valor del folio '+mxn(V.total)+(V.est?' ('+V.est+' claves valuadas con costo de compra)':'')+(V.sin?' · '+V.sin+' claves sin precio':'')+': autoriza '+rg[1]+' o superior. ':'')+(aut?'Al autorizar, las cantidades pasan a la pestaña Comparativos como un comparativo en borrador para '+S.actual.comprador+'.':'El folio regresa al comprador con tu comentario.');
+  $('pin-u').innerHTML='<option value="">— ¿Quién '+(aut?'autoriza':'regresa')+'? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+(aut?' (hasta '+(limiteN(nivelU(u))===Infinity?'sin límite':mxn(limiteN(nivelU(u))))+')':'')+'</option>').join('');
   $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder=aut?'Comentario (opcional)':'¿Por qué se regresa? (obligatorio)';
   $('pin-btn').textContent=aut?'Autorizar':'Regresar';$('pin-btn').className=aut?'ok':'bad';$('pin-err').style.display='none';
   $('pinbg').style.display='flex';$('pin-u').focus();
@@ -383,7 +408,8 @@ async function pinOk(){
     if(!data){pinErr('PIN incorrecto');return;}
     const nombre=o.dataset.n,ahora=new Date().toISOString(),acc=PINACC;pinCerrar();
     if(acc==='AUTORIZAR'){
-      const ok=await cambiarEstado({estado:'AUTORIZADO',autorizado_por:nombre,autorizado_en:ahora,comentario:com||null,codigo:await codigoFolio('AUTORIZADO')},'✓ Folio autorizado por '+nombre);
+      const V=valorFolio();
+      const ok=await cambiarEstado({estado:'AUTORIZADO',autorizado_por:nombre,autorizado_en:ahora,comentario:[com,'Valor '+mxn(V.total)].filter(Boolean).join(' · ')||null,codigo:await codigoFolio('AUTORIZADO')},'✓ Folio autorizado por '+nombre);
       if(ok)await enviarComparativos(true);
     }else await cambiarEstado({estado:'REGRESADO',comentario:com,autorizado_por:nombre,autorizado_en:ahora},'↩ Folio regresado al comprador');
   }catch(e){pinErr('❌ '+(e.message||e));}

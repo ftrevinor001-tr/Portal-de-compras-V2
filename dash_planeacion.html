@@ -434,7 +434,7 @@ function pintarTablero(){
     +card('var(--st-x)','🎯 Target del mes','<span id="k-tgt">…</span>','<span id="k-tgt2">OC en tiempo vs alarmas</span>',"irTab('tgt')")
     +card('var(--st-o)','🚚 OTIF del mes','<span id="k-otif">…</span>','<span id="k-otif2">líneas cerradas</span>',"irTab('otif')")
     +card('#c2410c','🌡 Temporada',fmtN(rows.filter(r=>tempDe(r).t==='SUBE').length),'pronóstico '+Math.round(P.R.TEMP_VAR*100)+'% o más arriba del antecedente · '+fmtN(rows.filter(r=>tempDe(r).t==='SUBE'&&malo(estDe(r,'P'))).length)+' ya en riesgo con pronóstico',"verEnDetalle({temp:['SUBE']})")
-    +card('var(--st-n)','🏬 MF a revisar',fmtN(mf),'más de '+P.R.MF_MESES_REV+' meses de inventario en MF',"verEnDetalle({mf:true})");
+    +card('var(--st-n)','🏬 MF a revisar',fmtN(mf),'más de '+P.R.MF_MESES_REV+' meses en MF y arriba de su número base',"verEnDetalle({mf:true})");
   kpisIndicadores();
   pintarTendencia();pintarHist(rows);pintarCriticas(rows);
 }
@@ -573,6 +573,7 @@ async function pintarExplicacion(c){
       +'<b>Límites</b><span>riesgo entra con menos de '+fmtN(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+fmtN(r.pm*P.R.FACT_MAX,1)+' · hoy '+fmtN(r.mi,1)+' meses ('+fmtN(r.miB,1)+' con BO)</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+(r.rs>0?' existencia, incluye '+fmtN(r.rs)+' en resguardo':'')+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
       +(r.rs>0?'<b>Resguardo</b><span>CEDI '+fmtN(r.exC)+' + resguardo '+fmtN(r.rs)+' = '+fmtN(r.ex)+' · '+esc(rgDet(r))+'</span>':'')
       +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+fmtN(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
+      +(r.mfI!=null?'<b>Mas Ferre</b><span>existencia '+fmtN(r.mfI)+' · '+fmtN(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+fmtN(r.mfB):' · sin número base')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia (devolución estratégica): excedente '+fmtN(r.mfX)+'</b>':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+fmtN(r.mfFalta)+' por distribuir a tiendas</b>':'')+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
     // Producción: productos donde se usa este insumo (solo informativo)
@@ -612,7 +613,7 @@ function excelDetalle(){
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,
     'Costo unitario':costoDe(r),'Afectación $ por mes (demanda portal)':impDe(r,'D'),'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
-    'Existencia MF':r.mfI,'Demanda MF':r.mfD,'Meses MF':r.mfM,'Revisar con gerencia':r.mfF?'SÍ':'','Excedente MF':r.mfX,'Notas':r.nt}));
+    'Existencia MF':r.mfI,'Número base MF':r.mfB??'','Falta por distribuir':r.mfFalta??'','Demanda MF':r.mfD,'Meses MF':r.mfM,'Revisar con gerencia':r.mfF?'SÍ':'','Excedente MF':r.mfX,'Notas':r.nt}));
   descargarXLSX([[out,'Detalle por clave']],'Detalle_claves_'+S.fecha);
 }
 function descargarXLSX(hojas,nombre){const wb=XLSX.utils.book_new();hojas.forEach(([rows,n])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),n.slice(0,31)));XLSX.writeFile(wb,nombre+'.xlsx');}

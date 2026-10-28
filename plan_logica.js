@@ -420,7 +420,11 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),uM,ctx.primero&&ctx.primero.MF);
     const Dm=apm.I!=null?apm.I:(apm.A!=null&&apm.P!=null?(apm.A+apm.P)/2:(apm.A??apm.P??0));
     const inv=ctx.invMF.has(k)?ctx.invMF.get(k):null;
-    const mm=inv!=null&&Dm>0?inv/Dm:null;const flag=mm!=null&&mm>P.R.MF_MESES_REV;
+    const mm=inv!=null&&Dm>0?inv/Dm:null;
+    // Número base de Mas Ferre (inventario que deben mantener entre todas las tiendas): excedente = existencia MF − base.
+    // Se marca revisar con gerencia (devolución estratégica) si MF tiene más de MF_MESES_REV meses y existencia arriba de su base.
+    const mb=ctx.mfBase&&ctx.mfBase.has(k)?ctx.mfBase.get(k):null;
+    const flag=mm!=null&&mm>P.R.MF_MESES_REV&&(mb==null||inv>mb);
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(ctx.prodCons&&ctx.prodCons.has(k)?['incluye consumo de producción de '+ctx.prodCons.get(k).map(x=>x[0]).join(', ')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
@@ -428,7 +432,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      mfF:flag?1:0,mfX:flag?Math.floor(inv-Dm*pm):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
+      mfF:flag?1:0,mfX:flag?(mb!=null?Math.floor(inv-mb):Math.floor(inv-Dm*pm)):null,mfB:mb,mfFalta:mb!=null&&inv!=null&&inv<mb?Math.ceil(mb-inv):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
   });
   return out;
 };
@@ -674,7 +678,7 @@ P.diffOC=(prev,cur,enc,fecha)=>{
 P.d10=v=>v==null||v===''?null:String(v).slice(0,10);   // timestamptz de Supabase → 'AAAA-MM-DD'
 P.dias=(a,b)=>Math.round((new Date(P.d10(b)+'T12:00:00')-new Date(P.d10(a)+'T12:00:00'))/864e5);
 // Target de una alarma. ocs: líneas de esa clave {folio,fecha_oc,cantidad_pend,cerrada_en,cancelada}
-P.R.T_ANTES=15;P.R.T_ANTES_PCT=0.10;P.R.T_DESPUES=5;P.R.T_VIEJA=60;P.R.DIAS_MES=30;P.R.MF_MESES_REV=8;
+P.R.T_ANTES=15;P.R.T_ANTES_PCT=0.10;P.R.T_DESPUES=5;P.R.T_VIEJA=60;P.R.DIAS_MES=30;P.R.MF_MESES_REV=4;
 // Margen para considerar una OC anticipada: 15 días o el 10% del tiempo de entrega, lo que sea mayor
 P.margen=lt=>Math.max(P.R.T_ANTES,Math.round((Number(lt)||0)*P.R.DIAS_MES*P.R.T_ANTES_PCT));
 P.target=(al,ocs,hoy)=>{
@@ -810,7 +814,7 @@ P.propLinea=(p,s,o)=>{
   if(s.pmax!=null&&Math.abs(s.pmax-pm)>0.01)av.push('Pedido máximo: surtimiento '+s.pmax+' vs objetivo del portal '+pm);
   if(s.exist!=null&&Math.abs(s.exist-(Number(p.ex)||0))>0.5)av.push('Existencia: surtimiento '+s.exist+' vs portal '+p.ex);
   if(s.bo!=null&&p.boT!=null&&Math.abs(s.bo-(Number(p.boT)||0))>0.5)av.push('BO: surtimiento '+s.bo+' vs portal '+p.boT);
-  if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+' para redistribuir');
+  if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+(p.mfB!=null?' sobre su número base ('+p.mfB+')':'')+' para devolución estratégica');
   if(p.ocs>0)av.push(p.ocs+(p.ocs===1?' OC abierta':' OCs abiertas')+' al CEDI');
   const v=x=>x>0?(ped-x)/x:null;
   return{...out,sem,mA,mP,mR,lA,lP,lR,lo,hi,varA:v(sA),varP:v(sP),varR:v(sR),difR:sR==null?null:ped-sR,avisos:av};

@@ -92,7 +92,7 @@
       +(r.rs>0?kv('Resguardo','CEDI '+n(r.exC)+' + resguardo '+n(r.rs)+' = <b>'+n(r.ex)+'</b> · '+esc((r.rsD||[]).map(x=>x[0]+' '+n(x[1])+' (corte '+x[2]+(x[3]?', descontado del BO':'')+')').join(' · '))):'')
       +((r.boT||0)>(r.bo||0)?kv('BO','total '+n(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+n(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+n(r.rsBo)+' (ya contado en existencia)':'')):'')
       +kv('Estatus','portal <b>'+esc(r.est)+'</b>'+(r.eA?' · antecedente '+esc(r.eA.toLowerCase()):'')+(r.eP?' · pronóstico '+esc(r.eP.toLowerCase()):''))
-      +(r.mfI!=null?kv('MF','existencia '+n(r.mfI)+' · '+n(r.mfM,1)+' meses'+(r.mfF?' · <b style="color:#b45309">revisar con gerencia</b> (excedente '+n(r.mfX)+')':'')):'')
+      +(r.mfI!=null?kv('MF','existencia '+n(r.mfI)+' · '+n(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+n(r.mfB):'')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia</b> (excedente '+n(r.mfX)+(r.mfB!=null?' sobre su base':'')+')':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+n(r.mfFalta)+' por distribuir a tiendas</b>':'')):'')
       +(r.nt?kv('Notas',esc(r.nt)):'')
       +kv('OCs abiertas',ocs.length?ocs.slice(0,6).map(o=>'OC '+o[0]+' · '+n(o[1])+' pend. · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).join('<br>')+(ocs.length>6?'<br>… y '+(ocs.length-6)+' más':''):'ninguna')
       +kv('Alarmas',d.alarmas.length?d.alarmas.slice(0,5).map(a=>fF(d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fF(d10(a.fecha_fin)):'')).join('<br>'):'ninguna')
