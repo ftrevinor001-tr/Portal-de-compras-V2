@@ -273,10 +273,11 @@ async function crearFolio(){
   const dup=claves.filter(k=>S.lineasAbiertas.has(k));
   if(dup.length&&!confirm('Estas claves ya están en un folio abierto: '+dup.map(k=>k+' ('+S.lineasAbiertas.get(k)+')').join(', ')+'.\n¿Crear el folio de todos modos?'))return;
   const comp=COMPRADORES.includes(quien())?quien():(S.byClave.get(claves[0]).comp||quien());
-  const d=new Date(),pref='PC-'+String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+'-';
+  // Folio con día, mes y año (oct-2026): PC-DDMMAA-001, consecutivo por día (p. ej. PC-281026-001 = 28 de octubre de 2026)
+  const d=new Date(),pref='PC-'+String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0')+String(d.getFullYear()).slice(2)+'-';
   let n=S.folios.filter(f=>f.folio.startsWith(pref)).map(f=>Number(f.folio.slice(pref.length))||0).reduce((a,b)=>Math.max(a,b),0);
   let folio=null;
-  for(let t=0;t<5&&!folio;t++){n++;const f=pref+String(n).padStart(4,'0');
+  for(let t=0;t<5&&!folio;t++){n++;const f=pref+String(n).padStart(3,'0');
     const{error}=await sb.from('plan_propuestas').insert({folio:f,comprador:comp,estado:'BORRADOR',fecha_calculo:S.fecha,creado_por:quien(),actualizado_en:new Date().toISOString()});
     if(!error)folio=f;else if(!/duplicate|unique|23505/i.test(error.message||'')){toast('❌ '+error.message);return;}}
   if(!folio){toast('No se pudo asignar folio, intenta de nuevo');return;}
@@ -515,7 +516,7 @@ function excelFolio(){
 }
 
 // ── Impresión para firma (carta horizontal, membrete SANVER) ──
-// Nombre del PDF al guardar: folio, comprador, fecha del día de impresión y estado (p. ej. PC-2610-0003 IVAN 28-10-2026 AUTORIZADO)
+// Nombre del PDF al guardar: folio, comprador, fecha del día de impresión y estado (p. ej. PC-281026-001 IVAN 28-10-2026 AUTORIZADO)
 function nombrePDF(f){const d=new Date(),h=String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear();return [f.folio,f.comprador,h,f.estado].filter(Boolean).join(' ');}
 function imprimir(){
   const f=S.actual,L=S.lineas,valido=['EN REVISION','AUTORIZADO'].includes(f.estado);
