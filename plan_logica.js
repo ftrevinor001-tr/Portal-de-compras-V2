@@ -377,6 +377,16 @@ P.aplicarSust=(ctx,rows)=>{
 // Redondeo hacia arriba sin que un residuo de decimales sume una pieza (175.0001 → 175)
 P.ceil3=v=>Math.ceil(Math.round(v*1000)/1000);
 // Cálculo de un día completo. ctx: {ventas:{SANVER:Map,MF:Map}, ed:Map, agot:Set('EMP|clave|AAAA-MM'), invMF:Map, emp:Map, ultimo:{SANVER,MF}}
+// Regla Mas Ferre: revisar con gerencia (devolución estratégica) si MF tiene más de MF_MESES_REV meses
+// y su existencia está arriba del número base. Excedente = existencia − número base (sin base: existencia − demanda × objetivo).
+P.mfRegla=(inv,Dm,pm,mb)=>{
+  mb=mb==null||mb===''?null:Number(mb);const mm=inv!=null&&Dm>0?inv/Dm:null;
+  const flag=mm!=null&&mm>P.R.MF_MESES_REV&&(mb==null||inv>mb);
+  return{mfF:flag?1:0,mfX:flag?(mb!=null?Math.floor(inv-mb):Math.floor(inv-Dm*(pm||0))):null,mfB:mb,mfFalta:mb!=null&&inv!=null&&inv<mb?Math.ceil(mb-inv):null};
+};
+// Aplica el número base a filas ya calculadas (estado publicado) sin recalcular todo → cuántas cambiaron
+P.aplicarMFBase=(filas,mapa)=>{let n=0;(filas||[]).forEach(r=>{if(r.mfI==null)return;const mb=mapa.has(Number(r.c))?mapa.get(Number(r.c)):null;
+  const x=P.mfRegla(r.mfI,r.mfD,r.pm,mb);if(x.mfF!==r.mfF||x.mfX!==r.mfX||x.mfB!==(r.mfB??null))n++;Object.assign(r,x);});return n;};
 P.calcularDia=(fecha,filas,ctx)=>{
   const ref=fecha.slice(0,7);const out=[];
   const RG=ctx.resgRows?P.resgMapa(ctx.resgRows,fecha):null;
@@ -424,7 +434,6 @@ P.calcularDia=(fecha,filas,ctx)=>{
     // Número base de Mas Ferre (inventario que deben mantener entre todas las tiendas): excedente = existencia MF − base.
     // Se marca revisar con gerencia (devolución estratégica) si MF tiene más de MF_MESES_REV meses y existencia arriba de su base.
     const mb=ctx.mfBase&&ctx.mfBase.has(k)?ctx.mfBase.get(k):null;
-    const flag=mm!=null&&mm>P.R.MF_MESES_REV&&(mb==null||inv>mb);
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(ctx.prodCons&&ctx.prodCons.has(k)?['incluye consumo de producción de '+ctx.prodCons.get(k).map(x=>x[0]).join(', ')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
@@ -432,7 +441,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      mfF:flag?1:0,mfX:flag?(mb!=null?Math.floor(inv-mb):Math.floor(inv-Dm*pm)):null,mfB:mb,mfFalta:mb!=null&&inv!=null&&inv<mb?Math.ceil(mb-inv):null,nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
+      ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
   });
   return out;
 };

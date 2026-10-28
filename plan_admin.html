@@ -517,13 +517,31 @@ function plantillaMFB(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sh
 async function pintarMFB(){const el=document.getElementById('mfb-res');try{const{count,error}=await sb.from('plan_mf_base').select('clave',{count:'exact',head:true});if(error)throw error;el.textContent=count?fmt(count)+' claves con número base cargado.':'Sin número base cargado.';}catch(e){el.textContent='Aún no existe la tabla: corre plan_tablas_15.sql.';}}
 async function cargaMFB(log){
   const wb=await leerLibro('f-mfb',null,log);const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
-  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave.');
-  const H=aoa[hi].map(P.norm);const iC=H.indexOf('CLAVE'),iB=H.findIndex(h=>h.includes('BASE'));if(iB<0)throw new Error('No encontré la columna Número base.');
+  // Con encabezado (Clave + columna con BASE/CANTIDAD/INVENTARIO) o sin encabezado: columna A = clave, B = número base
+  let hi=aoa.findIndex(r=>r.some(c=>/^CLAVE/.test(P.norm(c))));let iC=0,iB=1;
+  if(hi>=0){const H=aoa[hi].map(P.norm);iC=H.findIndex(h=>/^CLAVE/.test(h));iB=H.findIndex(h=>/BASE/.test(h));if(iB<0)iB=H.findIndex((h,i)=>i!==iC&&/CANT|INV|NUM/.test(h));if(iB<0)iB=iC===0?1:0;}
+  else hi=-1;
   const m=new Map();let mal=0;for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]),b=P.num(aoa[i][iB]);if(k==null){if(String(aoa[i][iC]).trim())mal++;continue;}if(b==null||b<0){mal++;continue;}m.set(k,b);}
   if(!m.size)throw new Error('El archivo no trae claves con número base.');
   const{error}=await sb.from('plan_mf_base').delete().gte('clave',0);if(error)throw new Error('plan_mf_base: '+error.message+' (¿ya corriste plan_tablas_15.sql?)');
   await enLotes('plan_mf_base',[...m].map(([clave,base])=>({clave,base,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
-  log.msg('🎉 Número base de '+fmt(m.size)+' claves guardado'+(mal?' · '+mal+' renglones sin clave o número válido':'')+'. Se aplica en el siguiente Cálculo diario.');pintarMFB();
+  log.msg('✅ Número base de '+fmt(m.size)+' claves guardado'+(mal?' · '+mal+' renglones sin clave o número válido':'')+'.');pintarMFB();
+  await reaplicarMFB(m,log);
+}
+// Aplica el número base al cálculo ya publicado (Planeación, fichas, Propuestas) sin esperar al siguiente Cálculo diario
+async function reaplicarMFB(m,log){
+  const{data:pub}=await sb.from('plan_publicacion').select('*').eq('id','estado').maybeSingle();
+  if(!pub||!pub.ruta){log.msg('ℹ️ Aún no hay cálculo publicado; el número base se aplicará en el siguiente Cálculo diario.');return;}
+  log.msg('🔄 Aplicando el número base al cálculo publicado del '+pub.fecha+'…');
+  const{data:blob,error}=await sb.storage.from('respaldos').download(pub.ruta);if(error)throw new Error('Storage: '+error.message);
+  const gz=pub.ruta.endsWith('.gz');const js=JSON.parse(gz?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text());
+  const n=P.aplicarMFBase(js.claves,m);js.reglas=P.R;
+  const txt=JSON.stringify(js);const body=gz?await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).blob():new Blob([txt],{type:'application/json'});
+  const up=await sb.storage.from('respaldos').upload(pub.ruta,body,{upsert:true,contentType:'application/octet-stream'});if(up.error)throw new Error('Storage: '+up.error.message);
+  const resumen={...(pub.resumen||{}),bandera_mf:js.claves.filter(r=>r.mfF).length};
+  const{error:eu}=await sb.from('plan_publicacion').update({version:Date.now().toString(),resumen,actualizado_en:new Date().toISOString()}).eq('id','estado');if(eu)throw new Error('plan_publicacion: '+eu.message);
+  if(ULTIMO_CALC&&ULTIMO_CALC.res)P.aplicarMFBase(ULTIMO_CALC.res,m);
+  log.msg('🎉 Listo: '+fmt(n)+' claves cambiaron · '+fmt(resumen.bandera_mf)+' claves MF para devolución estratégica. Planeación y las fichas ya muestran el número base (recarga la página).');
 }
 // ── Claves sustituidas ──
 // Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión
