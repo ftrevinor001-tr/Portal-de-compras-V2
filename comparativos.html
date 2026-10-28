@@ -178,6 +178,7 @@ th.num{font-family:var(--f-display);font-size:.8rem}
 .toast.err{background:var(--bad);color:#fff}
 .err-msg{color:var(--bad);font-size:.88rem}
 .loading{color:var(--muted);padding:20px}
+@media (max-width:1600px){ .who .rol{display:none} .nav button{padding-inline:9px} }
 @media (max-width:640px){ .nav button{padding:10px 8px} .who .rol{display:none} h1{font-size:1.35rem} }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
@@ -1175,19 +1176,27 @@ async function vEditor(main, arg){
   if (arg && arg.nuevaClave) await agregarClaves([arg.nuevaClave], false);
   if (arg && arg.importado) { sugerirProveedores(claves); llenarConListas(); }
   // Comparativo creado desde una propuesta de compra autorizada (Portal de Compras V2): la primera vez que se abre
-  // completa cada línea con el catálogo y el proveedor vigente, agrega los proveedores sugeridos y los precios de lista.
+  // completa cada línea con el catálogo y el proveedor vigente (los proveedores y precios de lista se agregan abajo).
   const desdeProp = c.lineas.filter(l => l._completar);
   if (desdeProp.length && editable()) {
     desdeProp.forEach(l => { const p = E().prod.get(+l.clave) || {}, v = E().vig.get(+l.clave);
       Object.assign(l, {descripcion: l.descripcion || p.descripcion || '', u_costo: p.u_costo ?? null, u_compra: p.u_compra ?? null, f_u_compra: p.f_u_compra || null, base: p.precio_base ?? null,
         vigente: v ? {proveedor:v.proveedor, precio:v.precio, fecha:v.aprobado_en, folio:v.folio} : null, precios: l.precios || {}, elegido: null, manual: false, motivo: l.motivo || ''});
       delete l._completar; });
-    sugerirProveedores(desdeProp.map(l => +l.clave)); llenarConListas(); S.dirty = true;
-    setTimeout(() => toast('Comparativo creado desde la propuesta de compra: ya se agregaron los proveedores sugeridos. Captura precios y guárdalo.'), 50);
+    S.dirty = true;
   }
   if (arg && (arg.importado || arg.duplicar || arg.nuevaClave)) S.dirty = true;
+  // Borradores guardados (ej. creados desde una propuesta del Portal de Compras V2): agrega los
+  // proveedores con historial y los precios de listas que les falten, igual que al capturar claves
+  let avisoAuto = '';
+  if (typeof arg === 'number' && editable() && claves.length) {
+    const nuevos = sugerirProveedores(claves), llenos = llenarConListas();
+    if (nuevos.length || llenos) { S.dirty = true;
+      avisoAuto = `${llenos ? `${llenos} precio(s) tomados de las listas de precios. ` : ''}Presiona Guardar para que los cambios queden en el comparativo.`; }
+  }
   c.lineas.forEach((l, i) => calcLinea(i));
   pintarEditor(main);
+  if (avisoAuto) setTimeout(() => toast(avisoAuto), 100);
 }
 async function cargarRefs(claves){
   const [ps, vs, rs, pv] = await Promise.all([API.productos(claves), API.vigentes(claves), API.relaciones(claves).catch(() => []), API.preciosVigentes(claves).catch(() => [])]);
@@ -1251,10 +1260,15 @@ function calcLinea(i){
   const c = E().c, l = c.lineas[i];
   l.precios = l.precios || {};
   // Último precio: el aprobado vigente; si no hay, el de la última compra del sistema
-  if (l.ultimo_precio === undefined) {
-    const v = vigDe(l);
+  if (l.ultimo_precio === undefined || (l.ultimo_precio === null && l.ultimo_origen !== 'manual')) {
+    const v = vigDe(l), p = E().prod.get(+l.clave) || {};
+    if (l.base == null && p.precio_base != null) l.base = p.precio_base;
+    if (l.u_compra == null && p.u_compra != null) { l.u_compra = p.u_compra; l.f_u_compra = l.f_u_compra || p.f_u_compra || null; }
+    if (l.u_costo == null && p.u_costo != null) l.u_costo = p.u_costo;
     if (v && num(v.precio) !== null) { l.ultimo_precio = +v.precio; l.ultimo_origen = 'aprobado'; }
-    else { l.ultimo_precio = num(l.u_compra) ?? num(l.u_costo); l.ultimo_origen = l.ultimo_precio !== null ? 'compra' : ''; }
+    else if ((num(l.u_compra) ?? num(l.u_costo)) !== null) { l.ultimo_precio = num(l.u_compra) ?? num(l.u_costo); l.ultimo_origen = 'compra'; }
+    else if (num(l.base) !== null) { l.ultimo_precio = num(l.base); l.ultimo_origen = 'base'; }
+    else { l.ultimo_precio = null; l.ultimo_origen = ''; }
   }
   const ult = num(l.ultimo_precio);
   let best = null; l._dif = {};
@@ -1277,22 +1291,29 @@ function calcLinea(i){
   l._vsUlt = pct(neto, ult);
   l._crec = pct(num(l.pron), num(l.antec));
   l._impacto = (neto !== null && ult !== null && q !== null) ? (neto - ult) * q : null;
+  l._impUlt = (ult !== null && q !== null) ? ult * q : null;      // cantidad × último precio
+  l._impAsig = (neto !== null && q !== null) ? neto * q : null;   // cantidad × precio del proveedor asignado
 }
 function vigDe(l){ // en aprobados se muestra lo que estaba vigente al crear el comparativo
   if (l.vigente && (E().c.estatus === 'APROBADO' || !E().vig.has(+l.clave))) return l.vigente;
   const v = E().vig.get(+l.clave); return v ? {proveedor:v.proveedor, precio:v.precio, fecha:v.aprobado_en, folio:v.folio} : (l.vigente || null);
 }
 function totales(){
-  const ls = E().c.lineas; let act = 0, prop = 0, inv = 0; const porProv = {};
+  // act = Σ cantidad × último precio (todas las claves); prop = Σ cantidad × precio asignado;
+  // el % de aumento y el impacto se calculan solo con las claves que tienen los dos precios
+  const ls = E().c.lineas; let act = 0, prop = 0, actC = 0, propC = 0, inv = 0, sinCant = 0, sinAsig = 0; const porProv = {};
   ls.forEach(l => {
-    const q = num(l.cantidad) || 0, ult = num(l.ultimo_precio);
+    const q = num(l.cantidad), ult = num(l.ultimo_precio), neto = (l._neto === undefined ? null : l._neto);
     inv += num(l.inversion) || 0;
-    if (l._neto !== null && l._neto !== undefined) {
-      prop += l._neto * q; if (ult !== null) act += ult * q;
-      const p = porProv[l.elegido] = porProv[l.elegido] || {n:0, imp:0}; p.n++; p.imp += l._neto * q;
-    }
+    if (q === null) { sinCant++; return; }
+    if (ult !== null) act += ult * q;
+    if (neto !== null) {
+      prop += neto * q;
+      const p = porProv[l.elegido] = porProv[l.elegido] || {n:0, imp:0}; p.n++; p.imp += neto * q;
+      if (ult !== null) { actC += ult * q; propC += neto * q; }
+    } else sinAsig++;
   });
-  return {act, prop, impacto:prop - act, pctAum: act ? prop / act - 1 : null, inv, porProv, n:ls.length};
+  return {act, prop, impacto:propC - actC, pctAum: actC ? propC / actC - 1 : null, inv, porProv, n:ls.length, sinCant, sinAsig};
 }
 
 function pintarEditor(main){
@@ -1407,13 +1428,13 @@ function pintarGrid(){
   if (!c.lineas.length) { $('#e-grid').innerHTML = `<div class="empty">${ed ? 'Agrega proveedores y claves para empezar. Al escribir una clave se trae su proveedor vigente y el último precio aprobado.' : 'Sin claves.'}</div>`; return; }
   const P = c.proveedores;
   const span = (p) => 2 + (num(p.flete) ? 1 : 0);
-  const fijo = 3 + (dem ? 5 : 0) + 1; // columnas antes de los proveedores
+  const fijo = 3 + (dem ? 5 : 0) + 2; // columnas antes de los proveedores
   $('#e-grid').innerHTML = `<table class="cmp-grid"><thead>
     <tr><th rowspan="2">ID</th><th rowspan="2">Descripción</th><th class="num" rowspan="2">Cantidad</th>
       ${dem ? '<th rowspan="2">Clasificación</th><th class="num" rowspan="2">Inversión</th><th class="num" rowspan="2">Pron</th><th class="num" rowspan="2">Antec</th><th class="num" rowspan="2">Crec.</th>' : ''}
-      <th class="num" rowspan="2" data-ult>Último precio</th>
+      <th class="num" rowspan="2">Último precio</th><th class="num" rowspan="2" data-ult>Importe<br>último precio</th>
       ${P.map(p => `<th class="prov grp" colspan="${span(p)}">${esc(p.nombre)}</th>`).join('')}
-      <th class="num key" rowspan="2">Costo mínimo</th><th class="num key" rowspan="2">Dif vs últ. costo</th><th class="key" rowspan="2">Proveedor asignado</th><th class="num" rowspan="2">Impacto $</th><th rowspan="2">Motivo</th>${ed ? '<th rowspan="2"></th>' : ''}</tr>
+      <th class="num key" rowspan="2">Costo mínimo</th><th class="num key" rowspan="2">Dif vs últ. costo</th><th class="key" rowspan="2">Proveedor asignado</th><th class="num key" rowspan="2">Importe<br>asignado</th><th class="num" rowspan="2">Impacto $</th><th rowspan="2">Motivo</th>${ed ? '<th rowspan="2"></th>' : ''}</tr>
     <tr>${P.map(p => `<th class="prov sub">Precio</th><th class="prov sub">Dif vs últ. $</th>${num(p.flete) ? `<th class="prov sub">+ ${esc(p.flete)}% flete</th>` : ''}`).join('')}</tr>
   </thead><tbody>
   ${c.lineas.map((l, i) => { const v = vigDe(l); return `<tr data-i="${i}">
@@ -1426,17 +1447,19 @@ function pintarGrid(){
       <td><input data-f="antec" type="number" step="any" style="width:70px" value="${l.antec ?? ''}" ${dis}></td>
       <td class="num" data-c="crec"></td>` : ''}
     <td><input data-f="ultimo_precio" type="number" step="any" value="${l.ultimo_precio ?? ''}" ${dis}><span class="neto" data-c="origen"></span></td>
+    <td class="num" data-c="impult"></td>
     ${P.map(p => { const pr = (l.precios||{})[p.id] || {}; const bq = bloqueoDe(p.id, l.clave); return `<td data-pc="${p.id}" class="pc${bq ? ' bloq' : ''}"${bq ? ` title="Bloqueado: ${esc(bq.motivo || '')}"` : ''}><input data-p="${p.id}" type="number" step="any" value="${bq ? '' : (pr.precio ?? '')}" ${dis || (bq ? 'disabled' : '')} placeholder="${bq ? 'bloqueado' : ''}" aria-label="Precio ${esc(p.nombre)}">
       ${p.con_clave ? `<input data-k="${p.id}" class="txt" style="width:84px;margin-top:3px;font-size:.78rem" type="text" placeholder="clave prov." value="${esc(pr.clave_prov || '')}" ${dis}>` : ''}
       <span class="neto" data-n="${p.id}"></span></td><td class="num pd" data-d="${p.id}"></td>${num(p.flete) ? `<td class="num pf" data-fl="${p.id}"></td>` : ''}`; }).join('')}
     <td class="num key" data-c="min"></td><td class="num key" data-c="vsult"></td>
     <td class="key"><select data-f="elegido" ${dis}></select></td>
+    <td class="num key" data-c="impasig"></td>
     <td class="num" data-c="imp"></td>
     <td><input data-f="motivo" class="txt" type="text" value="${esc(l.motivo || '')}" ${dis}></td>
     ${ed ? `<td><button class="btn ghost sm" data-del aria-label="Quitar clave">✕</button></td>` : ''}
   </tr>`; }).join('')}</tbody>
   <tfoot><tr><td></td><td colspan="${fijo - 1}" class="small muted" style="text-align:right">Tipo de entrega</td>
-    ${P.map(p => `<td colspan="${span(p)}" class="small entrega">${esc(p.entrega_tipo || '—')}</td>`).join('')}<td colspan="${5 + (ed ? 1 : 0)}"></td></tr></tfoot></table>
+    ${P.map(p => `<td colspan="${span(p)}" class="small entrega">${esc(p.entrega_tipo || '—')}</td>`).join('')}<td colspan="${6 + (ed ? 1 : 0)}"></td></tr></tfoot></table>
   <datalist id="dl-clasif">${CLASIFS.map(x => `<option value="${x}">`).join('')}</datalist>`;
   c.lineas.forEach((l, i) => pintarFila(i));
   congelar();
@@ -1511,7 +1534,9 @@ function pintarFila(i){
     const fl = $(`[data-fl="${p.id}"]`, tr); if (fl) { fl.innerHTML = pr.neto != null ? fmt$(pr.neto) : '—'; fl.classList.toggle('best', best); }
   });
   const o = $('[data-c=origen]', tr);
-  o.textContent = l.ultimo_origen === 'aprobado' ? 'aprobado' : l.ultimo_origen === 'compra' ? (l.f_u_compra ? 'compra ' + fmtF(l.f_u_compra) : 'última compra') : l.ultimo_origen === 'manual' ? 'capturado' : l.ultimo_origen === 'archivo' ? 'del archivo' : '';
+  o.textContent = l.ultimo_origen === 'aprobado' ? 'aprobado' : l.ultimo_origen === 'compra' ? (l.f_u_compra ? 'compra ' + fmtF(l.f_u_compra) : 'última compra') : l.ultimo_origen === 'manual' ? 'capturado' : l.ultimo_origen === 'archivo' ? 'del archivo' : l.ultimo_origen === 'base' ? 'precio base' : '';
+  $('[data-c=impult]', tr).innerHTML = l._impUlt == null ? `<span class="muted small">${num(l.cantidad) === null ? 'sin cantidad' : 'sin precio'}</span>` : fmtImp(l._impUlt);
+  $('[data-c=impasig]', tr).innerHTML = l._impAsig == null ? '—' : `<b>${fmtImp(l._impAsig)}</b>`;
   const cr = $('[data-c=crec]', tr); if (cr) cr.innerHTML = fmtPct(l._crec);
   $('[data-c=min]', tr).innerHTML = l._min != null ? `<b>${fmt$(l._min)}</b>` : '—';
   const sel = $('select[data-f=elegido]', tr);
@@ -1533,7 +1558,8 @@ function pintarSum(){
     ${t.inv ? `<div class="kpi"><span class="l">Inversión</span><span class="v">${fmtImp(t.inv)}</span></div>` : ''}
     <div class="kpi"><span class="l">Importe a último precio</span><span class="v">${fmtImp(t.act)}</span></div>
     <div class="kpi"><span class="l">Importe asignado</span><span class="v">${fmtImp(t.prop)}</span></div>
-    <div class="kpi"><span class="l">% aumento ponderado</span><span class="v">${t.pctAum === null ? '—' : fmtPct(t.pctAum)}</span></div>
+    ${t.sinCant || t.sinAsig ? `<div class="kpi"><span class="l">Pendientes</span><span class="small" style="padding-top:4px">${t.sinCant ? `<b class="up">${t.sinCant}</b> clave(s) sin cantidad<br>` : ''}${t.sinAsig ? `<b>${t.sinAsig}</b> sin proveedor asignado` : ''}</span></div>` : ''}
+    <div class="kpi" title="Solo claves con último precio y proveedor asignado"><span class="l">% aumento ponderado</span><span class="v">${t.pctAum === null ? '—' : fmtPct(t.pctAum)}</span></div>
     <div class="kpi"><span class="l">Impacto $</span><span class="v ${t.impacto > 0 ? 'up' : t.impacto < 0 ? 'down' : ''}">${t.impacto > 0 ? '+' : ''}${fmtImp(t.impacto)}</span></div>
     <div class="kpi" style="flex:1;min-width:240px"><span class="l">Asignación por proveedor</span><span class="small">${Object.entries(t.porProv).sort((a,b) => b[1].imp - a[1].imp).map(([id, x]) => `<b>${esc((c.proveedores.find(p => String(p.id) === id)||{}).nombre || id)}</b> ${x.n} claves · ${fmtImp(x.imp)}`).join('<br>') || '—'}</span></div>`;
 }
@@ -1721,6 +1747,7 @@ function exportarComparativo(){
   const pctCols = new Set(); const monCols = new Set();
   if (dem) { pctCols.add(7); monCols.add(4); }
   monCols.add(head.length - 1);
+  monCols.add(head.push('IMPORTE ULTIMO PRECIO') - 1);
   P.forEach(p => {
     if (p.con_clave) head.push(`${p.nombre} CLAVE`);
     head.push(p.nombre); monCols.add(head.length - 1);
@@ -1733,7 +1760,7 @@ function exportarComparativo(){
   head.push('MEJOR PRECIO'); head.push('MOTIVO');
   monCols.add(head.push('IMPORTE ASIGNADO') - 1); monCols.add(head.push('IMPACTO $') - 1);
   const rows = c.lineas.map(l => { const pr = l.precios || {};
-    const r = [l.clave, l.descripcion, l.cantidad, ...(dem ? [l.clasificacion || '', l.inversion ?? null, l.pron ?? null, l.antec ?? null, l._crec] : []), l.ultimo_precio ?? null];
+    const r = [l.clave, l.descripcion, l.cantidad, ...(dem ? [l.clasificacion || '', l.inversion ?? null, l.pron ?? null, l.antec ?? null, l._crec] : []), l.ultimo_precio ?? null, l._impUlt ?? null];
     P.forEach(p => { const x = pr[p.id] || {};
       if (p.con_clave) r.push(x.clave_prov || '');
       r.push(x.sinflete ?? x.precio ?? null); r.push((l._dif || {})[p.id] ?? null);
@@ -1742,7 +1769,7 @@ function exportarComparativo(){
     r.push(l._neto, l._vsUlt, l.elegido ? nom(l.elegido) : 'NO ASIGNAR', l._best ? nom(l._best) : '', l.motivo || '',
       l._neto != null && num(l.cantidad) != null ? l._neto * l.cantidad : null, l._impacto);
     return r; });
-  const ent = new Array(head.length).fill(null); let col = 3 + (dem ? 5 : 0) + 1;
+  const ent = new Array(head.length).fill(null); let col = 3 + (dem ? 5 : 0) + 2;
   P.forEach(p => { col += p.con_clave ? 1 : 0; ent[col] = p.entrega_tipo || ''; col += 2 + (num(p.flete) ? 1 : 0); });
   const t = totales();
   const info = [[`COMPARATIVO ${c.folio || '(sin guardar)'} · ${c.titulo}`], [`Comprador: ${c.comprador}`, null, `Estatus: ${c.estatus}`, null, c.aprobado_por ? `${c.estatus === 'APROBADO' ? 'Aprobado' : 'Revisado'} por ${c.aprobado_por} · ${fmtFH(c.aprobado_en)}` : null],
