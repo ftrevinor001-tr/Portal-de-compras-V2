@@ -173,6 +173,7 @@
   <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none"><span class="tab-icon">🧮</span>Cálculo diario</div>
   <div class="tab" onclick="switchTab(9)" id="tab-prop" style="order:4"><span class="tab-icon">📝</span>Propuestas de compra</div>
   <div class="tab" onclick="switchTab(10)" id="tab-cmp" style="order:5"><span class="tab-icon">⚖️</span>Comparativos</div>
+  <div class="tab" onclick="switchTab(11)" id="tab-cal" style="order:4"><span class="tab-icon">🗓️</span>Calendario de pedidos</div>
 </div>
 
 <div class="frames">
@@ -388,6 +389,10 @@
     <div class="loader" id="ld-10"><div class="spinner"></div><p>Cargando comparativos…</p></div>
     <iframe id="fr-10" onload="window.hideLd&&window.hideLd(10)"></iframe>
   </div>
+  <div class="frame-wrap" id="fw-11">
+    <div class="loader" id="ld-11"><div class="spinner"></div><p>Cargando calendario de pedidos…</p></div>
+    <iframe id="fr-11" onload="window.hideLd&&window.hideLd(11)"></iframe>
+  </div>
 </div>
 
 <script>
@@ -475,7 +480,11 @@ function loadTab(i){ // i = 1..5 (iframes)
   if(i>=1&&i<=5&&!loadedTabs[k]){loadedTabs[k]=true;document.getElementById('fr-'+i).src=SRCS[k];}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
-const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html'};
+const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html',11:'plan_calendario.html'};
+// Calendario de pedidos → abre Propuestas de compra con las claves del pedido listas para crear el folio
+function abrirPropuestaCon(claves,origen){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');
+  fr.src='plan_propuestas.html?claves='+encodeURIComponent(claves.join(','))+'&origen='+encodeURIComponent(origen||'')+'&t='+Date.now();switchTab(9);}
+window.abrirPropuestaCon=abrirPropuestaCon;
 // Abre un comparativo en la pestaña Comparativos (lo usa Propuestas de compra)
 function abrirComparativo(id){const fr=document.getElementById('fr-10');const l=document.getElementById('ld-10');if(l)l.classList.remove('hidden');fr.src='comparativos.html'+(id?'?cmp='+encodeURIComponent(id):'');switchTab(10);}
 window.abrirComparativo=abrirComparativo;

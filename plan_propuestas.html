@@ -185,6 +185,14 @@ async function abrir(){
   $('f-comp').innerHTML='<option value="">Todos los compradores</option>'+COMPRADORES.map(c=>'<option>'+c+'</option>').join('');
   setQuien(true);
   await recargar();
+  desdeCalendario();
+}
+// Viene del Calendario de pedidos (?claves=1,2,3&origen=Proveedor): abre Nueva propuesta con esas claves pegadas
+function desdeCalendario(){
+  let u;try{u=new URLSearchParams(location.search);}catch(e){return;}const ks=(u.get('claves')||'').split(',').filter(x=>/^\d+$/.test(x));if(!ks.length)return;
+  NSEL=new Set();$('n-pegar').value=ks.join(' ');$('nueva').style.display='block';try{pintarNueva();}catch(e){}cuentaNueva();$('nueva').scrollIntoView({behavior:'smooth'});
+  toast('🗓️ '+ks.length+' claves del calendario'+(u.get('origen')?' ('+u.get('origen')+')':'')+': revisa y crea el folio');
+  try{history.replaceState(null,'',location.pathname);}catch(e){}
 }
 function setQuien(inicial){
   const v=quien();lsSet('plan_prop_quien',v);

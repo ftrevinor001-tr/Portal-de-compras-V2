@@ -120,6 +120,17 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-mfb"></div>
   </div>
   <div class="card">
+    <h2><span class="n">🗓️</span>Calendario de pedidos: proveedor por clave y reglas <small style="color:var(--tx2);font-weight:400">· conforme se tenga la información</small></h2>
+    <p class="d">El calendario agrupa las claves por proveedor con esta prioridad: <b>1) catálogo cargado aquí</b> → 2) proveedor aprobado vigente en Comparativos → 3) proveedor de la última OC → 4) marca (si no hay nada más).
+      Genera la lista, revísala y escribe en <b>Proveedor confirmado</b> solo lo que quieras fijar (lo vacío se sigue resolviendo solo). Al cargar se agregan o actualizan esas claves; marca «reemplazar todo» para borrar el catálogo anterior.</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('prov_lista')">⬇ Generar lista proveedor por clave</button>
+      <input type="file" id="f-provcat" accept=".xlsx,.xls,.csv"><label class="d"><input type="checkbox" id="provcat-rem"> reemplazar todo</label><button onclick="run('prov_cat')">Cargar catálogo</button><span class="d" id="provcat-res"></span></div>
+    <p class="d" style="margin-top:10px"><b>Reglas por proveedor</b> (todo opcional, se puede cargar poco a poco; lo vacío es automático): ciclo en días (vacío = semanal, quincenal o mensual según su valor de compra), días fijos de pedido (p. ej. LUN,JUE), mínimo de compra $ o piezas, flete completo y su monto, tiempo de entrega real en días (vacío = el de cada clave).</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('prov_plant')">⬇ Plantilla de reglas con los proveedores actuales</button>
+      <input type="file" id="f-provreg" accept=".xlsx,.xls,.csv"><button onclick="run('prov_reg')">Cargar reglas</button><span class="d" id="provreg-res"></span></div>
+    <div class="log" id="log-prov"></div>
+  </div>
+  <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
     <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
     <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
@@ -176,7 +187,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -212,7 +223,7 @@ async function sesionOk(){const{data:{session}}=await sb.auth.getSession();if(!s
 async function run(tipo){
   if(ocupado[tipo])return;ocupado[tipo]=true;
   const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
-  const log=L(tipo);log.clear();
+  const log=L(tipo.startsWith('prov_')?'prov':tipo);log.clear();
   try{
     await sesionOk();
     if(tipo==='ventas')await cargaVentas(log);
@@ -225,6 +236,10 @@ async function run(tipo){
     if(tipo==='resg')await cargaResg(log);
     if(tipo==='sust')await cargaSust(log);
     if(tipo==='mfb')await cargaMFB(log);
+    if(tipo==='prov_lista')await listaProvClave(log);
+    if(tipo==='prov_cat')await cargaProvCat(log);
+    if(tipo==='prov_plant')await plantillaProv(log);
+    if(tipo==='prov_reg')await cargaProvReg(log);
     if(tipo==='sustx')await bajarConversiones(log);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
@@ -542,6 +557,83 @@ async function reaplicarMFB(m,log){
   const{error:eu}=await sb.from('plan_publicacion').update({version:Date.now().toString(),resumen,actualizado_en:new Date().toISOString()}).eq('id','estado');if(eu)throw new Error('plan_publicacion: '+eu.message);
   if(ULTIMO_CALC&&ULTIMO_CALC.res)P.aplicarMFBase(ULTIMO_CALC.res,m);
   log.msg('🎉 Listo: '+fmt(n)+' claves cambiaron · '+fmt(resumen.bandera_mf)+' claves MF para devolución estratégica. Planeación y las fichas ya muestran el número base (recarga la página).');
+}
+// ── Calendario de pedidos: proveedor por clave y reglas por proveedor (plan_tablas_16.sql) ──
+const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
+const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
+let _sbc=null;const sbc=()=>{try{return _sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-admin'}}));}catch(e){return null;}};
+async function estadoClaves(log){
+  const{data:pub}=await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle();
+  if(!pub||!pub.ruta)throw new Error('Todavía no hay un Cálculo diario publicado.');
+  const{data:blob,error}=await sb.storage.from('respaldos').download(pub.ruta);if(error)throw new Error('Storage: '+error.message);
+  const js=JSON.parse(pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text());
+  return{fecha:js.fecha,claves:(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r))};
+}
+async function fuentesProv(log){
+  log.msg('📥 Leyendo cálculo publicado, catálogo, Comparativos, OCs y costos…');
+  const E=await estadoClaves(log);const F=await P.calFuentes(sb,sbc());F.avisos.forEach(a=>log.msg('⚠️ '+a,'w'));
+  F.prov=P.provPorClave(E.claves,F);const org={};F.prov.forEach(x=>org[x.o]=(org[x.o]||0)+1);
+  log.msg('   '+fmt(E.claves.length)+' claves · por catálogo '+fmt(org['CATÁLOGO']||0)+' · Comparativos '+fmt(org['COMPARATIVO']||0)+' · última OC '+fmt(org['ÚLTIMA OC']||0)+' · solo marca '+fmt(org['MARCA']||0));
+  return{E,F};
+}
+async function listaProvClave(log){
+  const{E,F}=await fuentesProv(log);
+  const rows=E.claves.slice().sort((a,b)=>String(a.comp).localeCompare(String(b.comp))||String(a.m).localeCompare(String(b.m))||a.c-b.c).map(r=>{const x=F.prov.get(Number(r.c));
+    return{'Clave':r.c,'Descripción':r.n,'Marca':r.m||'','Grupo':r.g||'','Comprador':r.comp||'','Rotación':r.rot||'','Estatus':r.est||'','Demanda/mes':r.D,
+      'Proveedor sugerido':x.o==='MARCA'?'':x.p,'Origen':x.o,'Proveedor Comparativos':x.cmp||'','Fecha aprobación':x.cmpF||'','Proveedor última OC':x.oc||'','Fecha última OC':x.ocF||'',
+      'Proveedores distintos en OCs':x.ocN||'','Proveedor confirmado':F.cat.get(Number(r.c))||''};});
+  const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[8,45,16,22,18,16,16,11,40,13,40,13,40,13,12,40].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+  const ins=[['Cómo usar esta lista'],['1. Revisa «Proveedor sugerido» (Origen: CATÁLOGO, COMPARATIVO, ÚLTIMA OC o MARCA = sin proveedor conocido).'],['2. Escribe en «Proveedor confirmado» solo las claves que quieras fijar o corregir. Lo vacío se sigue resolviendo solo.'],
+    ['3. Carga el archivo en Admin → Cálculo diario → Calendario de pedidos → Cargar catálogo.'],['Claves con «Proveedores distintos en OCs» mayor a 1 se han comprado a más de un proveedor: conviene confirmarlas.']];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Proveedor por clave');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ins),'Instrucciones');
+  XLSX.writeFile(wb,'Proveedor_por_clave_'+E.fecha+'.xlsx');log.msg('🎉 Lista descargada: '+fmt(rows.length)+' claves.');
+}
+async function cargaProvCat(log){
+  const wb=await leerLibro('f-provcat',null,log);const ws=wb.Sheets['Proveedor por clave']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>/^CLAVE$/.test(P.norm(c))));if(hi<0)throw new Error('No encontré el encabezado Clave.');
+  const H=aoa[hi].map(P.norm),iC=H.indexOf('CLAVE');let iP=H.findIndex(h=>/PROVEEDOR CONFIRMADO/.test(h));if(iP<0)iP=H.findIndex(h=>h==='PROVEEDOR');if(iP<0)throw new Error('No encontré la columna «Proveedor confirmado» (o «Proveedor»).');
+  const m=new Map();let mal=0;for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]),pv=String(aoa[i][iP]||'').trim();if(k==null||!pv)continue;if(!P.provValido(pv)||/^MARCA /i.test(pv)){mal++;continue;}m.set(k,pv);}
+  if(!m.size&&!document.getElementById('provcat-rem').checked)throw new Error('El archivo no trae ningún proveedor confirmado.');
+  if(document.getElementById('provcat-rem').checked){const{error}=await sb.from('plan_prov_clave').delete().gte('clave',0);if(error)throw new Error('plan_prov_clave: '+error.message+' (¿ya corriste plan_tablas_16.sql?)');log.msg('🧹 Catálogo anterior borrado.');}
+  await enLotes('plan_prov_clave',[...m].map(([clave,proveedor])=>({clave,proveedor,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('🎉 '+fmt(m.size)+' claves con proveedor confirmado'+(mal?' · '+mal+' renglones ignorados (proveedor no válido)':'')+'. El calendario ya los usa.');pintarProv();
+}
+const PROV_COLS=[['ciclo_dias','Ciclo (días)','n'],['dias_pedido','Días de pedido','t'],['minimo_monto','Mínimo de compra $','n'],['minimo_piezas','Mínimo de piezas','n'],['flete_completo','Flete completo (SI/NO)','b'],
+  ['monto_flete','Monto para flete completo $','n'],['lead_time_dias','Tiempo de entrega real (días)','n'],['contacto','Contacto','t'],['notas','Notas','t']];
+async function plantillaProv(log){
+  const{E,F}=await fuentesProv(log);
+  const cal=P.calendario(E.claves,{hoy:E.fecha,prov:F.prov,reglas:F.reglas,costo:F.costo,emp:F.emp,agrupar:'PROV'});
+  const vistos=new Set();const rows=[];
+  cal.filter(g=>!/^MARCA /.test(g.g)).sort((a,b)=>b.valMes-a.valMes).forEach(g=>{const k=P.provKey(g.g);vistos.add(k);const r=g.regla||{};const o={'Proveedor':r.proveedor||g.g};
+    PROV_COLS.forEach(([c,t,ty])=>o[t]=r[c]==null?'':ty==='b'?(r[c]?'SI':'NO'):r[c]);
+    Object.assign(o,{'(info) Claves':g.claves,'(info) Compra mensual estimada $':g.valMes,'(info) Ciclo automático (días)':g.auto,'(info) Compradores':g.comps.join(', ')});rows.push(o);});
+  F.reglas.forEach((r,k)=>{if(vistos.has(k))return;const o={'Proveedor':r.proveedor};PROV_COLS.forEach(([c,t,ty])=>o[t]=r[c]==null?'':ty==='b'?(r[c]?'SI':'NO'):r[c]);o['(info) Claves']=0;rows.push(o);});
+  const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[44,11,15,16,14,16,18,18,26,30,10,18,16,30].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Reglas proveedores');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Todo es opcional: deja vacío lo que no sepas y el portal lo calcula.'],['Ciclo (días): cada cuánto se le levanta pedido. Vacío = automático: 7 días si compra $'+fmt(P.R.CAL_SEMANAL)+' o más al mes, 14 si compra $'+fmt(P.R.CAL_QUINCENAL)+' o más, 30 si compra menos.'],
+    ['Días de pedido: días fijos para levantar el pedido, separados por coma (LUN, MAR, MIE, JUE, VIE, SAB). Vacío = cualquier día menos domingo.'],['Mínimo de compra $ / piezas y flete completo: el calendario avisa cuando un pedido no llega.'],
+    ['Tiempo de entrega real (días): si lo llenas, reemplaza el tiempo de entrega de las claves de ese proveedor en el calendario.'],['Las columnas (info) no se cargan; solo son referencia. Puedes agregar proveedores nuevos al final.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Reglas_proveedores_'+E.fecha+'.xlsx');log.msg('🎉 Plantilla descargada con '+fmt(rows.length)+' proveedores.');
+}
+async function cargaProvReg(log){
+  const wb=await leerLibro('f-provreg',null,log);const ws=wb.Sheets['Reglas proveedores']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='PROVEEDOR'));if(hi<0)throw new Error('No encontré el encabezado Proveedor.');
+  const H=aoa[hi].map(P.norm),iP=H.indexOf('PROVEEDOR');const idx=PROV_COLS.map(([c,t,ty])=>[c,ty,H.indexOf(P.norm(t))]);
+  const out=[];let mal=[];
+  for(let i=hi+1;i<aoa.length;i++){const pv=String(aoa[i][iP]||'').trim();if(!pv)continue;const o={proveedor:pv,actualizado_en:new Date().toISOString()};let hay=false;
+    idx.forEach(([c,ty,j])=>{if(j<0)return;const v=aoa[i][j];const sv=String(v==null?'':v).trim();if(!sv){o[c]=null;return;}hay=true;
+      if(ty==='n'){const n=P.num(v);if(n==null||n<0){mal.push(pv+' · '+c);o[c]=null;}else o[c]=c==='ciclo_dias'?Math.max(1,Math.round(n)):n;}
+      else if(ty==='b')o[c]=/^(SI|SÍ|S|1|TRUE|VERDADERO|X)$/i.test(sv);else o[c]=c==='dias_pedido'?P.norm(sv):sv;});
+    if(o.dias_pedido){const ds=P.diasSemana(o.dias_pedido);if(!ds){mal.push(pv+' · días de pedido «'+o.dias_pedido+'»');o.dias_pedido=null;}else o.dias_pedido=P.diasTexto(ds);}
+    if(hay)out.push(o);}
+  if(!out.length)throw new Error('El archivo no trae ninguna regla capturada (todas las columnas vacías).');
+  await enLotes('plan_proveedores',out,log,{onConflict:'proveedor'});
+  log.msg('🎉 Reglas guardadas para '+fmt(out.length)+' proveedores. Los vacíos quedan automáticos.');if(mal.length)log.msg('⚠️ Valores no válidos (quedaron vacíos): '+mal.slice(0,15).join(' · ')+(mal.length>15?' …':''),'w');pintarProv();
+}
+async function pintarProv(){
+  const a=document.getElementById('provcat-res'),b=document.getElementById('provreg-res');
+  try{const{count,error}=await sb.from('plan_prov_clave').select('clave',{count:'exact',head:true});if(error)throw error;a.textContent=fmt(count||0)+' claves en el catálogo';}catch(e){a.textContent='(corre plan_tablas_16.sql)';}
+  try{const{count,error}=await sb.from('plan_proveedores').select('proveedor',{count:'exact',head:true});if(error)throw error;b.textContent=fmt(count||0)+' proveedores con reglas';}catch(e){b.textContent='';}
 }
 // ── Claves sustituidas ──
 // Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión

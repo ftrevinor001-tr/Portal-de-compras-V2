@@ -829,5 +829,90 @@ P.propLinea=(p,s,o)=>{
   return{...out,sem,mA,mP,mR,lA,lP,lR,lo,hi,varA:v(sA),varP:v(sP),varR:v(sR),difR:sR==null?null:ped-sR,avisos:av};
 };
 P.PROP_MOTIVOS=['Mínimo de compra o flete del proveedor','Múltiplo de empaque','Temporada','Venta especial o proyecto','Compra de oportunidad o cambio de precio','Proveedor con entregas incumplidas (más stock de seguridad)','Redistribución de MF','Clave nueva o en lanzamiento','Reducir inventario o descontinuar','Otro (explicar en comentario)'];
+// ══ Calendario de pedidos por proveedor (oct-2026) ══
+// Ciclo automático por valor de compra mensual del proveedor (demanda × costo): semanal / quincenal / mensual.
+P.R.CAL_SEMANAL=150000;P.R.CAL_QUINCENAL=40000;P.R.CAL_HORIZ=90;
+// Llave para empatar nombres de proveedor (sin puntos ni "SA DE CV", "S DE RL DE CV", "SAPI DE CV"…)
+P.provKey=s=>{let t=P.norm(s).replace(/[.,;()]/g,' ').replace(/\s+/g,' ').trim().split(' ');
+  const SUF=new Set(['S','A','SA','DE','C','V','CV','SAPI','SAB','RL','R','L','SC','SPR','P','I','B','SRL']);
+  while(t.length>1&&SUF.has(t[t.length-1]))t.pop();return t.join(' ');};
+P.provValido=s=>!!s&&!/OTROS INGRESOS|AJUSTE|TRASPASO|INVENTARIO INICIAL/.test(P.norm(s));
+// Última OC por clave (proveedores válidos): Map clave → {p, f, n (proveedores distintos)}
+P.ultimaOC=lineas=>{const m=new Map();(lineas||[]).forEach(l=>{if(!P.provValido(l.proveedor))return;const k=Number(l.clave),f=String(l.fecha_oc||'').slice(0,10);
+  const x=m.get(k)||{p:null,f:'',ps:new Set()};x.ps.add(P.provKey(l.proveedor));if(f>=x.f){x.f=f;x.p=String(l.proveedor).trim();}m.set(k,x);});
+  m.forEach(x=>{x.n=x.ps.size;delete x.ps;});return m;};
+// Proveedor por clave con prioridad: catálogo cargado → proveedor aprobado en Comparativos → última OC → marca
+P.provPorClave=(filas,src)=>{const out=new Map(),cat=src.cat||new Map(),cmp=src.cmp||new Map(),oc=src.oc||new Map();
+  (filas||[]).forEach(r=>{const k=Number(r.c);const c=cat.get(k),a=cmp.get(k),o=oc.get(k);
+    const x=c?{p:c,o:'CATÁLOGO'}:a&&a.p?{p:a.p,o:'COMPARATIVO'}:o&&o.p?{p:o.p,o:'ÚLTIMA OC'}:{p:'MARCA '+(r.m||'SIN MARCA'),o:'MARCA'};
+    x.cmp=a?a.p:null;x.cmpF=a?a.f:null;x.oc=o?o.p:null;x.ocF=o?o.f:null;x.ocN=o?o.n:0;out.set(k,x);});return out;};
+P.diasSemana=t=>{if(!t)return null;const M={DO:0,LU:1,MA:2,MI:3,JU:4,VI:5,SA:6};const s=new Set();
+  P.norm(t).split(/[\s,;\/]+/).forEach(w=>{const d=M[w.slice(0,2)];if(d!=null)s.add(d);else if(w==='X')s.add(3);else if(w==='L')s.add(1);else if(w==='M')s.add(2);else if(w==='J')s.add(4);else if(w==='V')s.add(5);});return s.size?s:null;};
+P.diasTexto=set=>set?[1,2,3,4,5,6,0].filter(d=>set.has(d)).map(d=>['DOM','LUN','MAR','MIE','JUE','VIE','SAB'][d]).join(','):null;
+P.calFecha=(f0,d)=>{const x=new Date(f0+'T12:00:00');x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
+// Día de pedido ≥ d (días desde f0): días fijos del proveedor o, si no tiene, cualquier día menos domingo
+P.calSnap=(f0,d,dias)=>{let t=Math.max(0,Math.ceil(d-1e-9));for(let i=0;i<14;i++,t++){const w=new Date(P.calFecha(f0,t)+'T12:00:00').getDay();if(dias?dias.has(w):w!==0)return t;}return t;};
+// Calendario: filas del cálculo publicado → grupos (proveedor, marca o grupo) con sus pedidos estimados en el horizonte.
+// Cada clave se pide cuando su cobertura (existencia + BO) baja a T. entrega × 1.2 (donde entraría a riesgo);
+// al pedido del grupo se suman las claves que llegarían a ese punto dentro del ciclo del proveedor.
+P.calendario=(filas,o)=>{
+  const H=o.horiz||P.R.CAL_HORIZ,MD=30.4,ag=o.agrupar||'PROV',reglas=o.reglas||new Map(),prov=o.prov||new Map();
+  const regla=g=>ag==='PROV'?reglas.get(P.provKey(g))||null:null;
+  const G=new Map(),NOM=new Map();
+  (filas||[]).forEach(r=>{
+    if(r.pr||P.esProd(r)||P.R.SIN_SUG_ROT.includes(r.rot))return;const D=Number(P.baseRec(r).c)||0;if(!(D>0)||D<P.R.D_MIN)return;
+    const k=Number(r.c),pv=prov.get(k)||{p:'MARCA '+(r.m||'SIN MARCA'),o:'MARCA'};
+    // por proveedor se agrupa con la llave (sin SA DE CV, puntos, mayúsculas) y se muestra el nombre más usado
+    const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):P.provKey(pv.p);
+    if(ag==='PROV'){const n=NOM.get(g)||new Map();n.set(pv.p,(n.get(pv.p)||0)+1);NOM.set(g,n);}
+    const rg=regla(g),lt=rg&&rg.lead_time_dias>0?rg.lead_time_dias/MD:(Number(r.lt)||0),pm=Number(r.pm)||0,rop=lt*P.R.FACT_ENTRA_RIESGO,meta=lt+pm;
+    const pos=((Number(r.ex)||0)+(Number(r.bo)||0))/D;
+    (G.get(g)||G.set(g,[]).get(g)).push({r,k,D,pv,lt,pm,rop,meta,pos0:pos,t0:0,due:(pos-rop)*MD,costo:o.costo?o.costo.get(k)||null:null,emp:o.emp?o.emp.get(k):null});
+  });
+  const out=[];
+  G.forEach((its,gk)=>{
+    let g=gk;if(ag==='PROV'){let mx=-1;NOM.get(gk).forEach((n,nom)=>{if(n>mx){mx=n;g=nom;}});}
+    const rg=regla(g),valMes=its.reduce((a,i)=>a+i.D*(i.costo||0),0);
+    const auto=valMes>=P.R.CAL_SEMANAL?7:valMes>=P.R.CAL_QUINCENAL?14:30,ciclo=rg&&rg.ciclo_dias>0?Number(rg.ciclo_dias):auto,dias=P.diasSemana(rg&&rg.dias_pedido);
+    const ped=[];
+    for(let n=0;n<40;n++){
+      const tmin=Math.min(...its.map(i=>i.due));if(!(tmin<=H))break;
+      const t=P.calSnap(o.hoy,Math.max(0,tmin),dias);if(t>H)break;
+      const lote=its.filter(i=>i.due<=t+ciclo);
+      const L=lote.map(i=>{const pos=i.pos0-(t-i.t0)/MD;let q=Math.max(0,P.ceil3(i.D*(i.meta-pos)));const e=q>0?P.empaque(q,i.emp,i.r.u):{q,ok:false};q=e.q||0;
+        const x={c:i.k,n:i.r.n,m:i.r.m||'',g:i.r.g||'',comp:i.r.comp,est:i.r.est,u:i.r.u||'',D:i.D,pos:Math.round(pos*10)/10,rop:Math.round(i.rop*10)/10,
+          fp:P.calFecha(o.hoy,Math.round(i.due)),atr:i.due<0?Math.round(-i.due):0,q,emp:e.ok?e.tipo:null,costo:i.costo,valor:i.costo!=null?Math.round(q*i.costo*100)/100:null,prov:i.pv};
+        i.pos0=pos+q/i.D;i.t0=t;i.due=t+(i.pos0-i.rop)*MD;if(!(i.due>t))i.due=t+ciclo;return x;}).filter(x=>x.q>0);
+      if(!L.length)continue;
+      const valor=L.reduce((a,x)=>a+(x.valor||0),0),pzas=L.reduce((a,x)=>a+x.q,0),sinCosto=L.filter(x=>x.costo==null).length;
+      const av=[];
+      if(rg&&rg.minimo_monto>0&&valor<rg.minimo_monto)av.push('no llega al mínimo de compra: faltan $'+Math.round(rg.minimo_monto-valor).toLocaleString('es-MX'));
+      if(rg&&rg.minimo_piezas>0&&pzas<rg.minimo_piezas)av.push('no llega al mínimo de piezas: faltan '+Math.round(rg.minimo_piezas-pzas).toLocaleString('es-MX'));
+      if(rg&&rg.flete_completo&&rg.monto_flete>0&&valor<rg.monto_flete)av.push('no completa el flete: faltan $'+Math.round(rg.monto_flete-valor).toLocaleString('es-MX'));
+      ped.push({t,f:P.calFecha(o.hoy,t),atr:Math.max(0,...L.map(x=>x.atr)),lineas:L,claves:L.length,pzas,valor:Math.round(valor*100)/100,sinCosto,av});
+    }
+    const comps=[...new Set(its.map(i=>i.r.comp).filter(Boolean))],org={};its.forEach(i=>org[i.pv.o]=(org[i.pv.o]||0)+1);
+    out.push({g,ag,regla:rg,ciclo,cicloAuto:!(rg&&rg.ciclo_dias>0),auto,dias:rg&&rg.dias_pedido||null,valMes:Math.round(valMes),claves:its.length,comps,org,pedidos:ped,prox:ped[0]||null});
+  });
+  return out.sort((a,b)=>(a.prox?a.prox.t:1e9)-(b.prox?b.prox.t:1e9)||(b.prox?b.prox.atr:0)-(a.prox?a.prox.atr:0)||b.valMes-a.valMes);
+};
+
+// Lee todo lo que necesita el calendario (catálogo, reglas, OCs, Comparativos, costos, empaques). Cada fuente es opcional.
+P.calFuentes=async(sb,sbc)=>{
+  const todo=async q=>{let out=[];for(let i=0;i<200;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;};
+  const F={cat:new Map(),reglas:new Map(),oc:new Map(),cmp:new Map(),costo:new Map(),emp:new Map(),avisos:[]};
+  const paso=async(n,fn)=>{try{await fn();}catch(e){F.avisos.push(n+': '+(e.message||e));}};
+  await Promise.all([
+    paso('Catálogo proveedor por clave (¿ya corriste plan_tablas_16.sql?)',async()=>(await todo(()=>sb.from('plan_prov_clave').select('clave,proveedor').order('clave'))).forEach(r=>{if(P.provValido(r.proveedor))F.cat.set(Number(r.clave),String(r.proveedor).trim());})),
+    paso('Reglas de proveedores (¿ya corriste plan_tablas_16.sql?)',async()=>(await todo(()=>sb.from('plan_proveedores').select('*').order('proveedor'))).forEach(r=>F.reglas.set(P.provKey(r.proveedor),r))),
+    paso('OCs',async()=>{F.oc=P.ultimaOC(await todo(()=>sb.from('plan_oc_lineas').select('clave,proveedor,fecha_oc').order('folio').order('clave')));}),
+    paso('Costos',async()=>(await todo(()=>sb.from('plan_costos').select('clave,costo').order('clave'))).forEach(r=>{if(Number(r.costo)>0)F.costo.set(Number(r.clave),Number(r.costo));})),
+    paso('Empaques',async()=>(await todo(()=>sb.from('plan_empaques').select('*').order('clave'))).forEach(r=>F.emp.set(Number(r.clave),r))),
+    paso('Proveedor aprobado en Comparativos',async()=>{if(!sbc)return;(await todo(()=>sbc.from('cmp_asignaciones').select('clave,proveedor,aprobado_en').eq('vigente',true).order('clave'))).forEach(r=>{
+      const k=Number(r.clave),f=String(r.aprobado_en||'').slice(0,10),x=F.cmp.get(k);if(P.provValido(r.proveedor)&&(!x||f>=x.f))F.cmp.set(k,{p:String(r.proveedor).trim(),f});});}),
+  ]);
+  return F;
+};
+
 /*PARSE-END*/
 if(typeof window!=='undefined')window.P=P;   // para páginas que preguntan por window.P (Estatus Back Orders)
