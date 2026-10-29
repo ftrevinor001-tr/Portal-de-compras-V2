@@ -320,7 +320,8 @@ function pintarFolio(){
   if(f.estado==='EN REVISION')acc+='<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
   if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
   acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
-  if(ed||(f.estado==='EN REVISION'))acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio">✕</button>';
+  if(ed)acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio (pide motivo)">✕</button>';
+  else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
   $('f-acc').innerHTML=acc;
   $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>';$('f-conbo').value=conBO()?'1':'0';
   $('f-aviso').innerHTML=f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras con su nombre y PIN.</p>':'';
@@ -398,12 +399,14 @@ async function autorizadores(accion,valor){
   const{data,error}=await sbc().from('cmp_usuarios').select('id,nombre,rol,puesto,activo').order('nombre');
   if(error)throw new Error('No pude leer los autorizadores del portal de comparativos: '+error.message);
   const us=(data||[]).filter(u=>u.activo!==false);
+  if(accion==='CANCELAR')return us.filter(u=>u.rol==='ADMIN');
   if(accion!=='AUTORIZAR')return us.filter(u=>u.rol!=='COMPRADOR'&&!/COSTO/i.test(u.puesto||''));
   // Autorizar: puesto con límite suficiente para el valor del folio; el comprador, solo su propio folio
   return us.filter(u=>{const n=nivelU(u);if(!n||limiteN(n)<valor)return false;return n!=='COMPRADOR'||mismoComp(u,S.actual.comprador);})
     .sort((a,b)=>limiteN(nivelU(a))-limiteN(nivelU(b)));
 }
 async function pinAbrir(accion){
+  if(accion==='CANCELAR')return cancelarAbrir();
   const V=valorFolio(),rg=rangoDe(V.total);
   let us;try{us=await autorizadores(accion,V.total);}catch(e){toast('❌ '+e.message);return;}
   if(!us.length){toast(accion==='AUTORIZAR'?'❌ Nadie con rango para autorizar '+mxn(V.total)+' ('+rg[1]+' o superior). Dalo de alta con ese puesto en Comparativos → Administración.':'❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
@@ -415,10 +418,34 @@ async function pinAbrir(accion){
   $('pin-btn').textContent=aut?'Autorizar':'Regresar';$('pin-btn').className=aut?'ok':'bad';$('pin-err').style.display='none';
   $('pinbg').style.display='flex';$('pin-u').focus();
 }
-function pinCerrar(){$('pinbg').style.display='none';PINACC=null;}
+async function cancelarAbrir(){
+  const f=S.actual,pinReq=conPinCancelar();let us=[];
+  if(pinReq){try{us=await autorizadores('CANCELAR');}catch(e){toast('❌ '+e.message);return;}
+    if(!us.length){toast('❌ No hay administradores dados de alta en Comparativos (rol ADMIN) para cancelar con PIN');return;}}
+  PINACC='CANCELAR';
+  $('pin-tit').textContent='Cancelar folio '+f.folio;
+  $('pin-sub').textContent=(f.estado==='AUTORIZADO'?'El folio ya está autorizado. ':'')+(pinReq?'Se cancela con el nombre y PIN de un administrador. ':'')+'El folio queda CANCELADO (no se borra, queda en el historial con el motivo)'+(f.cmp_id?'; su comparativo '+(f.cmp_folio||'#'+f.cmp_id)+' también se cancela (si ya estaba aprobado, se anula y regresa el proveedor anterior).':'.');
+  $('pin-u').style.display=$('pin-p').style.display=pinReq?'':'none';
+  $('pin-u').innerHTML='<option value="">— Administrador que cancela —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+  $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder='Motivo de la cancelación (obligatorio), p. ej. folio de prueba o la compra ya no se hará';
+  $('pin-btn').textContent='Cancelar folio';$('pin-btn').className='bad';$('pin-err').style.display='none';
+  $('pinbg').style.display='flex';(pinReq?$('pin-u'):$('pin-c')).focus();
+}
+function pinCerrar(){$('pin-u').style.display=$('pin-p').style.display='';$('pinbg').style.display='none';PINACC=null;}
 function pinErr(t){const e=$('pin-err');e.textContent=t;e.style.display='block';}
 async function pinOk(){
   const o=$('pin-u').selectedOptions[0],uid=Number($('pin-u').value),pin=$('pin-p').value,com=$('pin-c').value.trim();
+  if(PINACC==='CANCELAR'){
+    if(!com){pinErr('Escribe el motivo de la cancelación');return;}
+    const pinReq=conPinCancelar();if(pinReq&&!uid){pinErr('Elige el administrador que cancela');return;}if(pinReq&&!pin){pinErr('Escribe el PIN');return;}
+    $('pin-btn').disabled=true;
+    try{let nombre=quien()||'—';
+      if(pinReq){const{data,error}=await sbc().rpc('cmp_verificar_pin',{p_usuario_id:uid,p_pin:pin});if(error)throw new Error(error.message);if(!data){pinErr('PIN incorrecto');return;}nombre=o.dataset.n;}
+      await cancelarConMotivo(nombre,uid,pin,com);pinCerrar();
+    }catch(e){pinErr('❌ '+(e.message||e));}
+    finally{$('pin-btn').disabled=false;}
+    return;
+  }
   if(!uid){pinErr('Elige quién '+(PINACC==='AUTORIZAR'?'autoriza':'regresa'));return;}
   if(!pin){pinErr('Escribe tu PIN');return;}
   if(PINACC==='REGRESAR'&&!com){pinErr('Escribe por qué se regresa');return;}
@@ -472,7 +499,25 @@ async function pintarCmp(){
   try{const{data}=await sbc().from('cmp_comparativos').select('folio,estatus,aprobado_por,aprobado_en').eq('id',f.cmp_id).maybeSingle();
     if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en);}catch(e){}
 }
-async function cancelarFolio(){if(!confirm('¿Cancelar el folio '+S.actual.folio+'? Ya no se podrá usar.'))return;await cambiarEstado({estado:'CANCELADO'},'Folio cancelado');}
+// Cancelar folio (oct-2026): siempre con motivo. En revisión o autorizado, además con nombre y PIN de un ADMINISTRADOR (usuarios de Comparativos).
+// Si ya se había creado su comparativo: en borrador / en revisión / rechazado se cancela; aprobado se anula (regresa el proveedor anterior).
+function cancelarFolio(){pinAbrir('CANCELAR');}
+const conPinCancelar=()=>['EN REVISION','AUTORIZADO'].includes(S.actual&&S.actual.estado);
+async function cancelarConMotivo(nombre,uid,pin,motivo){
+  const f=S.actual,ahora=new Date(),txt='Cancelado por '+nombre+' el '+fFH(ahora.toISOString())+': '+motivo;
+  if(f.cmp_id){
+    const c=sbc();const{data:cm,error}=await c.from('cmp_comparativos').select('id,folio,estatus,notas').eq('id',f.cmp_id).maybeSingle();
+    if(error)throw new Error('No pude revisar el comparativo ligado: '+error.message);
+    if(cm&&['BORRADOR','EN REVISION','RECHAZADO'].includes(cm.estatus)){
+      const{error:e2}=await c.from('cmp_comparativos').update({estatus:'CANCELADO',notas:[cm.notas,'Propuesta '+f.folio+' — '+txt].filter(Boolean).join('\n'),actualizado_por:nombre,actualizado_en:ahora.toISOString()}).eq('id',cm.id);
+      if(e2)throw new Error('No pude cancelar el comparativo '+(cm.folio||cm.id)+': '+e2.message);
+    }else if(cm&&cm.estatus==='APROBADO'){
+      const{error:e3}=await c.rpc('cmp_anular',{p_id:cm.id,p_usuario_id:uid,p_pin:pin,p_motivo:'Propuesta '+f.folio+' cancelada: '+motivo});
+      if(e3)throw new Error('No pude anular el comparativo aprobado '+(cm.folio||cm.id)+': '+e3.message);
+    }
+  }
+  return cambiarEstado({estado:'CANCELADO',comentario:[txt,f.comentario?'Antes: '+f.comentario:''].filter(Boolean).join(' · ')},'✓ Folio '+f.folio+' cancelado'+(f.cmp_id?' (y su comparativo)':''));
+}
 
 // ── Plantilla y carga de surtimiento ──
 function descargarPlantilla(){
