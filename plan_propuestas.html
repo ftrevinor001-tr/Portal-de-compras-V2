@@ -6,8 +6,8 @@
 <title>Propuestas de compra</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261028b" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261028b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261029b" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261029b" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -150,7 +150,7 @@ const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJl
 const exRG=p=>p&&p.rs>0?'<span title="CEDI '+nf(p.exC)+' + resguardo '+nf(p.rs)+((p.rsD||[]).length?': '+p.rsD.map(x=>x[0]+' '+nf(x[1])+' corte '+x[2]).join(' · '):'')+'">'+nf(p.ex)+' <span style="color:#0f766e;font-size:11px">+RG</span></span>':nf(p&&p.ex);
 const CMP_PORTAL="https://ftrevinor001-tr.github.io/Portal_comparativos_compras/";
 let _sbc=null;const sbc=()=>_sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-prop'}}));
-const COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+let COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
 const ABIERTOS=['BORRADOR','EN REVISION','REGRESADO'];
 const S={est:null,byClave:new Map(),fecha:null,ocs:{},folios:[],lineasAbiertas:new Map(),actual:null,lineas:[],esAdmin:false};
 const $=id=>document.getElementById(id);
@@ -180,8 +180,9 @@ async function entrar(){
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
   const{data:{session}}=await sb.auth.getSession();S.esAdmin=!!(session&&session.user&&session.user.email===EMAIL_ADMIN);
+  COMPRADORES=await P.compradores(sb,COMPRADORES);
   const q=$('quien');q.innerHTML='<option value="">— ¿Quién eres? —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
-  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}
+  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}pu=pu?P.compCanon(pu,COMPRADORES):'';
   if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
   q.value=pu||lsGet('plan_prop_quien')||'';
   $('f-comp').innerHTML='<option value="">Todos los compradores</option>'+COMPRADORES.map(c=>'<option>'+c+'</option>').join('');

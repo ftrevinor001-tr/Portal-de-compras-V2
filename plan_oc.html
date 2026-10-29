@@ -191,7 +191,7 @@ const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
 const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
 const EMAIL_EQUIPO="equipo@portalcompras.app",EMAIL_ADMIN="admin@portalcompras.app";
 const sb=window.supabase.createClient(SB_URL,SB_KEY);
-const COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+let COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
 let OCS=[],ABIERTO=new Set();
 const hoy=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -209,9 +209,14 @@ async function entrar(){
 }
 async function abrir(){
   document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';
+  // compradores dados de alta en usuarios (activos) + lista base: los nuevos aparecen sin tocar el código
+  try{const{data}=await sb.from('usuarios').select('nombre,tipo,activo');const nn=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+    const mismo=(a,b)=>a===b||a.startsWith(b+' ')||b.startsWith(a+' ');(data||[]).filter(u=>nn(u.tipo)==='COMPRADOR'&&u.activo!==false).map(u=>nn(u.nombre)).forEach(u=>{if(!COMPRADORES.some(c=>mismo(c,u)))COMPRADORES.push(u);});
+    COMPRADORES=[...new Set(COMPRADORES)].filter(x=>x&&x!=='PRODUCCION'&&x!=='ADMIN').sort((a,b)=>a.localeCompare(b,'es'));}catch(e){}
   const q=document.getElementById('quien');
   q.innerHTML='<option value="">— Elige tu nombre —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
   let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}
+  {const nn=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim(),u=nn(pu);const c=COMPRADORES.find(c=>c===u||u.startsWith(c+' ')||c.startsWith(u+' '));if(c)pu=c;}
   if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
   q.value=pu||lsGet('plan_oc_quien')||'';setQuien(true);
   await cargar();

@@ -6,8 +6,8 @@
 <title>Calendario de pedidos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261028b" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261028b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261029b" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261029b" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6;--blue:#1c4587;--bluebg:#e8eefc;--teal:#0f766e;--tealbg:#e3f4f1}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -139,7 +139,7 @@ const sb=window.supabase.createClient(SB_URL,SB_KEY);
 const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
 const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
 let _sbc=null;const sbc=()=>{try{return _sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-cal'}}));}catch(e){return null;}};
-const COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+let COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
 const ABIERTOS=['BORRADOR','EN REVISION','REGRESADO'];
 const S={est:null,fecha:null,claves:[],F:null,cal:[],abiertas:new Map(),sel:null,ped:0,mes:null,vista:'lista'};
 const $=id=>document.getElementById(id);
@@ -166,8 +166,9 @@ async function entrar(){
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session)abrir();else $('lock').style.display='block';})();
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
+  COMPRADORES=await P.compradores(sb,COMPRADORES);
   const q=$('quien');q.innerHTML='<option value="">— ¿Quién eres? —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
-  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}
+  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}pu=pu?P.compCanon(pu,COMPRADORES):'';
   if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
   q.value=pu||lsGet('plan_prop_quien')||'';
   $('f-comp').innerHTML='<option value="">Todos los compradores</option>'+COMPRADORES.map(c=>'<option>'+c+'</option>').join('');

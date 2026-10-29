@@ -926,5 +926,15 @@ P.calFuentes=async(sb,sbc)=>{
   return F;
 };
 
+// Compradores para los selectores: los dados de alta como comprador en la tabla usuarios del portal (activos) + la lista base.
+// Así un comprador nuevo (p. ej. MARITZA HERNANDEZ) aparece sin tocar el código. PRODUCCION no es comprador.
+// Mismo comprador con nombre corto en el Excel y completo en usuarios: "MARITZA" = "MARITZA HERNANDEZ" (uno empieza con el otro + espacio)
+P.mismoComp=(a,b)=>{a=P.norm(a);b=P.norm(b);return!!a&&!!b&&(a===b||a.startsWith(b+' ')||b.startsWith(a+' '));};
+// Nombre del comprador como viene en el Excel (el de la lista) para un usuario del portal
+P.compCanon=(n,lista)=>{const x=P.norm(n);if(!x)return'';if((lista||[]).includes(x))return x;return(lista||[]).find(c=>P.mismoComp(c,x))||x;};
+P.compradores=async(sb,base)=>{let us=[];try{const{data}=await sb.from('usuarios').select('nombre,tipo,activo');us=(data||[]).filter(u=>P.norm(u.tipo)==='COMPRADOR'&&u.activo!==false).map(u=>P.norm(u.nombre));}catch(e){}
+  const out=[...new Set(base||[])];us.forEach(u=>{if(!out.some(c=>P.mismoComp(c,u)))out.push(u);});
+  return out.filter(x=>x&&x!=='PRODUCCION'&&x!=='ADMIN').sort((a,b)=>a.localeCompare(b,'es'));};
+
 /*PARSE-END*/
 if(typeof window!=='undefined')window.P=P;   // para páginas que preguntan por window.P (Estatus Back Orders)
