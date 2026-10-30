@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261030" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261030" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261030" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261030b" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261030b" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261030b" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -156,6 +156,10 @@
   </div>
   <div class="topbar-right">
     <button id="btn-admin" onclick="switchTab(6)" title="Administración (carga del Excel y Cálculo diario)" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">⚙️</button>
+    <div id="av-wrap" style="position:relative;display:none">
+      <button id="av-btn" onclick="avToggle()" title="Avisos de propuestas de compra" style="position:relative;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:14px">🔔<span id="av-n" style="display:none;position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;border-radius:10px;font-size:10.5px;font-weight:700;padding:1px 6px;min-width:18px;text-align:center"></span></button>
+      <div id="av-pop" style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:380px;max-width:92vw;background:#fff;color:#1a2035;border:1px solid #d7dce6;border-radius:12px;box-shadow:0 12px 34px rgba(15,23,42,.25);z-index:200;overflow:hidden"></div>
+    </div>
     <div class="user-chip" id="user-chip"><span id="user-name"></span><button onclick="doLogout()" title="Cerrar sesión">✕ Salir</button></div>
     <span id="clock"></span>
   </div>
@@ -456,11 +460,44 @@ setInterval(latido,5*60*1000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')latido();});
 function entrarPortal(){
   const chip=document.getElementById('user-chip');
+  try{avIniciar();}catch(e){}
   document.getElementById('user-name').textContent='👤 '+usuarioActual;
   chip.style.display='flex';
   switchTab(0);
 }
+// ── Avisos de Propuestas de compra (plan_avisos · plan_tablas_18.sql) ──
+// Le llegan al usuario del portal cuyo nombre coincide con el destinatario (MARITZA = MARITZA HERNANDEZ).
+const AV={lista:[],t:null,visto:new Set()};
+const avNorm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+const avMio=para=>{const a=avNorm(para),b=avNorm(usuarioActual);return!!a&&!!b&&(a===b||a.startsWith(b+' ')||b.startsWith(a+' '));};
+const AV_ICO={POR_AUTORIZAR:'🔒',AUTORIZADO:'✅',REGRESADO:'↩️',CANCELADO:'⛔'};
+function avIniciar(){document.getElementById('av-wrap').style.display='';avCargar();clearInterval(AV.t);AV.t=setInterval(avCargar,120000);}
+async function avCargar(){
+  try{const{data,error}=await sb.from('plan_avisos').select('*').is('leido_en',null).order('creado_en',{ascending:false}).limit(300);if(error)throw error;
+    AV.lista=(data||[]).filter(a=>avMio(a.para));}catch(e){AV.lista=[];}
+  const n=AV.lista.length,b=document.getElementById('av-n');b.textContent=n>99?'99+':n;b.style.display=n?'':'none';
+  const nuevos=AV.lista.filter(a=>!AV.visto.has(a.id));nuevos.forEach(a=>AV.visto.add(a.id));
+  if(nuevos.length)avToast(nuevos.length===1?(AV_ICO[nuevos[0].tipo]||'🔔')+' '+nuevos[0].texto:'🔔 Tienes '+nuevos.length+' avisos nuevos de propuestas de compra');
+  if(document.getElementById('av-pop').style.display!=='none')avPintar();
+}
+function avToast(t){let el=document.getElementById('av-toast');if(!el){el=document.createElement('div');el.id='av-toast';el.style.cssText='position:fixed;top:70px;right:18px;max-width:380px;background:#1e3a5f;color:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);z-index:300;font-size:13px;cursor:pointer;line-height:1.4';el.onclick=()=>{el.style.display='none';avToggle(true);};document.body.appendChild(el);}
+  el.textContent=t+'  (clic para ver)';el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',12000);}
+function avToggle(abrir){const p=document.getElementById('av-pop');const ver=abrir===true||p.style.display==='none';p.style.display=ver?'':'none';if(ver)avPintar();}
+function avPintar(){
+  const p=document.getElementById('av-pop');const esc2=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const fh=f=>new Date(f).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  p.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #e2e6ed"><b style="font-size:13.5px;color:#1e3a5f">Avisos de propuestas</b>'+(AV.lista.length?'<a style="font-size:12px;color:#1c4587;cursor:pointer;font-weight:600" onclick="avLeer()">Marcar todo como leído</a>':'')+'</div>'
+    +(AV.lista.length?AV.lista.map(a=>'<div style="padding:10px 14px;border-bottom:1px solid #eef1f6;cursor:pointer;font-size:12.5px;line-height:1.4" onclick="avAbrir('+a.id+')" onmouseover="this.style.background=\'#f5f8ff\'" onmouseout="this.style.background=\'\'">'+(AV_ICO[a.tipo]||'🔔')+' '+esc2(a.texto)+'<div style="font-size:11px;color:#6b7a99;margin-top:2px">'+fh(a.creado_en)+(a.creado_por?' · '+esc2(a.creado_por):'')+' · abrir folio →</div></div>').join('')
+      :'<div style="padding:16px 14px;font-size:12.5px;color:#6b7a99">No tienes avisos pendientes. ✅</div>');
+}
+async function avLeer(ids){const l=ids||AV.lista.map(a=>a.id);if(!l.length)return;try{await sb.from('plan_avisos').update({leido_en:new Date().toISOString()}).in('id',l);}catch(e){}await avCargar();}
+async function avAbrir(id){const a=AV.lista.find(x=>x.id===id);document.getElementById('av-pop').style.display='none';
+  // los avisos de "por autorizar" se quedan pendientes hasta que el folio se autoriza o regresa; los demás se marcan como leídos al abrirlos
+  if(a&&a.tipo!=='POR_AUTORIZAR')await avLeer([id]);
+  if(a&&a.folio){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');fr.src='plan_propuestas.html?folio='+encodeURIComponent(a.folio)+'&t='+Date.now();switchTab(9);}}
+document.addEventListener('click',e=>{const w=document.getElementById('av-wrap');if(w&&!w.contains(e.target)){const p=document.getElementById('av-pop');if(p)p.style.display='none';}});
 async function doLogout(){
+  clearInterval(AV.t);try{document.getElementById('av-wrap').style.display='none';}catch(e){}
   sessionStorage.removeItem('pc_usuario');
   await sb.auth.signOut();
   location.reload();
@@ -557,7 +594,7 @@ async function cargarResumen(){
   if(!a.data||!a.data.length){cont.innerHTML='<div class="empty-res">📭 Aún no hay alarmas calculadas.<br><br>El administrador debe subir el Excel maestro en la pestaña <b>Admin</b> (con esta versión del portal) para generarlas.</div>';return;}
   RES.alarmas=a.data;
   // V2: Riesgo, Sobre inventario, Pedidos propuestos, Target y OTIF salen del cálculo del portal
-  try{RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.alarmas,RES.v2);}
+  try{RES._marcas=null;RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.alarmas,RES.v2);}
   catch(e){console.warn('Mi Resumen V2:',e);RES.v2err=e.message||String(e);}
   RES.resumen=d.data?d.data.payload:null;
   // Selector de comprador
@@ -639,6 +676,13 @@ async function cargarIncidencias(){
 }
 const fmtMXN=v=>'$'+(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
 
+// Mi Resumen: toda tabla con Clave lleva la Marca (oct-2026). Si el renglón no la trae, se toma del cálculo del portal.
+function conMarca(items){
+  if(!items||!items.length||!('Clave' in items[0])||('Marca' in items[0]))return items||[];
+  const mp=RES._marcas||(RES._marcas=new Map(((RES.v2&&RES.v2.claves)||[]).map(r=>[String(r.c),r.m||''])));
+  return items.map(it=>{const o={};let puesto=false;const keys=Object.keys(it);const tras=keys.includes('Nombre')?'Nombre':keys.includes('Descripción')?'Descripción':'Clave';
+    keys.forEach(k=>{o[k]=it[k];if(k===tras){o.Marca=mp.get(String(it.Clave).trim())||'';puesto=true;}});if(!puesto)o.Marca=mp.get(String(it.Clave).trim())||'';return o;});
+}
 function renderResumen(){
   if(!RES.alarmas)return;
   const comp=document.getElementById('res-comp').value;
@@ -667,14 +711,14 @@ function renderResumen(){
     if(t==='TARGET'||t==='OTIF'){
       body=d.texto?`<p style="font-size:13px;color:#334155">${d.texto}</p>`:`<p style="font-size:13px;color:#334155">${d.ocsOk||0} de ${d.total||0} órdenes de compra cumplen Target (<b>${d.pct!=null?d.pct+'%':'—'}</b>).</p>`;
       const its=d.items||[];
-      if(its.length){const cols=Object.keys(its[0]);
-        body+='<div class="alist" style="margin-top:8px">'+tablaHTML(t,cols,its)+'</div>';}
+      if(its.length){const its2=conMarca(its);const cols=Object.keys(its2[0]);
+        body+='<div class="alist" style="margin-top:8px">'+tablaHTML(t,cols,its2)+'</div>';}
     }
     else{
       if(t==='FALTANTES'&&d.porClmov){
         body+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+Object.entries(d.porClmov).map(([k,v])=>`<span style="font-size:11px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:3px 10px;color:#334155"><b>${v}</b> ${k}</span>`).join('')+'</div>';
       }
-      const items=d.items||[];
+      const items=conMarca(d.items||[]);
       if(!items.length){body='<p style="font-size:12px;color:#64748b">Sin registros. ✅</p>';}
       else{
         const cols=Object.keys(items[0]);
