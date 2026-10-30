@@ -596,13 +596,20 @@ P.esProd=r=>P.norm(r&&(r.comp!=null?r.comp:r.comprador))==='PRODUCCION';
 // Hoja "Base produccion": producto (ID) ← insumo (CLAVE). Cantidad Requerida es por unidad de compra del producto (p. ej. paquete de 10);
 // la venta del producto viene en su unidad básica, así que el factor por unidad vendida = Cantidad Requerida ÷ PZASXUNIDAD BV del producto
 // (comprobado con la venta: cuadra en 247 de 267 insumos cuyos productos vienen por paquete).
+P.pzEnNombre=(d,z)=>{const t=P.norm(d).replace(/,/g,'.');const n=String(Math.round(z*1000)/1000);
+  return new RegExp('(^|[^0-9.])(C/\\s*)?'+n.replace('.','\\.')+'\\s*(PZ|PZS|PZA|PZAS|PIEZAS|PIEZA)(\\b|\\.|$)').test(t);};
 P.baseProduccion=wb=>{
   const ws=P.hoja(wb,['Base produccion','Base producción']);if(!ws)return null;
   const aoa=P.aoa(ws);const h=P.header(aoa,['ID','CLAVE','CANTIDAD REQUERIDA']);if(!h)return null;
-  const iD=h.cols.indexOf('DESCRIPCION'),iZ=h.cols.indexOf('PZASXUNIDAD BV'),out=[],vis=new Set();
+  const iD=h.cols.indexOf('DESCRIPCION'),iZ=h.cols.indexOf('PZASXUNIDAD BV'),iUB=h.cols.findIndex(c=>/^UNIDAD BASICA/.test(c)),iUM=h.cols.findIndex(c=>/^UNIDAD MINIMA/.test(c)),out=[],vis=new Set();
   for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const pr=P.clave(r[h.idx.ID]),ins=P.clave(r[h.idx.CLAVE]),q=P.num(r[h.idx['CANTIDAD REQUERIDA']]);
     if(pr==null||ins==null||!(q>0))continue;const k=pr+'|'+ins;if(vis.has(k))continue;vis.add(k);
-    const z=iZ>=0?P.num(r[iZ]):null;out.push([pr,ins,Math.round(q/(z>0?z:1)*1e6)/1e6]);}
+    // [producto, insumo, factor por unidad del portal, cantidad requerida, piezas por unidad del producto, unidad mínima, unidad básica]
+    let z=iZ>=0?P.num(r[iZ]):null;z=z>0?z:1;
+    // Si la descripción del producto dice que su unidad YA es el paquete (p. ej. "GKA 50PZ" con 50 piezas por bolsa), la pieza del
+    // Excel es la bolsa completa: la cantidad requerida se usa tal cual (no se divide entre las piezas por unidad)
+    const pzNom=z>1&&P.pzEnNombre(iD>=0?r[iD]:'',z);
+    out.push([pr,ins,Math.round(q/(pzNom?1:z)*1e6)/1e6,q,pzNom?1:z,iUM>=0?P.norm(r[iUM]):'',iUB>=0?P.norm(r[iUB]):'',pzNom?z:0]);}
   return out;
 };
 // Venta mensual de los productos de un insumo (para la ficha)
@@ -617,11 +624,11 @@ P.produccionHTML=(r,get,vp,ref)=>{
   const tag=t=>t?'<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;color:'+(COL[t]||'#64748b')+';background:'+(COL[t]||'#64748b')+'1a">'+e(t.charAt(0)+t.slice(1).toLowerCase())+'</span>':'—';
   const MES=['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   let tot=0;const av=[];
-  const filas=r.bp.map(([pc,q])=>{const p=get(pc);const v=vp&&vp.get(Number(pc))||{};
+  const filas=r.bp.map(x=>{const[pc,q]=x;const p=get(pc);const v=vp&&vp.get(Number(pc))||{};
     const ult=[];for(let i=6;i>=1;i--){const m=P.ym(ref,-i);ult.push(MES[+m.slice(5,7)]+' '+n(v[m]||0,0));}
     const eq=p&&p.D>0?p.D*q:null;if(eq)tot+=eq;
     if(p&&(p.est==='FALTANTE'||p.est==='RIESGO'))av.push(pc+' en '+p.est.toLowerCase()+': con la existencia del insumo ('+n(r.exC!=null?r.exC:r.ex)+') se pueden producir '+n(Math.floor((r.exC!=null?r.exC:r.ex)/q),0)+' piezas');
-    return '<tr><td><b>'+pc+'</b> <span style="color:#64748b">'+e(p?(p.n||'').slice(0,46):'(no viene en el cálculo del día)')+'</span></td><td style="text-align:right">'+n(q,3)+'</td><td style="text-align:right">'+(p?n(p.ex,0):'—')+'</td><td style="text-align:right">'+(p?n(p.D):'—')+'</td><td style="text-align:right">'+(p&&p.mi!=null?n(p.mi):'—')+'</td><td>'+(p?tag(p.est):'—')+'</td><td style="text-align:right">'+(eq!=null?n(eq):'—')+'</td><td style="color:#64748b;font-size:11px">'+ult.join(' · ')+'</td></tr>';}).join('');
+    return '<tr><td><b>'+pc+'</b> <span style="color:#64748b">'+e(p?(p.n||'').slice(0,46):'(no viene en el cálculo del día)')+'</span></td><td style="text-align:right" title="'+e(P.recetaTxt(x))+'">'+n(q,3)+(x[2]!=null?'<div style="font-size:10.5px;color:#64748b;white-space:normal;max-width:220px;text-align:right">'+e(P.recetaTxt(x))+'</div>':'')+'</td><td style="text-align:right">'+(p?n(p.ex,0):'—')+'</td><td style="text-align:right">'+(p?n(p.D):'—')+'</td><td style="text-align:right">'+(p&&p.mi!=null?n(p.mi):'—')+'</td><td>'+(p?tag(p.est):'—')+'</td><td style="text-align:right">'+(eq!=null?n(eq):'—')+'</td><td style="color:#64748b;font-size:11px">'+ult.join(' · ')+'</td></tr>';}).join('');
   const exI=r.exC!=null?r.exC:r.ex;
   return '<div style="margin-top:12px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:10px 12px"><b style="font-size:12.5px;color:#9a3412">🏭 Producción</b> <span style="font-size:11.5px;color:#64748b">este insumo se usa en '+r.bp.length+' producto'+(r.bp.length>1?'s':'')+' (su consumo ya está sumado en la venta del insumo; las claves de producción no cuentan en faltantes ni seguimiento)</span>'
     +'<div style="overflow-x:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:#9a3412;text-align:left"><th>Producto</th><th style="text-align:right" title="Cantidad de insumo por unidad vendida del producto (Cantidad Requerida ÷ piezas por unidad)">Insumo por unidad</th><th style="text-align:right">Exist.</th><th style="text-align:right">Demanda/mes</th><th style="text-align:right">Meses</th><th>Estatus</th><th style="text-align:right">Consumo equiv. insumo/mes</th><th>Venta últimos 6 meses</th></tr></thead><tbody>'+filas+'</tbody></table></div>'
@@ -650,7 +657,16 @@ P.ventasConProduccion=async(sb,c,o)=>{
   return o;
 };
 // Mapa insumo → [[producto, cantidad por unidad de producto]]
-P.bomInsumos=lst=>{const m=new Map();(lst||[]).forEach(([pr,ins,q])=>{(m.get(ins)||m.set(ins,[]).get(ins)).push([pr,q]);});return m;};
+P.bomInsumos=lst=>{const m=new Map();(lst||[]).forEach(([pr,ins,q,...rec])=>{(m.get(ins)||m.set(ins,[]).get(ins)).push([pr,q,...rec]);});return m;};
+// Receta en palabras: x = [producto, factor, cantidad requerida, piezas por unidad, unidad mínima, unidad básica]
+// p. ej. "0.5 bolsa por bolsa de 50 pzas → 0.01 por pieza vendida (el portal cuenta este producto en piezas)"
+P.recetaTxt=x=>{const f=Number(x[1]),q=x[2],z=Number(x[3])||1,um=String(x[4]||'').toLowerCase(),ub=String(x[5]||'').toLowerCase();
+  const n=(v,d)=>Number(v).toLocaleString('es-MX',{maximumFractionDigits:d});
+  if(q==null)return'×'+n(f,3);
+  const pl=(u,c)=>!u||c===1?u:/[aeiou]$/.test(u)?u+'s':u+'es';
+  if(z>1)return n(q,3)+' '+pl(um,q)+' por cada '+(ub||'unidad')+' de '+n(z,2)+' → '+n(f,4)+' por unidad suelta (el Excel cuenta este producto por pieza o kilo, no por '+(ub||'unidad')+')';
+  if(Number(x[6])>1)return n(q,3)+' '+pl(um,q)+' por cada '+(ub||'unidad')+' (en el Excel la pieza es la '+(ub||'unidad')+' de '+n(x[6],0)+' pzas, según su descripción)';
+  return n(q,3)+' '+pl(um,q)+' por cada '+(ub||'unidad');};
 // Compradores que reciben en sucursal y después mueven la mercancía al CEDI: sus OCs NO son entrega directa
 // aunque Observaciones traiga una sucursal. La lista se edita en Cálculo diario (tabla plan_config); esta es la de arranque.
 P.R.SIN_ED_DEF=['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA'];
