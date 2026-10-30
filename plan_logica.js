@@ -891,7 +891,7 @@ P.calendario=(filas,o)=>{
     if(r.pr||P.esProd(r)||P.R.SIN_SUG_ROT.includes(r.rot))return;const D=Number(P.baseRec(r).c)||0;if(!(D>0)||D<P.R.D_MIN)return;
     const k=Number(r.c),pv=prov.get(k)||{p:'MARCA '+(r.m||'SIN MARCA'),o:'MARCA'};
     // por proveedor se agrupa con la llave (sin SA DE CV, puntos, mayúsculas) y se muestra el nombre más usado
-    const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):P.provKey(pv.p);
+    const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):ag==='ORIGEN'?((o.origen&&o.origen.get(k))||'SIN ORIGEN DE RECOLECCIÓN'):P.provKey(pv.p);
     if(ag==='PROV'){const n=NOM.get(g)||new Map();n.set(pv.p,(n.get(pv.p)||0)+1);NOM.set(g,n);}
     const rg=regla(g),lt=rg&&rg.lead_time_dias>0?rg.lead_time_dias/MD:(Number(r.lt)||0),pm=Number(r.pm)||0,rop=lt*P.R.FACT_ENTRA_RIESGO,meta=lt+pm;
     const pos=((Number(r.ex)||0)+(Number(r.bo)||0))/D;
@@ -928,13 +928,14 @@ P.calendario=(filas,o)=>{
 // Lee todo lo que necesita el calendario (catálogo, reglas, OCs, Comparativos, costos, empaques). Cada fuente es opcional.
 P.calFuentes=async(sb,sbc)=>{
   const todo=async q=>{let out=[];for(let i=0;i<200;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;};
-  const F={cat:new Map(),reglas:new Map(),oc:new Map(),cmp:new Map(),costo:new Map(),emp:new Map(),avisos:[]};
+  const F={cat:new Map(),reglas:new Map(),oc:new Map(),cmp:new Map(),costo:new Map(),emp:new Map(),origen:new Map(),avisos:[]};
   const paso=async(n,fn)=>{try{await fn();}catch(e){F.avisos.push(n+': '+(e.message||e));}};
   await Promise.all([
     paso('Catálogo proveedor por clave (¿ya corriste plan_tablas_16.sql?)',async()=>(await todo(()=>sb.from('plan_prov_clave').select('clave,proveedor').order('clave'))).forEach(r=>{if(P.provValido(r.proveedor))F.cat.set(Number(r.clave),String(r.proveedor).trim());})),
     paso('Reglas de proveedores (¿ya corriste plan_tablas_16.sql?)',async()=>(await todo(()=>sb.from('plan_proveedores').select('*').order('proveedor'))).forEach(r=>F.reglas.set(P.provKey(r.proveedor),r))),
     paso('OCs',async()=>{F.oc=P.ultimaOC(await todo(()=>sb.from('plan_oc_lineas').select('clave,proveedor,fecha_oc').order('folio').order('clave')));}),
     paso('Costos',async()=>(await todo(()=>sb.from('plan_costos').select('clave,costo').order('clave'))).forEach(r=>{if(Number(r.costo)>0)F.costo.set(Number(r.clave),Number(r.costo));})),
+    paso('Origen de recolección (¿ya corriste plan_tablas_17.sql?)',async()=>(await todo(()=>sb.from('plan_origen_clave').select('clave,origen').order('clave'))).forEach(r=>F.origen.set(Number(r.clave),r.origen))),
     paso('Empaques',async()=>(await todo(()=>sb.from('plan_empaques').select('*').order('clave'))).forEach(r=>F.emp.set(Number(r.clave),r))),
     paso('Proveedor aprobado en Comparativos',async()=>{if(!sbc)return;(await todo(()=>sbc.from('cmp_asignaciones').select('clave,proveedor,aprobado_en').eq('vigente',true).order('clave'))).forEach(r=>{
       const k=Number(r.clave),f=String(r.aprobado_en||'').slice(0,10),x=F.cmp.get(k);if(P.provValido(r.proveedor)&&(!x||f>=x.f))F.cmp.set(k,{p:String(r.proveedor).trim(),f});});}),

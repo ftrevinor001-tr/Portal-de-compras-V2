@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261029d" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261030" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -131,6 +131,13 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-prov"></div>
   </div>
   <div class="card">
+    <h2><span class="n">🚛</span>Origen de recolección por clave <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Claves que se recogen con el proveedor y desde qué <b>origen</b> (MONTERREY, GUADALAJARA, CDMX…). En <b>Propuestas de compra</b> sale la columna Origen y el filtro para jalar todas las claves de un origen; en el <b>Calendario de pedidos</b> se puede agrupar por origen.
+      Excel con columnas <b>Clave</b> y <b>Origen</b> (opcional <b>Notas</b>). Al cargar se agregan o actualizan esas claves; una clave con Origen vacío se quita. Marca «reemplazar todo» para borrar la lista anterior.</p>
+    <div class="row" style="margin-top:6px"><input type="file" id="f-ori" accept=".xlsx,.xls,.csv"><label class="d"><input type="checkbox" id="ori-rem"> reemplazar todo</label><button onclick="run('ori')">Cargar orígenes</button><button class="sec" onclick="run('ori_baja')">⬇ Plantilla / lista actual</button><span class="d" id="ori-res"></span></div>
+    <div class="log" id="log-ori"></div>
+  </div>
+  <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
     <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
     <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
@@ -187,7 +194,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -223,7 +230,7 @@ async function sesionOk(){const{data:{session}}=await sb.auth.getSession();if(!s
 async function run(tipo){
   if(ocupado[tipo])return;ocupado[tipo]=true;
   const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
-  const log=L(tipo.startsWith('prov_')?'prov':tipo);log.clear();
+  const log=L(tipo.startsWith('prov_')?'prov':tipo.startsWith('ori')?'ori':tipo);log.clear();
   try{
     await sesionOk();
     if(tipo==='ventas')await cargaVentas(log);
@@ -236,6 +243,8 @@ async function run(tipo){
     if(tipo==='resg')await cargaResg(log);
     if(tipo==='sust')await cargaSust(log);
     if(tipo==='mfb')await cargaMFB(log);
+    if(tipo==='ori')await cargaOrigen(log);
+    if(tipo==='ori_baja')await bajarOrigen(log);
     if(tipo==='prov_lista')await listaProvClave(log);
     if(tipo==='prov_cat')await cargaProvCat(log);
     if(tipo==='prov_plant')await plantillaProv(log);
@@ -630,6 +639,31 @@ async function cargaProvReg(log){
   await enLotes('plan_proveedores',out,log,{onConflict:'proveedor'});
   log.msg('🎉 Reglas guardadas para '+fmt(out.length)+' proveedores. Los vacíos quedan automáticos.');if(mal.length)log.msg('⚠️ Valores no válidos (quedaron vacíos): '+mal.slice(0,15).join(' · ')+(mal.length>15?' …':''),'w');pintarProv();
 }
+// ── Origen de recolección por clave (plan_tablas_17.sql) ──
+async function cargaOrigen(log){
+  const wb=await leerLibro('f-ori',null,log);const ws=wb.Sheets['Origen recoleccion']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>/^CLAVE$/.test(P.norm(c))));if(hi<0)throw new Error('No encontré el encabezado Clave.');
+  const H=aoa[hi].map(P.norm),iC=H.indexOf('CLAVE'),iO=H.findIndex(h=>/ORIGEN|CIUDAD|RECOLEC/.test(h)),iN=H.findIndex(h=>/^NOTA/.test(h));if(iO<0)throw new Error('No encontré la columna Origen.');
+  const m=new Map(),quitar=new Set();let mal=0;
+  for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]);if(k==null){if(String(aoa[i][iC]).trim())mal++;continue;}const o=P.norm(aoa[i][iO]).replace(/\s+/g,' ');
+    if(!o){quitar.add(k);m.delete(k);continue;}quitar.delete(k);m.set(k,{clave:k,origen:o,notas:iN>=0&&String(aoa[i][iN]).trim()?String(aoa[i][iN]).trim():null,actualizado_en:new Date().toISOString()});}
+  const rem=document.getElementById('ori-rem').checked;
+  if(!m.size&&!quitar.size&&!rem)throw new Error('El archivo no trae claves con origen.');
+  if(rem){const{error}=await sb.from('plan_origen_clave').delete().gte('clave',0);if(error)throw new Error('plan_origen_clave: '+error.message+' (¿ya corriste plan_tablas_17.sql?)');log.msg('🧹 Lista anterior borrada.');}
+  else if(quitar.size){const q=[...quitar];for(let i=0;i<q.length;i+=200){const{error}=await sb.from('plan_origen_clave').delete().in('clave',q.slice(i,i+200));if(error)throw new Error('plan_origen_clave: '+error.message+' (¿ya corriste plan_tablas_17.sql?)');}}
+  await enLotes('plan_origen_clave',[...m.values()],log,{onConflict:'clave'});
+  const cnt={};m.forEach(x=>cnt[x.origen]=(cnt[x.origen]||0)+1);
+  log.msg('🎉 '+fmt(m.size)+' claves con origen: '+Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([o,n])=>o+' '+fmt(n)).join(' · ')+(quitar.size&&!rem?' · '+fmt(quitar.size)+' quitadas (origen vacío)':'')+(mal?' · '+mal+' renglones sin clave válida':'')+'.');pintarOrigen();
+}
+async function bajarOrigen(log){
+  let rows=[];try{rows=await todo(()=>sb.from('plan_origen_clave').select('clave,origen,notas').order('clave'));}catch(e){log.msg('ℹ️ Aún no hay lista (¿ya corriste plan_tablas_17.sql?). Se descarga la plantilla vacía.','w');}
+  const aoa=[['Clave','Origen','Notas'],...(rows.length?rows.map(r=>[r.clave,r.origen,r.notas||'']):[[12345,'MONTERREY','ejemplo: bórralo']])];
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:10},{wch:22},{wch:40}];XLSX.utils.book_append_sheet(wb,ws,'Origen recoleccion');
+  XLSX.writeFile(wb,'Origen_recoleccion_'+hoyISO()+'.xlsx');log.msg('🎉 Descargado'+(rows.length?' con '+fmt(rows.length)+' claves':' (plantilla)')+'.');
+}
+async function pintarOrigen(){const el=document.getElementById('ori-res');
+  try{const rows=await todo(()=>sb.from('plan_origen_clave').select('origen').order('clave'));const c={};rows.forEach(r=>c[r.origen]=(c[r.origen]||0)+1);
+    el.textContent=rows.length?fmt(rows.length)+' claves · '+Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([o,n])=>o+' '+n).join(' · '):'Sin claves con origen todavía';}catch(e){el.textContent='(corre plan_tablas_17.sql)';}}
 async function pintarProv(){
   const a=document.getElementById('provcat-res'),b=document.getElementById('provreg-res');
   try{const{count,error}=await sb.from('plan_prov_clave').select('clave',{count:'exact',head:true});if(error)throw error;a.textContent=fmt(count||0)+' claves en el catálogo';}catch(e){a.textContent='(corre plan_tablas_16.sql)';}
@@ -773,7 +807,7 @@ async function cargarSinED(forzar){
   catch(e){SIN_ED=new Set(P.R.SIN_ED_DEF);}
   return SIN_ED;
 }
-const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MYRIAM VIDA CHRISTELL','SILVINO'];
+const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
 // Ajustes manuales de entrega directa (plan_config id 'ed_manual'): se restan de la venta del mes en el cálculo
 async function pintarEDManual(){try{const{data}=await sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle();
   document.getElementById('ed-man').value=((data&&data.valor)||[]).map(x=>[x.clave,x.mes,x.cantidad,x.nota||''].join(', ').replace(/, $/,'')).join('\n');}catch(e){}}
@@ -812,7 +846,10 @@ async function guardarCfgED(){
 }
 async function pintarSinED(){
   const set=await cargarSinED(true);const el=document.getElementById('ed-lista');
-  el.innerHTML=[...new Set([...COMPRADORES_ED,...set])].sort().map(c=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-size:13px"><input type="checkbox" value="'+c+'"'+(set.has(c)?' checked':'')+'> '+c+'</label>').join('');
+  // Lista viva: base + compradores que vienen en las OCs + los dados de alta como comprador en usuarios (nombre como en el Excel)
+  let deOC=[];try{deOC=(await todo(()=>sb.from('plan_oc_lineas').select('comprador').order('folio').order('clave'))).map(r=>P.norm(r.comprador)).filter(Boolean);}catch(e){}
+  const lista=await P.compradores(sb,[...new Set([...COMPRADORES_ED,...deOC,...set])]);
+  el.innerHTML=[...new Set([...lista,...set])].sort((a,b)=>a.localeCompare(b,'es')).map(c=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-size:13px"><input type="checkbox" value="'+c+'"'+(set.has(c)?' checked':'')+'> '+c+'</label>').join('');
 }
 async function guardarSinED(){
   const out=document.getElementById('ed-res');out.textContent='Guardando…';

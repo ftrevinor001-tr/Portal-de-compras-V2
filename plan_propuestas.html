@@ -6,8 +6,8 @@
 <title>Propuestas de compra</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261029d" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261029d" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261030" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261030" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -93,12 +93,12 @@ tr.lin-q td{background:#fbfcff}
     <div id="n-cal" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:#e8eefc;color:#1c4587;font-size:12.5px"></div>
     <div class="row" style="margin:10px 0">
       <select id="n-modo" onchange="pintarNueva()"><option value="pedir">Mis claves por pedir (faltante y riesgo con propuesta)</option><option value="todas">Todas mis claves</option></select>
-      <span id="n-marca"></span><span id="n-est"></span><span id="n-grupo"></span><span id="n-rot"></span>
+      <span id="n-ori"></span><span id="n-marca"></span><span id="n-est"></span><span id="n-grupo"></span><span id="n-rot"></span>
       <input type="search" id="n-q" placeholder="Filtrar por clave, descripción o marca…" oninput="pintarNueva()" style="width:260px">
-      <a class="lk" style="font-size:12px" onclick="['n-marca','n-est','n-grupo','n-rot'].forEach(MS.clear);pintarNueva()">Limpiar filtros</a>
+      <a class="lk" style="font-size:12px" onclick="['n-ori','n-marca','n-est','n-grupo','n-rot'].forEach(MS.clear);pintarNueva()">Limpiar filtros</a>
       <span class="d" id="n-cnt"></span>
     </div>
-    <div class="scroll" style="max-height:38vh"><table><thead><tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th class="num">Recomendada</th><th>Folio abierto</th></tr></thead><tbody id="n-body"></tbody></table></div>
+    <div class="scroll" style="max-height:38vh"><table><thead><tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Origen</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO CEDI</th><th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th class="num">Recomendada</th><th>Folio abierto</th></tr></thead><tbody id="n-body"></tbody></table></div>
     <div class="row" style="margin-top:10px">
       <textarea id="n-pegar" placeholder="O pega aquí claves: 44519, 163 26520…" style="width:420px;height:52px" oninput="pintarNueva()"></textarea>
       <button onclick="crearFolio()" id="n-crear">Crear folio</button>
@@ -219,6 +219,7 @@ async function cargarEstado(){
 async function recargar(){
   try{
     await cargarEstado();
+    S.origen=new Map();try{(await todo(()=>sb.from('plan_origen_clave').select('clave,origen').order('clave'))).forEach(r=>S.origen.set(Number(r.clave),r.origen));}catch(e){}
     S.folios=await todo(()=>sb.from('plan_propuestas').select('*').order('creado_en',{ascending:false}).order('folio'));
     const abiertos=S.folios.filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);S.lineasAbiertas=new Map();
     for(let i=0;i<abiertos.length;i+=100){(await todo(()=>sb.from('plan_propuesta_lineas').select('folio,clave').in('folio',abiertos.slice(i,i+100)).order('folio').order('clave'))).forEach(l=>S.lineasAbiertas.set(Number(l.clave),l.folio));}
@@ -242,9 +243,10 @@ let NSEL=new Set();
 function abrirNueva(){if(!quien()){toast('Primero elige quién eres (arriba a la derecha)');return;}S.calU=null;$('n-cal').style.display='none';NSEL=new Set();$('n-pegar').value='';$('nueva').style.display='block';pintarNueva();$('nueva').scrollIntoView({behavior:'smooth'});}
 const pegadas=()=>[...new Set(String($('n-pegar').value||'').split(/[\s,;]+/).filter(x=>/^\d+$/.test(x)).map(Number))];
 // Filtros de selección múltiple en cascada (cada uno muestra solo lo que existe con los demás aplicados)
-const NF=[['n-marca',r=>r.m||''],['n-est',r=>r.est||''],['n-grupo',r=>r.g||''],['n-rot',r=>r.rot||'']];
+const oriDe=k=>(S.origen&&S.origen.get(Number(k)))||'';
+const NF=[['n-ori',r=>oriDe(r.c)],['n-marca',r=>r.m||''],['n-est',r=>r.est||''],['n-grupo',r=>r.g||''],['n-rot',r=>r.rot||'']];
 let NF_OK=false;
-function montarNF(){if(NF_OK||!window.MS)return;NF_OK=true;[['n-marca','Marca','Todas'],['n-est','Estatus','Todos'],['n-grupo','Grupo','Todos'],['n-rot','Rotación','Todas']].forEach(([id,t,todos])=>MS.mount(id,{t,todos,on:()=>pintarNueva()}));}
+function montarNF(){if(NF_OK||!window.MS)return;NF_OK=true;[['n-ori','Origen recolección','Todos'],['n-marca','Marca','Todas'],['n-est','Estatus','Todos'],['n-grupo','Grupo','Todos'],['n-rot','Rotación','Todas']].forEach(([id,t,todos])=>MS.mount(id,{t,todos,on:()=>pintarNueva()}));}
 const conProp=r=>{const b=P.baseRec(r);return (P.propSug(r,b.c,true)||0)>0;};
 function candidatas(){const base=candBase();return window.MS?base.filter(r=>MS.pasa(r,NF)):base;}
 function candBase(){
@@ -258,7 +260,7 @@ function candBase(){
 function pintarNueva(){
   montarNF();if(window.MS)MS.cascada(candBase(),NF);
   const todas=candidatas(),rows=todas.slice(0,800);S.nVis=todas.length;
-  $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.est||'')+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td class="num">'+(b=>b.b?'<b>'+nf(P.propSug(r,b.c,true))+'</b><div class="badge" title="'+esc(b.por)+'">'+P.BASE_L[b.b]+'</div>':'—')(P.baseRec(r))+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="mut">Sin claves con este filtro.</td></tr>';
+  $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+(oriDe(r.c)?'<span class="chip s-SIN">🚛 '+esc(oriDe(r.c))+'</span>':'')+'</td><td>'+esc(r.est||'')+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td class="num">'+(b=>b.b?'<b>'+nf(P.propSug(r,b.c,true))+'</b><div class="badge" title="'+esc(b.por)+'">'+P.BASE_L[b.b]+'</div>':'—')(P.baseRec(r))+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="13" class="mut">Sin claves con este filtro.</td></tr>';
   cuentaNueva();
 }
 function marcarTodas(on){candidatas().slice(0,800).forEach(r=>on?NSEL.add(r.c):NSEL.delete(r.c));pintarNueva();}
@@ -327,8 +329,8 @@ function pintarFolio(){
   $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>';$('f-conbo').value=conBO()?'1':'0';
   $('f-aviso').innerHTML=f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras con su nombre y PIN.</p>':'';
   pintarCmp();
-  $('f-head').innerHTML='<tr><th colspan="3"></th><th colspan="9" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
-    +'<tr><th>Clave</th><th>Descripción</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO CEDI</th><th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th><th class="gP">Recomendada</th>'
+  $('f-head').innerHTML='<tr><th colspan="4"></th><th colspan="9" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
+    +'<tr><th>Clave</th><th>Descripción</th><th>Origen</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO CEDI</th><th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th><th class="gP">Recomendada</th>'
     +'<th class="num gS">Pedido</th><th class="num gS">Anteo</th><th class="num gS">Pron</th><th class="num gS">Redond</th>'
     +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Diferencia vs<br>recomendada</th><th class="num gR">Diferencia en meses<br>vs ant. / pron.</th><th class="gR">Semáforo</th><th>Avisos</th><th>Motivo y comentario</th></tr>';
   const ops='<option value="">— Motivo —</option>'+P.PROP_MOTIVOS.map(m=>'<option>'+esc(m)+'</option>').join('');
@@ -337,10 +339,10 @@ function pintarFolio(){
     const vR=e.difR==null?'—':'<b>'+sg(e.difR)+' pzs</b><div class="mut">'+sg(e.dmR,1)+' meses</div>';
     const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b><div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
     const mot=necesita||l.motivo?(ed?'<select onchange="guardarMotivo('+l.clave+',this.value,null)">'+ops.replace('<option>'+esc(l.motivo||'')+'</option>','<option selected>'+esc(l.motivo||'')+'</option>')+'</select><br><textarea placeholder="'+(l.semaforo==='ROJO'?'Comentario obligatorio':'Comentario')+'" onchange="guardarMotivo('+l.clave+',null,this.value)">'+esc(l.comentario||'')+'</textarea>':'<b>'+esc(l.motivo||'—')+'</b><div class="av">'+esc(l.comentario||'')+'</div>'):'<span class="mut">—</span>';
-    return '<tr'+(faltaMotivo(l)&&ed?' style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+esc(p.est||'')+'</td>'
+    return '<tr'+(faltaMotivo(l)&&ed?' style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+(oriDe(l.clave)?'<span class="chip s-SIN">🚛 '+esc(oriDe(l.clave))+'</span>':'<span class="mut">—</span>')+'</td><td>'+esc(p.est||'')+'</td>'
       +'<td class="num">'+exRG(p)+'</td><td class="num">'+nf(p.bo)+'</td><td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(p.lt,1)+'</td><td class="num">'+nf(p.pm,1)+'</td><td class="num">'+nf(e.sA)+'</td><td class="num">'+nf(e.sP)+'</td><td style="min-width:160px;max-width:200px;white-space:normal;line-height:1.3">'+rec+'<div style="font-size:10.5px;color:var(--tx2)">'+esc(e.br?e.br.por:'')+'</div></td>'
       +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
-      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="23" class="mut">El folio no tiene claves.</td></tr>';
+      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="24" class="mut">El folio no tiene claves.</td></tr>';
 }
 async function cambiarBO(v){
   const nuevo=v==='1';if(nuevo===conBO())return;
@@ -556,7 +558,7 @@ async function subirPlantilla(file){
   }catch(e){toast('❌ No se pudo leer el archivo: '+(e.message||e));}
 }
 function excelFolio(){
-  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus':p.est,'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
+  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Origen recolección':oriDe(l.clave),'Estatus':p.est,'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
     'Pedido':l.pedido,'Pedido autorizado':l.pedido_aut??l.pedido,'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Meses al llegar (recomendada)':e.lR,'Diferencia vs antecedente (meses)':e.dmA,'Diferencia vs pronóstico (meses)':e.dmP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Folio');XLSX.writeFile(wb,S.actual.folio+'.xlsx');
 }
