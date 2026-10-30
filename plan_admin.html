@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261030b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261030c" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -138,6 +138,12 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-ori"></div>
   </div>
   <div class="card">
+    <h2><span class="n">🎯</span>Objetivos del bono: faltantes permitidos por comprador <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Cantidad <b>máxima de claves en faltante</b> que puede tener cada comprador por clasificación (Histórico de Inventarios → Faltantes por comprador). Deja la celda <b>vacía</b> para usar la regla general: Sagrados 0, Alta según la tabla anterior (0.5% si no tiene), Media 3% y Lenta 5% de sus claves (redondeado hacia abajo; el número gris es lo que daría la regla con las claves de hoy).</p>
+    <div class="row" style="margin:8px 0"><button onclick="guardarBono()">Guardar objetivos</button><button class="sec" onclick="pintarBono()">↻ Recargar</button><span class="d" id="bono-res"></span></div>
+    <div style="overflow:auto;max-height:60vh;border:1px solid var(--brd);border-radius:10px"><table id="bono-tbl" style="border-collapse:collapse;width:100%;font-size:13px"></table></div><style>#bono-tbl input::placeholder{color:#b3bccd;font-style:italic}</style>
+  </div>
+  <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
     <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
     <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
@@ -194,7 +200,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarBono();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -638,6 +644,34 @@ async function cargaProvReg(log){
   if(!out.length)throw new Error('El archivo no trae ninguna regla capturada (todas las columnas vacías).');
   await enLotes('plan_proveedores',out,log,{onConflict:'proveedor'});
   log.msg('🎉 Reglas guardadas para '+fmt(out.length)+' proveedores. Los vacíos quedan automáticos.');if(mal.length)log.msg('⚠️ Valores no válidos (quedaron vacíos): '+mal.slice(0,15).join(' · ')+(mal.length>15?' …':''),'w');pintarProv();
+}
+// ── Objetivos del bono por comprador (plan_config id 'bono_objetivos') ──
+// valor = {COMPRADOR:{SAGRADOS:n,'ALTA ROTACIÓN':n,'MEDIA ROTACIÓN':n,'LENTA ROTACIÓN':n}}; vacío = regla general
+const BONO_CLS=[['SAGRADOS','Sagrados'],['ALTA ROTACIÓN','Alta rotación'],['MEDIA ROTACIÓN','Media rotación'],['LENTA ROTACIÓN','Lenta rotación']];
+const BONO_ALTA_DEF={'ALEJANDRO':2,'ARICELIA':2,'ESTELA':1,'FRANCISCO JAVIER':2,'IVAN':2,'JISHELL MARINTHYA':1,'KARLA ANAID':1,'LEONELA':1,'LUCIA':2,'MARIA VICTORIA':1,'MYRIAM VIDA CHRISTELL':2,'SILVINO':2};
+let BONO={cfg:{},skus:{}};
+const rotBono=r=>{const x=P.norm(r);return x==='SAGRADOS'?'SAGRADOS':x==='ALTA ROTACION'?'ALTA ROTACIÓN':x==='MEDIA ROTACION'?'MEDIA ROTACIÓN':x==='LENTA ROTACION'?'LENTA ROTACIÓN':null;};
+function bonoDef(comp,cl){const n=(BONO.skus[comp]||{})[cl]||0;
+  if(cl==='SAGRADOS')return{v:0,t:'0'};if(cl==='ALTA ROTACIÓN')return BONO_ALTA_DEF[comp]!=null?{v:BONO_ALTA_DEF[comp],t:String(BONO_ALTA_DEF[comp])}:{v:null,t:'0.5% ('+Math.floor(n*0.005)+')'};
+  const pc=cl==='MEDIA ROTACIÓN'?0.03:0.05;return{v:Math.floor(n*pc),t:(pc*100)+'% = '+Math.floor(n*pc)};}
+async function pintarBono(){
+  const t=document.getElementById('bono-tbl'),res=document.getElementById('bono-res');res.textContent='Cargando…';
+  try{const{data}=await sb.from('plan_config').select('valor').eq('id','bono_objetivos').maybeSingle();BONO.cfg=(data&&data.valor)||{};}catch(e){BONO.cfg={};}
+  BONO.skus={};let comps=[];
+  try{const E=await estadoClaves({msg:()=>{}});E.claves.forEach(r=>{const c=P.norm(r.comp),cl=rotBono(r.rot);if(!c||c==='PRODUCCION'||!cl)return;(BONO.skus[c]=BONO.skus[c]||{})[cl]=((BONO.skus[c]||{})[cl]||0)+1;});comps=Object.keys(BONO.skus);}catch(e){}
+  comps=await P.compradores(sb,[...new Set([...COMPRADORES_ED,...comps,...Object.keys(BONO.cfg)])]);
+  const th=s=>'<th style="background:#f0f4ff;color:var(--navy);padding:7px 8px;text-align:left;position:sticky;top:0;font-size:12px">'+s+'</th>';
+  t.innerHTML='<thead><tr>'+th('Comprador')+BONO_CLS.map(([k,l])=>th(l+'<div style="font-weight:400;color:var(--tx2)">claves · faltantes permitidos</div>')).join('')+'</tr></thead><tbody>'+comps.map(c=>'<tr><td style="padding:6px 8px;border-bottom:1px solid var(--brd);font-weight:700">'+c+'</td>'
+    +BONO_CLS.map(([k])=>{const n=(BONO.skus[c]||{})[k]||0,v=(BONO.cfg[c]||{})[k],d=bonoDef(c,k);
+      return '<td style="padding:6px 8px;border-bottom:1px solid var(--brd);white-space:nowrap"><span style="display:inline-block;width:46px;color:var(--tx2);text-align:right;margin-right:8px">'+n.toLocaleString('es-MX')+'</span><input type="number" min="0" step="1" style="width:76px" data-c="'+c+'" data-k="'+k+'" value="'+(v==null?'':v)+'" placeholder="'+d.t+'" title="Vacío = regla general ('+d.t+')"></td>';}).join('')+'</tr>').join('')+'</tbody>';
+  res.textContent=Object.keys(BONO.cfg).length?'Con objetivos capturados: '+Object.keys(BONO.cfg).join(', '):'Sin objetivos capturados: se usa la regla general.';
+}
+async function guardarBono(){
+  const res=document.getElementById('bono-res'),cfg={};let mal=0;
+  document.querySelectorAll('#bono-tbl input').forEach(i=>{i.style.borderColor='';const v=String(i.value).trim();if(v==='')return;const n=Number(v);if(!(n>=0)||!Number.isInteger(n)){mal++;i.style.borderColor='#c0392b';return;}i.style.borderColor='';(cfg[i.dataset.c]=cfg[i.dataset.c]||{})[i.dataset.k]=n;});
+  if(mal){res.textContent='❌ Hay '+mal+' celdas con número no válido (solo enteros de 0 en adelante).';return;}
+  const{error}=await sb.from('plan_config').upsert({id:'bono_objetivos',valor:cfg,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  res.textContent=error?'❌ '+error.message:'✅ Guardado. Histórico de Inventarios ya usa estos objetivos (recarga esa pestaña).';if(!error)BONO.cfg=cfg;
 }
 // ── Origen de recolección por clave (plan_tablas_17.sql) ──
 async function cargaOrigen(log){

@@ -12,9 +12,9 @@ window.idbPut=function(key,val){return new Promise((res,rej)=>{const r=indexedDB
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261030b" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261030b" charset="utf-8"></script>
-<script src="plan_ficha.js?v=20261030b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261030c" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261030c" charset="utf-8"></script>
+<script src="plan_ficha.js?v=20261030c" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#f5f6fa;color:#1a2035;font-family:'Segoe UI',system-ui,sans-serif;padding:20px}
@@ -1655,8 +1655,22 @@ const MAX_ALTA={
   'MARIA VICTORIA':1,'MYRIAM VIDA CHRISTELL':2,'SILVINO':2
 };
 
+// Objetivo del bono en CANTIDAD de faltantes (oct-2026): lo capturado en Admin → «Objetivos del bono» (plan_config 'bono_objetivos')
+// y, si está vacío, la regla general: Sagrados 0, Alta MAX_ALTA del comprador, Media 3% y Lenta 5% del Total SKU's (hacia abajo).
+let BONO_CFG={};
+const nBono=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+function objBono(comp,cl,skus){
+  const c=nBono(comp),cfg=BONO_CFG[c]||Object.entries(BONO_CFG).find(([k])=>c.startsWith(k+' ')||k.startsWith(c+' '))?.[1]||{};
+  if(cfg[cl]!=null&&cfg[cl]!=='')return{n:Number(cfg[cl]),fijo:true};
+  if(cl==='SAGRADOS')return{n:0};
+  if(cl==='ALTA ROTACIÓN')return MAX_ALTA[comp]!==undefined?{n:MAX_ALTA[comp]}:{n:null};
+  if(cl==='MEDIA ROTACIÓN')return{n:Math.floor((skus||0)*0.03)};
+  if(cl==='LENTA ROTACIÓN')return{n:Math.floor((skus||0)*0.05)};
+  return{n:null};
+}
 function bRow(comp,cl,d,showObj,isA,isF,rs){
   if(!d)return'';
+  const OB=!isA&&cl!=='TOTAL'?objBono(comp,cl,d.skus||0):{n:null};
   const dot=`<span class="dot" style="background:${cl==='TOTAL'?'#c0392b':CLC[cl]||'#c0392b'}"></span>`;
   const bg=cl==='TOTAL'?'background:#f8f9fd;font-weight:700;':'';
   const bt=cl==='TOTAL'&&!isA?'border-top:2px solid #c9d4f0;':'';
@@ -1668,6 +1682,9 @@ function bRow(comp,cl,d,showObj,isA,isF,rs){
     if(cl==='TOTAL'){
       // Global: sin objetivo
       objTd='<td class="num" style="color:#a0a9be">—</td>';
+    }else if(!isA&&OB.n!=null){
+      // Cantidad máxima de faltantes (capturada en Admin o regla general)
+      objTd=`<td class="num" style="font-weight:700;color:#1e3a5f"${OB.fijo?' title="Capturado en Admin → Objetivos del bono"':''}>${OB.n}${OB.fijo?' <span style="font-size:9px;color:#6b7a99">✎</span>':''}</td>`;
     }else if(cl==='SAGRADOS'){
       // Sagrados: objetivo fijo 0
       objTd='<td class="num" style="font-weight:600;color:#1e3a5f">0</td>';
@@ -1695,9 +1712,9 @@ function bRow(comp,cl,d,showObj,isA,isF,rs){
     if(c==='ALTA ROTACIÓN'&&isA){
       return`<td class="num">${(+v).toFixed(2)}%</td>`;
     }
-    // Alta Rotación (comprador individual): evaluar contra cantidad fija
-    if(c==='ALTA ROTACIÓN'&&!isA&&MAX_ALTA[comp]!==undefined&&fAbs!==undefined){
-      const cumple=fAbs<=MAX_ALTA[comp];
+    // Comprador individual con objetivo en cantidad (capturado o regla): evaluar faltantes contra la cantidad
+    if(!isA&&c!=='TOTAL'&&OB.n!=null&&fAbs!==undefined){
+      const cumple=fAbs<=OB.n;
       return`<td class="num" style="font-weight:700;color:${cumple?'#2e7d32':'#c0392b'}">${(+v).toFixed(2)}%</td>`;
     }
     const o=OBJ[c];if(o===null)return`<td class="num">${(+v).toFixed(2)}%</td>`;
@@ -1718,7 +1735,7 @@ function bRow(comp,cl,d,showObj,isA,isF,rs){
     ? `<td class="num" style="background:#f0f4ff"><button class="pico-btn" title="Ver claves del día pico" onclick="verPico('${pek}')">${pkVal} 🔍</button></td>`
     : `<td class="num" style="background:#f0f4ff">${pkVal}</td>`;
   const picoRow=`<tr id="pr-${pek}" class="picorow" style="display:none"><td colspan="20"><div></div></td></tr>`;
-  return`<tr style="${bg}${bt}">${cTd}<td style="border-right:1px solid #dde2ec;${bg}">${dot}${CLL[cl]||cl}</td><td class="num" style="border-right:1px solid #dde2ec">${(d.skus||0).toLocaleString()}</td>${objTd}<td class="num" style="background:#f0faf3">${d.f1||0}</td>${pc(d.pct_f1!=null?d.pct_f1:undefined,cl)}${f2Cell}${pc(d.pct_f2,cl,d.f2)}${picoCell}${pc(d.pct_pico,cl,d.pico)}</tr>${picoRow}${xRow}`;
+  return`<tr style="${bg}${bt}">${cTd}<td style="border-right:1px solid #dde2ec;${bg}">${dot}${CLL[cl]||cl}</td><td class="num" style="border-right:1px solid #dde2ec">${(d.skus||0).toLocaleString()}</td>${objTd}<td class="num" style="background:#f0faf3">${d.f1||0}</td>${pc(d.pct_f1!=null?d.pct_f1:undefined,cl,d.f1)}${f2Cell}${pc(d.pct_f2,cl,d.f2)}${picoCell}${pc(d.pct_pico,cl,d.pico)}</tr>${picoRow}${xRow}`;
 }
 function togX(key){const row=document.getElementById('xr-'+key);if(!row)return;if(xRows.has(key)){xRows.delete(key);row.style.display='none';}else{xRows.add(key);row.style.display='table-row';if(!row.dataset.r)renderX(key,row);}}
 let _faltActual={key:null,comp:null,cl:null,claves:[]};
@@ -1828,6 +1845,10 @@ let rskSort = { nuevas:{col:null,dir:'asc'}, bo:{col:null,dir:'asc'}, salieron:{
 // El detalle de cada día se lee de la base solo cuando se consulta (antes se descargaba todo).
 // ══════════════════════════════════════════════════════════════════════════════
 const sbc=()=>window.__SB||(window.__SB=window.supabase.createClient(window.SB_URL,window.SB_KEY));
+// Objetivos del bono capturados en Admin (si la tabla ya se pintó, se vuelve a pintar con ellos)
+(async()=>{try{const{data}=await sbc().from('plan_config').select('valor').eq('id','bono_objetivos').maybeSingle();
+  const v=(data&&data.valor)||{};BONO_CFG={};Object.entries(v).forEach(([k,o])=>BONO_CFG[nBono(k)]=o);
+  if(Object.keys(BONO_CFG).length&&document.getElementById('res-body')&&document.getElementById('res-body').innerHTML)renderRes();}catch(e){}})();
 const escH2=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nf=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fdl=f=>f?f.slice(8,10)+'/'+f.slice(5,7)+'/'+f.slice(0,4):'—';
