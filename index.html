@@ -559,6 +559,7 @@ async function actualizarTodo(){
   const btn=document.getElementById('res-refresh');
   const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Actualizando…';
   try{
+    RES.t=0;   // Actualizar siempre vuelve a leer alarmas y resumen de la base
     await cargarResumen();
     // marcar los 4 dashboards para que recarguen sus datos al abrirse de nuevo
     for(const i of [7,8,9]){const fr=document.getElementById('fr-'+i);if(fr&&fr.getAttribute('src')){try{fr.contentWindow.location.reload();}catch(e){fr.src=fr.src;}}}
@@ -584,7 +585,9 @@ function ajustarBotonesResumen(){
 }
 async function cargarResumen(){
   const cont=document.getElementById('res-content');
-  if(RES.alarmas){renderResumen();return;}
+  // Se vuelve a leer si pasaron más de 5 minutos (otra carga del Excel pudo publicar datos nuevos) o si se pide con Actualizar
+  if(RES.alarmas&&RES.t&&Date.now()-RES.t<300000){renderResumen();return;}
+  RES.alarmas=null;RES._marcas=null;
   cont.innerHTML='<div class="empty-res">Cargando resumen…</div>';
   const[a,d]=await Promise.all([
     sb.from('alarmas').select('*'),
@@ -596,7 +599,7 @@ async function cargarResumen(){
   // V2: Riesgo, Sobre inventario, Pedidos propuestos, Target y OTIF salen del cálculo del portal
   try{RES._marcas=null;RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.alarmas,RES.v2);}
   catch(e){console.warn('Mi Resumen V2:',e);RES.v2err=e.message||String(e);}
-  RES.resumen=d.data?d.data.payload:null;
+  RES.resumen=d.data?d.data.payload:null;RES.t=Date.now();
   // Selector de comprador
   const comps=[...new Set(a.data.map(r=>r.comprador))].filter(x=>x!=='GENERAL').sort();
   const sel=document.getElementById('res-comp');
@@ -732,7 +735,7 @@ function renderResumen(){
   const incHtml=buildIncidenciasHTML(comp);
   document.getElementById('res-content').innerHTML=
     `<div class="kpi-grid">${kpis}</div>`+
-    `<p style="max-width:1600px;margin:0 auto 12px;font-size:11px;color:#94a3b8">Al corte del ${uf?uf.split('-').reverse().join('/'):'último Excel cargado'} · las alarmas reflejan el estado actual; el filtro de meses aplica a la gráfica de evolución.</p>`+
+    `<p style="max-width:1600px;margin:0 auto 12px;font-size:11px;color:#94a3b8">Al corte del ${uf?uf.split('-').reverse().join('/'):'último Excel cargado'}${RES.v2&&RES.v2.fecha?' · cálculo del portal al '+RES.v2.fecha.split('-').reverse().join('/'):''} · leído a las ${RES.t?new Date(RES.t).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—'} · las alarmas reflejan el estado actual; el filtro de meses aplica a la gráfica de evolución.</p>`+
     `<div class="res-grid" style="margin-bottom:14px">${incHtml}</div>`+
     `<div class="res-grid">${chartHtml}${cards}</div>`;
   pintarChart(comp);
