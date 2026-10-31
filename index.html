@@ -171,7 +171,7 @@
   <div class="tab" onclick="switchTab(2)" style="order:8"><span class="tab-icon">📦</span>Monitor de Inventario</div>
   <div class="tab" onclick="switchTab(3)" style="order:7"><span class="tab-icon">🔄</span>Estatus Back Orders</div>
   <div class="tab" onclick="switchTab(4)" style="order:3"><span class="tab-icon">🧭</span>Planeación e indicadores</div>
-  <div class="tab" onclick="switchTab(5)" style="order:9"><span class="tab-icon">🔁</span>Incidencias</div>
+  <div class="tab" onclick="switchTab(0)" style="display:none" aria-hidden="true"></div><!-- Incidencias: retirado oct-2026 (los compradores ya no lo llevan) -->
   <div class="tab" onclick="switchTab(6)" id="tab-admin" style="display:none"><span class="tab-icon">⚙️</span>Admin</div>
   <div class="tab" onclick="switchTab(7)" id="tab-oc" style="order:6"><span class="tab-icon">📅</span>Compromiso OCs</div>
   <div class="tab" onclick="switchTab(8)" id="tab-plan" style="display:none"><span class="tab-icon">🧮</span>Cálculo diario</div>
@@ -217,17 +217,8 @@
     <iframe id="fr-4" onload="window.hideLd&&window.hideLd(4)"></iframe>
   </div>
 
-  <!-- ════ INCIDENCIAS (Seguimiento a Devoluciones) ════ -->
-  <div class="frame-wrap" id="fw-5">
-    <div id="inc-bar" style="display:flex;align-items:center;gap:12px;padding:8px 16px;background:#f8f9fd;border-bottom:1px solid #e2e6ed">
-      <span style="font-size:12px;font-weight:700;color:#1e3a5f">🔁 Seguimiento a Devoluciones (Incidencias)</span>
-      <span style="font-size:11px;color:#64748b">Si el tablero no carga aquí abajo, ábrelo en una ventana nueva →</span>
-      <a href="https://dashboard-reclamaciones.streamlit.app/" target="_blank" rel="noopener"
-         style="margin-left:auto;font-size:12px;font-weight:600;background:#1c4587;color:#fff;padding:6px 14px;border-radius:8px;text-decoration:none">↗ Abrir en ventana nueva</a>
-    </div>
-    <div class="loader" id="ld-5"><div class="spinner"></div><p>Cargando Incidencias…</p></div>
-    <iframe id="fr-5" style="height:calc(100% - 41px)" onload="window.hideLd&&window.hideLd(5)"></iframe>
-  </div>
+  <!-- Incidencias retirado (oct-2026): contenedor vacío para conservar el orden de las pestañas -->
+  <div class="frame-wrap" id="fw-5"></div>
 
   <!-- ════ ADMIN ════ -->
   <div class="frame-wrap" id="fw-6">
@@ -509,12 +500,12 @@ const SRCS=[
   'dash_monitor.html',
   'dash_backorders.html',
   'dash_planeacion.html',
-  'https://dashboard-reclamaciones.streamlit.app/?embed=true'
+  ''   // Incidencias: retirado oct-2026
 ];
 const loadedTabs=[false,false,false,false,false];
 function loadTab(i){ // i = 1..5 (iframes)
   const k=i-1;
-  if(i>=1&&i<=5&&!loadedTabs[k]){loadedTabs[k]=true;document.getElementById('fr-'+i).src=SRCS[k];}
+  const fr=document.getElementById('fr-'+i);if(i>=1&&i<=5&&!loadedTabs[k]&&fr&&SRCS[k]){loadedTabs[k]=true;fr.src=SRCS[k];}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
 const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html',11:'plan_calendario.html'};
@@ -614,7 +605,7 @@ async function cargarResumen(){
   document.getElementById('res-meses').innerHTML=meses.map(m=>`<span class="mes-chip${RES.mesesSel.has(m)?' on':''}" data-m="${m}" onclick="togMes(this)">${fmtMes(m)}</span>`).join(' ');
   renderResumen();
   // Cargar incidencias (async, desde GitHub) y re-render cuando lleguen
-  cargarIncidencias().then(()=>{ try{renderResumen();}catch(e){} });
+  // (Incidencias retirado oct-2026)
 }
 function fmtMes(m){const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];const[y,mm]=m.split('-');return M[+mm]+' '+y.slice(2);}
 function togMes(el){const m=el.dataset.m;
@@ -699,11 +690,6 @@ function renderResumen(){
     if((t==='TARGET'||t==='OTIF')&&a&&a.datos)n=(a.datos.pct!=null?a.datos.pct+'%':'—');
     kpis+=`<div class="kpi s-${T.sev}" onclick="document.getElementById('card-${t}')?.scrollIntoView({behavior:'smooth'})"><div class="n">${n}</div><div class="t">${T.icon} ${T.t}</div></div>`;
   });
-  // Tarjeta de incidencias activas del comprador (valor total, excluye finalizadas)
-  const _incsAct=(RES.incidencias||[]).filter(x=>!x.finalizada&&!x.cuarentena);
-  const _misIncs=comp==='GENERAL'?_incsAct:_incsAct.filter(x=>mismoComprador(x.comprador,comp));
-  const _totalInc=_misIncs.reduce((a,x)=>a+x.importe,0);
-  kpis+=`<div class="kpi s-alta" onclick="document.getElementById('card-INCIDENCIAS')?.scrollIntoView({behavior:'smooth'})"><div class="n" style="font-size:15px">${fmtMXN(_totalInc)}</div><div class="t">🔁 Incidencias activas${comp==='GENERAL'?'':' ('+_misIncs.length+')'}</div></div>`;
   // Gráfica de evolución de faltantes (meses seleccionados)
   let chartHtml='';
   if(RES.resumen&&RES.resumen.fechas){chartHtml=`<div class="res-card full" id="card-chart"><h3>📈 Evolución de faltantes · ${[...RES.mesesSel].sort().map(fmtMes).join(' + ')}</h3><div class="chartbox"><canvas id="res-chart"></canvas></div></div>`;}
@@ -731,15 +717,12 @@ function renderResumen(){
     }
     cards+=`<div class="res-card" id="card-${t}"><h3>${T.icon} ${T.t} <span class="badge b-${T.sev}">${d.total!=null?d.total:''}</span> <span style="margin-left:auto;font-size:10px;color:#94a3b8">${T.dash}</span></h3>${a.descripcion?`<p style="font-size:11px;color:#64748b;margin-bottom:8px">${a.descripcion}</p>`:''}${body}</div>`;
   });
-  // Bloque de incidencias: gráfica (todos, activas) + tabla (comprador, folios como columnas)
-  const incHtml=buildIncidenciasHTML(comp);
   document.getElementById('res-content').innerHTML=
     `<div class="kpi-grid">${kpis}</div>`+
     `<p style="max-width:1600px;margin:0 auto 12px;font-size:11px;color:#94a3b8">Al corte del ${uf?uf.split('-').reverse().join('/'):'último Excel cargado'}${RES.v2&&RES.v2.fecha?' · cálculo del portal al '+RES.v2.fecha.split('-').reverse().join('/'):''} · leído a las ${RES.t?new Date(RES.t).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—'} · las alarmas reflejan el estado actual; el filtro de meses aplica a la gráfica de evolución.</p>`+
-    `<div class="res-grid" style="margin-bottom:14px">${incHtml}</div>`+
+    (RES.v2&&RES.v2.fecha&&uf&&RES.v2.fecha>uf?`<div style="max-width:1600px;margin:-4px auto 12px;padding:10px 14px;border-radius:10px;background:#fdf3d8;border:1px solid #f0d58a;color:#7c4a03;font-size:12.5px">⚠️ <b>Faltantes, faltantes nuevos, prolongados y OCs</b> están al <b>${uf.split('-').reverse().join('/')}</b>, pero el cálculo del portal ya va al <b>${RES.v2.fecha.split('-').reverse().join('/')}</b> (riesgo, sobre inventario, pedidos propuestos, Target y OTIF). Para ponerlos al día carga el Excel del día con <b>📂 Cargar Excel (Admin)</b> (no solo en Cálculo diario) y revisa que la carga termine con «🎉 LISTO».</div>`:'')+
     `<div class="res-grid">${chartHtml}${cards}</div>`;
   pintarChart(comp);
-  pintarChartIncidencias();
 }
 // Construye el HTML de la gráfica de incidencias por comprador y la tabla del comprador seleccionado
 function buildIncidenciasHTML(comp){
@@ -2489,6 +2472,7 @@ init();
 <script>
 // ── RESUMEN TELEGRAM (lee de Supabase: dias_cargados, detalle_diario, datasets.resumen) ──
 const TG_KEY='tgResumenCfg_v1';
+const TG_LINK_V2='https://ftrevinor001-tr.github.io/Portal-de-compras-V2/';
 const TG_DIAS=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const TG_MES=['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const TG_EXCL=['PRODUCCION'];
@@ -2531,7 +2515,8 @@ async function tgPaginar(build){
 async function openTg(){
   const cfg=tgLoad();
   if(cfg.hora)document.getElementById('tg-hora').value=cfg.hora;
-  document.getElementById('tg-link').value=cfg.link||location.href.split('#')[0].split('?')[0];
+  // Liga del portal V2 (si la guardada es de otro portal, se cambia por la de V2)
+  document.getElementById('tg-link').value=cfg.link&&/Portal-de-compras-V2/i.test(cfg.link)?cfg.link:TG_LINK_V2;
   if(cfg.dias)document.getElementById('tg-dias').value=cfg.dias;
   if('media' in cfg)document.getElementById('tg-media').checked=cfg.media;
   if('lenta' in cfg)document.getElementById('tg-lenta').checked=cfg.lenta;
