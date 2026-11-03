@@ -34,8 +34,12 @@
     comps.forEach(comp=>{
       const mine=x=>comp==='GENERAL'||x===comp;
       const cl=v.claves.filter(r=>mine(r.comp));
-      const rsg=cl.filter(r=>r.est==='RIESGO').sort((a,b)=>(a.mi??0)-(b.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'T.Entrega':r.lt,'Demanda':r1(r.D),'Propuesta':r.sE!=null?r.sE:r.s}));
-      push(comp,'RIESGO',rsg,rsg.length,nota+' Riesgo: entra con menos de T. entrega × 1.2 meses y sale al pasar T. entrega × 1.4, con la demanda del portal (promedio de antecedente y pronóstico).');
+      const NV={ALTO:0,MEDIO:1,BAJO:2},CL=x=>{x=String(x||'').toUpperCase();return x.includes('SAGRADO')?0:x.includes('ALTA')?1:x.includes('MEDIA')?2:x.includes('LENTA')?3:x.includes('NUEVO')?4:5;};
+      const fm=f=>f?f.split('-').reverse().slice(0,2).join('/'):'';
+      const rsgR=cl.filter(r=>r.est==='RIESGO').sort((a,b)=>(NV[a.nv]??3)-(NV[b.nv]??3)||CL(a.rot)-CL(b.rot)||(a.dA??9e9)-(b.dA??9e9));
+      const rsg=rsgR.map(r=>({Nivel:r.nv?({ALTO:'🔴 ALTO',MEDIO:'🟠 MEDIO',BAJO:'🟡 BAJO'})[r.nv]:'',Clasificación:P.ROT_X[r.rot]||r.rot||'',Clave:r.c,Nombre:r.n,Marca:r.m||'','Se acaba':r.fAg?'~'+fm(r.fAg)+' ('+Math.floor(r.dA)+'d)':'','T.Entrega (d)':Math.round((+r.lt||0)*P.R.MES_DIAS),'Meses Inv':r1(r.mi),'Demanda':r1(r.D),'OCs abiertas':(v.ocs[r.c]||[]).filter(o=>!o[4]).length,'Propuesta':r.sE!=null?r.sE:r.s}));
+      const cn=k=>rsgR.filter(r=>r.nv===k).length;
+      push(comp,'RIESGO',rsg,rsg.length,nota+' Riesgo: entra con menos de T. entrega × 1.2 meses y sale al pasar T. entrega × 1.4. Nivel por días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega: 🔴 alto = se acaba en 7 días o menos o antes de la mitad del T. entrega · 🟠 medio = antes del T. entrega · 🟡 bajo = aún cubre el T. entrega.',{alto:cn('ALTO'),medio:cn('MEDIO'),bajo:cn('BAJO'),porClmov:Object.fromEntries([['🔴 Riesgo alto',cn('ALTO')],['🟠 Riesgo medio',cn('MEDIO')],['🟡 Riesgo bajo',cn('BAJO')]].filter(x=>x[1]))});
       const sob=cl.filter(r=>r.est==='SOBRE INVENTARIO').sort((a,b)=>(b.mi??0)-(a.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'Obj':r.pm,'Demanda':r1(r.D)}));
       push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario que el objetivo × 1.4.');
       const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));

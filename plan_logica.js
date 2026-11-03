@@ -421,6 +421,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
     const su=ctx.sust&&ctx.sust.get(k)||null;
     const ra=P.racha(pv,est,fecha,ctx.prevFecha);
+    const nr=P.nivelRiesgo(d.ex,D,lt,est,fecha,pv.xh);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
     const sug=X=>X==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(X*(lt+pm)-(d.ex+bo)));
@@ -441,14 +442,14 @@ P.calcularDia=(fecha,filas,ctx)=>{
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nt:notas.join(' · ')});
+      ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nv:nr.nv,...(pv.nv!==undefined?{pNv:pv.nv}:{}),dA:nr.dA,fAg:nr.fAg,rd:nr.rd,vr:nr.vr,...(nr.xh&&!P.esProd(d)?{xh:nr.xh}:{}),nt:notas.join(' · ')});
   });
   return out;
 };
 const EN_RIESGO=['RIESGO','FALTANTE'];
 // Foto diaria del cálculo del portal (se guarda un archivo por día): lo necesario para el histórico por clave.
 // Meses de inventario con antecedente (mA), pronóstico (mP) y demanda del portal (mi); estatus con cada base.
-P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','exC','rs','hv','bD','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE'];
+P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','exC','rs','hv','bD','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE','nv','dA','fAg','rd'];
 P.foto=res=>res.map(r=>{const o={};P.FOTO_CAMPOS.forEach(k=>{if(r[k]!=null&&r[k]!=='')o[k]=r[k];});if(!r.rs){delete o.rs;delete o.exC;}const q=x=>x>0?Math.round(r.ex/x*100)/100:null;o.mA=q(r.A);o.mP=q(r.P);return o;});
 // Rotación con acentos (como la escribe el Excel) para las vistas que agrupan por rotación
 P.ROT_X={'SAGRADOS':'SAGRADOS','ALTA ROTACION':'ALTA ROTACIÓN','MEDIA ROTACION':'MEDIA ROTACIÓN','LENTA ROTACION':'LENTA ROTACIÓN','NUEVOS':'NUEVOS','SIN COMPRA':'SIN COMPRA'};
@@ -466,6 +467,34 @@ P.racha=(pv,est,fecha,prevFecha)=>{
 };
 // Días de la racha contados al día de corte (calendario, incluye ambos días)
 P.diasRacha=(eD,fecha)=>eD&&fecha?Math.round((new Date(fecha+'T12:00:00')-new Date(eD+'T12:00:00'))/864e5)+1:null;
+// ── Nivel de riesgo (nov-2026): qué tan cerca está la clave del faltante, contra su tiempo de entrega ──
+// Venta diaria = demanda del portal ÷ 30.4; si en los últimos RITMO_DIAS días la existencia bajó más rápido (ventas reales día con día),
+// se usa ese ritmo (topado a RITMO_MAX × la demanda para no reaccionar a una venta atípica).
+// Días para agotarse = existencia ÷ venta diaria. Con T. entrega en días (meses × 30.4):
+//   ALTO  = se agota en NIV_DIAS_ALTO días o menos, o antes de la mitad del tiempo de entrega
+//   MEDIO = se agota antes de que llegue un pedido colocado hoy (menos que el tiempo de entrega)
+//   BAJO  = todavía alcanza a cubrir el tiempo de entrega si se pide ya
+P.R.MES_DIAS=30.4;P.R.RITMO_DIAS=14;P.R.RITMO_MIN_DIAS=5;P.R.RITMO_MAX=2;P.R.NIV_ALTO=0.5;P.R.NIV_MEDIO=1;P.R.NIV_DIAS_ALTO=7;
+P.NIVELES=['ALTO','MEDIO','BAJO'];
+P.addDias=(f,n)=>{const d=new Date(f+'T12:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+P.pad(d.getMonth()+1)+'-'+P.pad(d.getDate());};
+P.difDias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+// Ritmo real de salida (piezas/día) con la existencia de los días anteriores: solo cuentan los tramos en que la existencia bajó o se quedó igual
+// (si subió hubo una recepción y ese tramo no se puede medir; si estaba en 0 no había qué vender).
+P.ritmo=(xh,fecha,ex)=>{
+  const pts=(xh||[]).filter(x=>x&&x[0]<fecha&&P.difDias(x[0],fecha)<=P.R.RITMO_DIAS).concat([[fecha,ex]]).sort((a,b)=>a[0]<b[0]?-1:1);
+  let dias=0,cons=0;for(let i=1;i<pts.length;i++){const dd=P.difDias(pts[i-1][0],pts[i][0]);if(dd<=0)continue;const a=pts[i-1][1],b=pts[i][1];if(!(a>0)||b>a)continue;cons+=a-b;dias+=dd;}
+  return{vr:dias>=P.R.RITMO_MIN_DIAS?cons/dias:null,dias,xh:pts.slice(-(P.R.RITMO_DIAS+1))};
+};
+P.nivelRiesgo=(ex,D,lt,est,fecha,xh)=>{
+  const rt=D>0?P.ritmo(xh,fecha,ex):{vr:null,xh:null};
+  const Dd=D>0?D/P.R.MES_DIAS:0;let rd=Dd;if(rt.vr!=null&&rt.vr>Dd)rd=Math.min(rt.vr,Dd*P.R.RITMO_MAX);
+  const o={nv:null,dA:null,fAg:null,rd:rd>0?Math.round(rd*1000)/1000:null,vr:rt.vr!=null?Math.round(rt.vr*1000)/1000:null,xh:rt.xh};
+  if(est!=='RIESGO'||!(rd>0))return o;
+  const dA=Math.max(0,ex)/rd,LTd=(Number(lt)||0)*P.R.MES_DIAS;
+  o.dA=Math.round(dA*10)/10;o.fAg=P.addDias(fecha,Math.floor(dA));
+  o.nv=dA<=P.R.NIV_DIAS_ALTO||(LTd>0&&dA<=LTd*P.R.NIV_ALTO)?'ALTO':LTd>0&&dA<LTd*P.R.NIV_MEDIO?'MEDIO':'BAJO';
+  return o;
+};
 // ── Explicación mes a mes de una clave (tablero): qué meses entraron al antecedente y al pronóstico y por qué se descartaron otros.
 // Usa exactamente las mismas reglas que P.antPron (hay prueba que lo verifica).
 P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{

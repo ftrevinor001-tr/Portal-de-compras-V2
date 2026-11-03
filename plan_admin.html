@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261030c" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -401,16 +401,17 @@ async function cargaCalc(log){
   // Racha del estatus (desde cuándo está en faltante o riesgo) y estatus del día anterior, para Telegram y Seguimiento.
   // Si se recalcula el mismo día ya publicado, se usa lo que ese cálculo tenía como "día anterior".
   const mismoDia=prevEst&&prevEst.fecha===pendientes[0];
-  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,mismoDia&&'pE' in r?{est:r.pE,eA:r.eA,eP:r.eP,eD:r.pD,eDx:!!r.pDx}:{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]):[]);
+  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,mismoDia&&'pE' in r?{est:r.pE,eA:r.eA,eP:r.eP,eD:r.pD,eDx:!!r.pDx,nv:r.pNv,xh:r.xh}:{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]):[]);
   ctx.prevFecha=mismoDia?(prevEst.fecha_ant||null):(prevEst?prevEst.fecha:null);
   let antMap=mismoDia?(prevEst.antMap||null):(prevEst?prevEst.map:null),antFecha=ctx.prevFecha,salAnt=mismoDia?(prevEst.sal||null):null;
   if(prevEst&&![...prevEst.map.values()].some(r=>'eD' in r))await rachasIniciales(ctx,prevEst,log);
+  if(prevEst&&![...prevEst.map.values()].some(r=>'xh' in r))await ritmoInicial(ctx,pendientes[0],log);
   for(const f of pendientes){
     await pausa();
     primerasExistencias(ctx,[...porFecha.get(f).values()],f);
     res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
     if(f!==pendientes[pendientes.length-1]){antMap=new Map(res.map(r=>[Number(r.c),r]));antFecha=f;}
-    if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;}
+    if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]));ctx.prevFecha=f;}
     await guardarHistEstatus(res,f,log);
     await guardarFoto(res,f,log);
     await guardarPrimerasEx(ctx,log);
@@ -462,6 +463,23 @@ async function leerEstadoPublicado(pub,log){
 }
 // Una sola vez (el primer cálculo con esta versión): de qué fecha viene la racha de cada clave en faltante o riesgo.
 // Faltante: días seguidos con existencia 0 (plan_agotados_dia). Riesgo: alarma abierta (plan_alarmas).
+// Primera vez con niveles de riesgo: arma la existencia de los últimos días con las fotos diarias guardadas (para medir el ritmo real de venta)
+async function ritmoInicial(ctx,f0,log){
+  try{
+    const{data:ix}=await sb.from('plan_publicacion').select('resumen').eq('id','dias').maybeSingle();
+    const fechas=Object.keys((ix&&ix.resumen&&ix.resumen.fechas)||{}).filter(f=>f<f0&&P.difDias(f,f0)<=P.R.RITMO_DIAS).sort();
+    if(!fechas.length){log.msg('ℹ️ Nivel de riesgo: todavía no hay fotos de días anteriores; el ritmo real de venta se empieza a medir desde hoy.');return;}
+    log.msg('📉 Nivel de riesgo: leyendo la existencia de '+fechas.length+' días anteriores para medir el ritmo real de venta…');
+    const xh=new Map();
+    for(const f of fechas){
+      const{data:blob,error}=await sb.storage.from('respaldos').download('plan/dias/'+f+'.json.gz');if(error)continue;
+      const js=JSON.parse(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+      (js.claves||[]).forEach(r=>{if(r.ex==null)return;const k=Number(r.c);(xh.get(k)||xh.set(k,[]).get(k)).push([f,Number(r.ex)||0]);});
+    }
+    let n=0;ctx.prevEst.forEach((pv,k)=>{if(xh.has(k)){pv.xh=xh.get(k);n++;}});
+    log.msg('   listo: '+fmt(n)+' claves con existencia de días anteriores.');
+  }catch(e){log.msg('⚠️ No se pudo leer la existencia de días anteriores ('+(e.message||e)+'): el ritmo real de venta se mide desde hoy.','w');}
+}
 async function rachasIniciales(ctx,prevEst,log){
   const f0=prevEst.fecha,falt=[],rsg=[];
   prevEst.map.forEach((r,k)=>{if(r.est==='FALTANTE')falt.push(k);else if(r.est==='RIESGO')rsg.push(k);});
@@ -513,7 +531,7 @@ async function reconstruirHistorial(log){
     primerasExistencias(ctx,filas,f);
     const res=P.calcularDia(f,filas,ctx);
     await guardarHistEstatus(res,f,log);await guardarFoto(res,f,log);await guardarPrimerasEx(ctx,log);
-    ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx}]));ctx.prevFecha=f;
+    ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]));ctx.prevFecha=f;
     const c=e=>res.filter(r=>r.est===e).length;
     log.msg('   '+f+': '+fmt(res.length)+' claves · faltante '+fmt(c('FALTANTE'))+' · riesgo '+fmt(c('RIESGO'))+' · sobre inv. '+fmt(c('SOBRE INVENTARIO')));
   }

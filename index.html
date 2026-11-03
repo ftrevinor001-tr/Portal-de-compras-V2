@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261030c" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261030c" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261030c" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103a" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261103a" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261103a" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -704,14 +704,14 @@ function renderResumen(){
         body+='<div class="alist" style="margin-top:8px">'+tablaHTML(t,cols,its2)+'</div>';}
     }
     else{
-      if(t==='FALTANTES'&&d.porClmov){
+      if(d.porClmov&&Object.keys(d.porClmov).length){
         body+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+Object.entries(d.porClmov).map(([k,v])=>`<span style="font-size:11px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:3px 10px;color:#334155"><b>${v}</b> ${k}</span>`).join('')+'</div>';
       }
       const items=conMarca(d.items||[]);
       if(!items.length){body='<p style="font-size:12px;color:#64748b">Sin registros. ✅</p>';}
       else{
         const cols=Object.keys(items[0]);
-        body='<div class="alist">'+tablaHTML(t,cols,items)+'</div>';
+        body+='<div class="alist">'+tablaHTML(t,cols,items)+'</div>';
         if(d.total>items.length)body+=`<p style="font-size:11px;color:#94a3b8;margin-top:6px">Mostrando ${items.length} de ${d.total}. El detalle completo está en el dashboard ${T.dash}.</p>`;
       }
     }
@@ -875,7 +875,7 @@ async function descargarResumenExcel(){
       const ws=wb.addWorksheet(nom);
       ws.addRow([T.t+(comp!=='GENERAL'?' · '+comp:' · GENERAL')]).font={bold:true,size:13};
       if(a.descripcion)ws.addRow([a.descripcion]).font={italic:true,size:9,color:{argb:'FF6B7A99'}};
-      if(t==='FALTANTES'&&d.porClmov){ws.addRow(['Desglose: '+Object.entries(d.porClmov).map(([k2,v2])=>k2+': '+v2).join(' · ')]);}
+      if(d.porClmov&&Object.keys(d.porClmov).length){ws.addRow(['Desglose: '+Object.entries(d.porClmov).map(([k2,v2])=>k2+': '+v2).join(' · ')]);}
       if((t==='TARGET'||t==='OTIF')&&d.texto)ws.addRow([String(d.texto).replace(/<[^>]+>/g,'')]).font={bold:true};
       else if(t==='TARGET')ws.addRow(['Cumplen Target: '+(d.ocsOk||0)+' de '+(d.total||0)+' OCs ('+(d.pct!=null?d.pct+'%':'—')+')']).font={bold:true};
       ws.addRow([]);
@@ -1425,8 +1425,11 @@ function computarAlarmas(payload,rowsOC,rowsAsig,rowsOtif,mapaManual){
     const falt=faltR.map(r=>({Clave:r.clave,Nombre:r.nombre,Marca:r.marca,'Clasif.Mov':r.clmov,'Back Order':r.bo}));
     push(comp,'faltantes','FALTANTES',falt,falt.length,'Organizadas por clasificación de movimiento: Sagrados → Alta → Media → Lenta → Nuevos. Excluye claves SIN COMPRA.',{porClmov});
 
-    const nuevos=hoyC.filter(r=>r.estatus==='FALTANTE'&&String(r.clmov||'').toUpperCase()!=='SIN COMPRA'&&!refFaltSet.has(r.clave)).map(r=>({Clave:r.clave,Nombre:r.nombre,Marca:r.marca,'Clasif.Mov':r.clmov}));
-    push(comp,'faltantes','FALTANTE_NUEVO',nuevos,nuevos.length,'Comparación del día actual ('+uf.split('-').reverse().join('/')+') contra el día anterior ('+refNuevo.split('-').reverse().join('/')+'): claves en faltante hoy que ayer no lo estaban.');
+    // Faltantes nuevos separados por clasificación (Sagrados, Alta, Media, Lenta, Nuevos) para ver su efecto real en el indicador
+    const nuevR=faltR.filter(r=>!refFaltSet.has(r.clave));
+    const porClmovN={};ORD_MOV.forEach(m2=>{const n2=nuevR.filter(r=>String(r.clmov||'').toUpperCase()===m2).length;if(n2)porClmovN[ETQ_MOV[m2]]=n2;});
+    const nuevos=nuevR.map(r=>({Clave:r.clave,Nombre:r.nombre,Marca:r.marca,'Clasif.Mov':r.clmov}));
+    push(comp,'faltantes','FALTANTE_NUEVO',nuevos,nuevos.length,'Comparación del día actual ('+uf.split('-').reverse().join('/')+') contra el día anterior ('+refNuevo.split('-').reverse().join('/')+'): claves en faltante hoy que ayer no lo estaban, separadas por clasificación: Sagrados → Alta → Media → Lenta → Nuevos.',{porClmov:porClmovN});
 
     const rsg=hoyC.filter(r=>r.estatus==='RIESGO').map(r=>({Clave:r.clave,Nombre:r.nombre,Marca:r.marca,'Meses Inv':(+r.meses_inv).toFixed(1),'T.Entrega':r.t_entrega}));
     push(comp,'faltantes','RIESGO',rsg,rsg.length);
@@ -2437,7 +2440,7 @@ init();
         <input type="number" id="tg-dias" min="2" value="7" oninput="tgSave();genTg()">
         <label>Opciones</label>
         <div class="chk"><input type="checkbox" id="tg-media" checked onchange="tgSave();genTg()"> Listar claves nuevas de MEDIA</div>
-        <div class="chk"><input type="checkbox" id="tg-lenta" onchange="tgSave();genTg()"> Listar claves nuevas de LENTA / otras</div>
+        <div class="chk"><input type="checkbox" id="tg-lenta" onchange="tgSave();genTg()"> Listar claves nuevas de LENTA / NUEVOS / otras</div>
         <div class="chk"><input type="checkbox" id="tg-res" checked onchange="tgSave();genTg()"> Listar claves resueltas (ya llegaron)</div>
         <div class="chk"><input type="checkbox" id="tg-negritas" checked onchange="tgSave();genTg()"> Negritas (**texto**)</div>
         <div class="chk"><input type="checkbox" id="tg-coment" checked onchange="tgSave();genTg()"> Incluir comentarios de seguimiento</div>
@@ -2456,13 +2459,11 @@ init();
         </div>
         <p style="font-size:10.5px;color:#6b7a99;margin-top:6px">Puedes editar el texto antes de copiarlo. Los datos salen de la base del portal (detalle diario).</p>
         <div style="margin-top:16px;border-top:1px dashed #c9d4f0;padding-top:12px">
-          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:6px">⚠️ Segundo mensaje — Claves en RIESGO (por clasificación)</div>
-          <textarea id="tg-txt2" spellcheck="false">Cargando…</textarea>
-          <div id="tg-foot">
-            <button class="tg-btn" style="background:#f39c12;color:#fff" onclick="copyTg2()">📋 Copiar mensaje de riesgo</button>
-            <span id="tg-msg2" style="font-size:12px;color:#2e7d32;font-weight:600"></span>
-            <span id="tg-len2" style="margin-left:auto;font-size:11px;color:#6b7a99"></span>
-          </div>
+          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Claves en RIESGO por nivel (alto, medio, bajo) y clasificación</div>
+          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">🔴 <b>Alto</b> sale todos los días · 🟠 <b>Medio</b> y 🟡 <b>Bajo</b> solo el día que la clave entra a ese nivel. Nivel según los días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega. Si pasa de 4,096 caracteres se parte en varios mensajes.</div>
+          <div class="chk" style="font-size:12px;margin-bottom:2px"><input type="checkbox" id="tg-rsg-oc" checked onchange="tgSave();genTg()"> Mostrar OC en camino y su llegada estimada</div>
+          <div class="chk" style="font-size:12px;margin-bottom:6px"><input type="checkbox" id="tg-rsg-todas" checked onchange="tgSave();genTg()"> Riesgo alto: listar todas las clasificaciones (si no, Media, Lenta y Nuevos solo en conteo por comprador)</div>
+          <div id="tg-rsg-parts"><textarea id="tg-txt2" spellcheck="false">Cargando…</textarea></div>
         </div>
       </div>
     </div>
@@ -2483,7 +2484,7 @@ function tgV(id){return document.getElementById(id)?.value||'';}
 function tgC(id){return !!document.getElementById(id)?.checked;}
 function tgHandles(){const h={};document.querySelectorAll('#tg-handles input').forEach(i=>{if(i.value.trim())h[i.dataset.c]=i.value.trim();});return h;}
 function tgSave(){
-  const cfg={hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),res:tgC('tg-res'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
+  const cfg={rsgOc:tgC('tg-rsg-oc'),rsgTodas:tgC('tg-rsg-todas'),hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),res:tgC('tg-res'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
   document.querySelectorAll('#tg-handles input').forEach(i=>{if(!i.value.trim())delete cfg.handles[i.dataset.c];});
   try{localStorage.setItem(TG_KEY,JSON.stringify(cfg));}catch(e){}
 }
@@ -2523,6 +2524,8 @@ async function openTg(){
   if('res' in cfg)document.getElementById('tg-res').checked=cfg.res;
   if('negritas' in cfg)document.getElementById('tg-negritas').checked=cfg.negritas;
   if('coment' in cfg)document.getElementById('tg-coment').checked=cfg.coment;
+  if('rsgOc' in cfg)document.getElementById('tg-rsg-oc').checked=cfg.rsgOc;
+  if('rsgTodas' in cfg)document.getElementById('tg-rsg-todas').checked=cfg.rsgTodas;
   if(cfg.aviso!=null&&cfg.aviso!=='')document.getElementById('tg-aviso').value=cfg.aviso;
   document.getElementById('tg-ov').classList.add('on');
   document.getElementById('tg-msg').textContent='';
@@ -2605,6 +2608,13 @@ async function estadoPortal(forzar){
   const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
   EST_PORTAL={...JSON.parse(txt),version:pub.version};return EST_PORTAL;
 }
+// OC abierta al CEDI más antigua de la clave y su llegada estimada (fecha OC + tiempo de entrega)
+const tgOcCedi=(ocs,lt)=>{const a=(ocs||[]).filter(o=>!o[4]&&(+o[1]||0)>0).sort((x,y)=>String(x[2]).localeCompare(String(y[2])));if(!a.length)return null;
+  const f=String(a[0][2]||'').slice(0,10);return{folio:a[0][0],pend:a.reduce((t,o)=>t+(+o[1]||0),0),fecha:f,llega:f?P.addDias(f,Math.round((+lt||0)*P.R.MES_DIAS)):null};};
+// Clasificación por movimiento para separar los mensajes
+const TG_CLS=[['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN'],['MEDIA','🔸','MEDIA ROTACIÓN'],['LENTA','🔹','LENTA ROTACIÓN'],['NUEVOS','🆕','NUEVOS'],['OTRAS','▫️','OTRAS']];
+function tgCls(m){m=String(m||'').toUpperCase();if(m.includes('SAGRADO'))return'SAGRADOS';if(m.includes('ALTA'))return'ALTA';if(m.includes('MEDIA'))return'MEDIA';if(m.includes('LENTA'))return'LENTA';if(m.includes('NUEVO'))return'NUEVOS';return'OTRAS';}
+const tgClsCuenta=rows=>{const c={};rows.forEach(r=>{const k=tgCls(r.rotacion);c[k]=(c[k]||0)+1;});return TG_CLS.filter(([k])=>c[k]).map(([k,i,l])=>i+' '+tgNombre(l.split(' ')[0])+' '+c[k]).join(' · ');};
 const tgFila=r=>({clave:String(r.c),nombre:r.n,marca:r.m,comprador:r.comp,rotacion:r.rot,estatus:r.est,_bo:Math.round(+r.bo||0)});
 const tgRacha=(r,f)=>{const n=P.diasRacha(r.eD,f);return n==null?'':(r.eDx?n+'+':n);};
 // Faltantes, riesgo, nuevos y resueltos según el portal (estatus del día y del día anterior que guarda el Cálculo diario)
@@ -2621,7 +2631,9 @@ async function tgDatosPortal(forzar){
     // Resueltas: ayer en faltante y hoy con existencia. _dd = días que estuvo en faltante; estatus = cómo quedó hoy
     resInv:vivas.filter(r=>r.pE==='FALTANTE'&&r.est!=='FALTANTE').map(r=>{const n=P.diasRacha(r.pD,fA||fB);return{...tgFila(r),_dd:n==null?'':(r.pDx?n+'+':n)};}),
     resDesc:(E.sal||[]).filter(exc).map(tgFila),
-    riesgoB:vivas.filter(r=>r.est==='RIESGO').map(r=>({...tgFila(r),_nueva:!sinPrev&&r.pE!=='RIESGO'&&r.pE!=='FALTANTE',_dias:tgRacha(r,fB)})),
+    riesgoB:vivas.filter(r=>r.est==='RIESGO').map(r=>({...tgFila(r),_nueva:!sinPrev&&r.pE!=='RIESGO'&&r.pE!=='FALTANTE',_dias:tgRacha(r,fB),
+      nv:r.nv||null,pNv:'pNv' in r?r.pNv:undefined,pE:r.pE,dA:r.dA,fAg:r.fAg,lt:r.lt,oc:tgOcCedi(E.ocs&&E.ocs[r.c],r.lt)})),
+    sinPrevNv:!vivas.some(r=>'pNv' in r),
     nA:vivas.filter(r=>r.pE==='FALTANTE').length,nB:falt.length,
     comps:[...new Set(vivas.map(r=>String(r.comp||'').trim().toUpperCase()))].filter(Boolean)};
 }
@@ -2671,9 +2683,11 @@ function genTg2(){
   if(fSem)tend+=` | vs hace 1 semana: ${tgDelta(tgTotal(fSem),tB)}`;
   L.push(`📊 ${B('CIERRE '+tgFecha(fB).toUpperCase()+' — FALTANTES')}`);
   L.push(`Total en faltante: ${B(String(tB))} (${tend})`);
+  if(faltB.length)L.push(`   ${tgClsCuenta(faltB)}`);
   // Resueltos = igual que "Resueltas c/Inventario" del Comparativo (faltante en A, sigue en B con otro estatus)
   const nRes=resInv.length;
   L.push(`🆕 Nuevos: ${nuevas.length}   ✅ Resueltos c/inventario: ${nRes}`);
+  if(nuevas.length)L.push(`   Nuevos por clasificación: ${tgClsCuenta(nuevas)}`);
 
   const grp=rows=>{const m={};rows.forEach(r=>{const c=tgComp(r);(m[c]=m[c]||[]).push(r);});return Object.entries(m).sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));};
   const seg=TG.seg||{}, aviso=Math.max(0,parseInt(tgV('tg-aviso'))||0), conCom=tgC('tg-coment');
@@ -2688,14 +2702,13 @@ function genTg2(){
     if(conCom&&s&&s.comentario)t+=` — "${tgCorto(s.comentario,45)}"`;
     return t;};
   const linea=r=>{const d=dias[String(r.clave).trim()];return `${r.clave} ${tgCorto(r.nombre,38)}${parseInt(d)>1?` (${d}d)`:''}${eta(r,false)}`;};
+  const porCls=k=>nuevas.filter(r=>tgCls(r.rotacion)===k);
   const criticas=nuevas.filter(r=>tgRank(r.rotacion)<=1);
-  const media=nuevas.filter(r=>tgRank(r.rotacion)===2);
-  const otras=nuevas.filter(r=>tgRank(r.rotacion)>=3);
-
-  if(criticas.length){
-    L.push('');L.push(`🔴 ${B('ALTA / SAGRADOS — atender hoy')}`);
-    grp(criticas).forEach(([c,rs])=>rs.forEach(r=>L.push(`• ${tgWho(c,h)} – ${linea(r)}${tgRank(r.rotacion)===0?' [SAGRADO]':''}`)));
-  }
+  const media=porCls('MEDIA');
+  // Faltantes nuevos separados por clasificación: Sagrados y Alta siempre listados (atender hoy)
+  [['SAGRADOS','🔴','SAGRADOS — atender hoy'],['ALTA','🔴','ALTA ROTACIÓN — atender hoy']].forEach(([k,ic,t])=>{const rs0=porCls(k);if(!rs0.length)return;
+    L.push('');L.push(`${ic} ${B(t)} (${rs0.length})`);
+    grp(rs0).forEach(([c,rs])=>rs.forEach(r=>L.push(`• ${tgWho(c,h)} – ${linea(r)}`)));});
   // Fechas de llegada vencidas o próximas (cualquier rotación, claves que siguen en faltante)
   const conEta=faltB.filter(r=>['VENCIDA','PROXIMA'].includes(est(String(r.clave).trim())));
   const etaSet=new Set(conEta.map(r=>String(r.clave).trim()));
@@ -2721,8 +2734,8 @@ function genTg2(){
       }else L.push(`• ${tgWho(c,h)}: ${rs.length} clave${rs.length>1?'s':''}`);
     });
   };
-  bloque(`🟡 ${B('MEDIA — nuevos')}`,media,tgC('tg-media'));
-  bloque(`⚪ ${B('LENTA / otras — nuevos')}`,otras,tgC('tg-lenta'));
+  bloque(`🟡 ${B('MEDIA ROTACIÓN — nuevos')} (${media.length})`,media,tgC('tg-media'));
+  [['LENTA','⚪','LENTA ROTACIÓN — nuevos'],['NUEVOS','🆕','PRODUCTOS NUEVOS — faltantes nuevos'],['OTRAS','▫️','OTRAS — nuevos']].forEach(([k,ic,t])=>{const rs0=porCls(k);bloque(`${ic} ${B(t)} (${rs0.length})`,rs0,tgC('tg-lenta'));});
   if(!nuevas.length){L.push('');L.push('🎉 No hubo faltantes nuevos.');}
 
   // ALTA/SAGRADOS que ya llevan muchos días en faltante
@@ -2732,7 +2745,7 @@ function genTg2(){
   if(viejas.length){
     L.push('');L.push(`⏳ ${B(`ALTA / SAGRADOS con ${minDias}+ días en faltante`)}`);
     const top=viejas.slice(0,10);
-    top.forEach(r=>L.push(`• ${tgWho(tgComp(r),h)} – ${r.clave} ${tgCorto(r.nombre,34)} (${dias[String(r.clave).trim()]}d)${eta(r,true)}`));
+    top.forEach(r=>L.push(`• ${tgWho(tgComp(r),h)} – ${r.clave} ${tgCorto(r.nombre,34)} (${dias[String(r.clave).trim()]}d)${tgRank(r.rotacion)===0?' [SAGRADO]':''}${eta(r,true)}`));
     if(viejas.length>top.length)L.push(`   …y ${viejas.length-top.length} más (ver portal)`);
   }
 
@@ -2768,45 +2781,70 @@ function genTg2(){
   el.style.color=n>4096?'#c0392b':'#6b7a99';
 }
 
-// ── SEGUNDO MENSAJE: claves en RIESGO por clasificación ──
+// ── SEGUNDO MENSAJE: claves en RIESGO por nivel (ALTO todos los días; MEDIO y BAJO solo al entrar) y por clasificación ──
+const TG_NV={ALTO:{i:'🔴',r:0},MEDIO:{i:'🟠',r:1},BAJO:{i:'🟡',r:2}};
+const tgNvR=n=>n&&TG_NV[n]?TG_NV[n].r:3;
+// ¿Entró hoy a este nivel? (antes no estaba en riesgo, o estaba en un nivel menos grave)
+function tgEntro(r,sinPrevNv){if(r.pE==null||r.pE==='FALTANTE')return false;if(r.pE!=='RIESGO')return true;if(sinPrevNv)return false;return tgNvR(r.nv)<tgNvR(r.pNv);}
 function genTgRiesgo(){
+  const box=document.getElementById('tg-rsg-parts');if(!box)return;
   try{
-    const {fB,riesgoB}=TG;
-    const ta=document.getElementById('tg-txt2'); if(!ta)return;
-    if(!fB){ta.value='';return;}
-    const h=tgHandles();
-    const B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s);
-    const L=[];
-    // Solo NUEVAS claves en riesgo (entraron en B, no estaban en A)
-    const rsg=(riesgoB||[]).filter(r=>r._nueva);
-    L.push(`⚠️ ${B('NUEVAS CLAVES EN RIESGO — '+tgFecha(fB).toUpperCase())}`);
-    L.push(`Total nuevas en riesgo: ${B(String(rsg.length))}`);
-    if(!rsg.length){L.push('');L.push('🎉 No hay nuevas claves en riesgo.');ta.value=L.join('\n');actualizarLen2(ta.value);return;}
+    const {fB,riesgoB,sinPrevNv}=TG;
+    if(!fB){box.innerHTML='';return;}
+    const h=tgHandles(),B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s),conOc=tgC('tg-rsg-oc');
+    const all=(riesgoB||[]).filter(r=>r.nv);
+    const sinNivel=(riesgoB||[]).length&&!all.length;
+    const alto=all.filter(r=>r.nv==='ALTO'),medio=all.filter(r=>r.nv==='MEDIO'),bajo=all.filter(r=>r.nv==='BAJO');
+    const mN=medio.filter(r=>tgEntro(r,sinPrevNv)),bN=bajo.filter(r=>tgEntro(r,sinPrevNv));
+    const H=[];   // encabezado
+    H.push(`⚠️ ${B('CLAVES EN RIESGO — '+tgFecha(fB).toUpperCase())}`);
+    if(sinNivel){H.push('');H.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
+    H.push(`🔴 Alto: ${B(String(alto.length))} · 🟠 Medio: ${medio.length} (${B(mN.length+' entraron hoy')}) · 🟡 Bajo: ${bajo.length} (${B(bN.length+' entraron hoy')})`);
+    if(alto.length)H.push(`🔴 Alto por clasificación: ${tgClsCuenta(alto)}`);
+    if(sinPrevNv&&all.length)H.push('ℹ️ Primer día con niveles: en medio y bajo se listan las que entraron hoy a riesgo.');
+    const fm=f=>f?segFmt(f):'';
     const linea=r=>{
-      const bo=r._bo>0?` · 📦 BO: ${r._bo.toLocaleString('es-MX')}`:'';
-      const d=r._dias&&parseInt(r._dias)>1?` (${r._dias}d en riesgo)`:'';
-      return `   – ${r.clave} ${tgCorto(r.nombre,34)}${d}${bo}`;
+      const d=r.dA==null?null:Math.floor(r.dA);
+      let t=`   – ${r.clave} ${tgCorto(r.nombre,28)} → ${d===0?'hoy':'~'+fm(r.fAg)+' ('+d+'d)'}`;
+      if(conOc){if(r.oc){const ll=r.oc.llega;t+=` · 📦OC ${r.oc.folio}`+(ll?(ll<fB?' ⚠️atrasada':' ~'+fm(ll)+(r.fAg&&ll>r.fAg?' ⚠️después':'')):'');}else t+=' · ❗sin OC';}
+      return t;};
+    const todas=tgC('tg-rsg-todas');
+    // Bloques: nivel → clasificación → comprador. Cada bloque de comprador es una unidad para partir el mensaje.
+    const bloques=[];
+    const nivel=(icon,titulo,rows)=>{
+      if(!rows.length)return;
+      bloques.push(['',`${icon} ${B(titulo)} (${rows.length})`]);
+      TG_CLS.forEach(([k,ic,lbl])=>{const rc=rows.filter(r=>tgCls(r.rotacion)===k);if(!rc.length)return;
+        bloques.push([`${ic} ${B(lbl)} (${rc.length})`]);
+        const pc={};rc.forEach(r=>{const c=tgComp(r);(pc[c]=pc[c]||[]).push(r);});
+        const ent=Object.entries(pc).sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));
+        // En riesgo alto, Media/Lenta/Nuevos pueden ir solo en conteo por comprador (opción)
+        if(titulo.startsWith('RIESGO ALTO')&&!todas&&!['SAGRADOS','ALTA'].includes(k)){bloques.push(['   '+ent.map(([c,it])=>`${tgWho(c,h)} ${it.length}`).join(' · ')]);return;}
+        ent.forEach(([c,items])=>{
+          items.sort((a,b)=>(a.dA??9e9)-(b.dA??9e9));
+          // un comprador con muchas claves se parte en trozos para no pasar del límite de Telegram
+          const ls=items.map(linea);for(let i=0;i<ls.length;i+=40)bloques.push([`• ${tgWho(c,h)} (${items.length}${i?', continúa':''}):`,...ls.slice(i,i+40)]);});});
     };
-    // Agrupar por comprador (más claves primero)
-    const porComp={};rsg.forEach(r=>{const c=tgComp(r);(porComp[c]=porComp[c]||[]).push(r);});
-    Object.entries(porComp).sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0])).forEach(([c,items])=>{
-      items.sort((a,b)=>(parseInt(b._dias)||0)-(parseInt(a._dias)||0));
-      L.push('');L.push(`${B(tgWho(c,h))} (${items.length})`);
-      items.forEach(r=>L.push(linea(r)));
-    });
-    const link=tgV('tg-link').trim();if(link){L.push('');L.push(`🔗 Detalle: ${link}`);}
-    ta.value=L.join('\n');
-    actualizarLen2(ta.value);
-  }catch(e){const ta=document.getElementById('tg-txt2');if(ta)ta.value='❌ Error al armar el mensaje de riesgo: '+e.message;console.error(e);}
+    nivel('🔴','RIESGO ALTO — dar seguimiento hoy',alto);
+    nivel('🟠','RIESGO MEDIO — entraron hoy',mN);
+    nivel('🟡','RIESGO BAJO — entraron hoy',bN);
+    if(!alto.length&&!mN.length&&!bN.length&&!sinNivel){bloques.push(['','🎉 No hay claves en riesgo alto ni nuevas en medio o bajo.']);}
+    const link=tgV('tg-link').trim();
+    const pie=[''];pie.push('📅 → fecha estimada en que se acaba (existencia ÷ venta diaria) · 📦 OC abierta al CEDI y su llegada estimada (fecha OC + T. entrega)');if(link)pie.push(`🔗 Detalle: ${link}`);
+    // Partir en mensajes de ≤ 4,000 caracteres sin cortar un bloque
+    const LIM=4000,partes=[];let cur=H.slice();
+    bloques.forEach(bl=>{const txt=bl.join('\n');if(cur.join('\n').length+txt.length+1>LIM&&cur.length>H.length-0){partes.push(cur);cur=[`⚠️ ${B('CLAVES EN RIESGO — '+tgFecha(fB).toUpperCase())} (continúa)`];}cur.push(...bl);});
+    if(cur.join('\n').length+pie.join('\n').length>LIM){partes.push(cur);cur=[];}
+    cur.push(...pie);partes.push(cur);
+    const n=partes.length;
+    box.innerHTML=partes.map((p,i)=>`<div style="margin-top:${i?10:0}px">${n>1?`<div style="font-size:11px;font-weight:700;color:#9a5b00;margin-bottom:3px">Mensaje ${i+1} de ${n}</div>`:''}<textarea id="tg-txt2${i?'_'+i:''}" spellcheck="false" style="width:100%;min-height:${i?220:320}px;border:1.5px solid #c9d4f0;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.45;resize:vertical"></textarea>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><button class="tg-btn" style="background:#f39c12;color:#fff" onclick="copyTg2(${i})">📋 Copiar ${n>1?'mensaje '+(i+1):'mensaje de riesgo'}</button><span class="tg-m2" style="font-size:12px;color:#2e7d32;font-weight:600"></span><span class="tg-l2" style="margin-left:auto;font-size:11px;color:#6b7a99"></span></div></div>`).join('');
+    partes.forEach((p,i)=>{const ta=box.querySelectorAll('textarea')[i];ta.value=p.join('\n')+(n>1?`\n(${i+1}/${n})`:'');
+      const l=box.querySelectorAll('.tg-l2')[i];const m=ta.value.length;l.textContent=`${m.toLocaleString()} / 4,096 caracteres`;l.style.color=m>4096?'#c0392b':'#6b7a99';});
+  }catch(e){box.innerHTML='<textarea id="tg-txt2" style="width:100%;min-height:120px">❌ Error al armar el mensaje de riesgo: '+String(e.message).replace(/</g,'&lt;')+'</textarea>';console.error(e);}
 }
-function actualizarLen2(txt){
-  const el=document.getElementById('tg-len2');if(!el)return;
-  const n=txt.length;
-  el.textContent=`${n.toLocaleString()} / 4,096 caracteres`+(n>4096?' — ⚠️ Telegram lo cortará':'');
-  el.style.color=n>4096?'#c0392b':'#6b7a99';
-}
-async function copyTg2(){
-  const ta=document.getElementById('tg-txt2'),msg=document.getElementById('tg-msg2');
+async function copyTg2(i){
+  const box=document.getElementById('tg-rsg-parts');const ta=box.querySelectorAll('textarea')[i||0],msg=box.querySelectorAll('.tg-m2')[i||0];if(!ta)return;
   try{await navigator.clipboard.writeText(ta.value);}catch(e){ta.select();document.execCommand('copy');}
   if(msg){msg.textContent='✓ Copiado';setTimeout(()=>msg.textContent='',2000);}
 }
