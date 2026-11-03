@@ -6,8 +6,8 @@
 <title>Planeación e indicadores</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103a" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261103a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103b" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261103b" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
 :root{
@@ -311,7 +311,7 @@ const fmtMes=m=>m?MESES[+m.slice(5,7)]+' '+m.slice(2,4):'—';
 const hoy=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 async function todo(q){let out=[];for(let i=0;i<200;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
 // Nivel de riesgo (alto/medio/bajo) con días para agotarse
-function nivTag(r){if(!r||!r.nv)return'';const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
+function nivTag(r){if(r&&r.se&&r.est==='RIESGO')return ' <span class="pill p-n" title="Nunca ha tenido entrada (sin compras desde 2024 ni recepciones) y no tiene OC en camino: no lleva nivel de riesgo, alarma ni sale en los mensajes de riesgo">sin entradas</span>';if(!r||!r.nv)return'';const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
   return ' <span class="pill" style="background:'+c[0]+';color:'+c[1]+'" title="Riesgo '+r.nv.toLowerCase()+': se acaba ~'+(r.fAg?r.fAg.split('-').reverse().join('/'):'')+' ('+Math.floor(r.dA||0)+' días) · T. entrega '+Math.round((+r.lt||0)*P.R.MES_DIAS)+' días'+(r.vr!=null&&r.rd>r.D/P.R.MES_DIAS*1.001?' · se está vendiendo más rápido que la demanda ('+(Math.round(r.vr*10)/10)+'/día)':'')+'">'+c[2]+' '+r.nv+' · '+Math.floor(r.dA||0)+'d</span>';}
 function tag(e,on=true){const s=EST[e];if(!s)return e?'<span class="tag" style="--c:var(--st-n)">'+esc(e)+'</span>':'—';return '<span class="tag'+(on?'':' off')+'" style="--c:'+s.c+'" title="'+s.l+'"><i></i>'+s.i+' '+s.l+'</span>';}
 const usuarioPortal=()=>{try{return window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){return'';}};

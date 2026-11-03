@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103a" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261103a" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261103a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103b" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261103b" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261103b" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -2632,7 +2632,7 @@ async function tgDatosPortal(forzar){
     resInv:vivas.filter(r=>r.pE==='FALTANTE'&&r.est!=='FALTANTE').map(r=>{const n=P.diasRacha(r.pD,fA||fB);return{...tgFila(r),_dd:n==null?'':(r.pDx?n+'+':n)};}),
     resDesc:(E.sal||[]).filter(exc).map(tgFila),
     riesgoB:vivas.filter(r=>r.est==='RIESGO').map(r=>({...tgFila(r),_nueva:!sinPrev&&r.pE!=='RIESGO'&&r.pE!=='FALTANTE',_dias:tgRacha(r,fB),
-      nv:r.nv||null,pNv:'pNv' in r?r.pNv:undefined,pE:r.pE,dA:r.dA,fAg:r.fAg,lt:r.lt,oc:tgOcCedi(E.ocs&&E.ocs[r.c],r.lt)})),
+      se:r.se?1:0,nv:r.nv||null,pNv:'pNv' in r?r.pNv:undefined,pE:r.pE,dA:r.dA,fAg:r.fAg,lt:r.lt,oc:tgOcCedi(E.ocs&&E.ocs[r.c],r.lt)})),
     sinPrevNv:!vivas.some(r=>'pNv' in r),
     nA:vivas.filter(r=>r.pE==='FALTANTE').length,nB:falt.length,
     comps:[...new Set(vivas.map(r=>String(r.comp||'').trim().toUpperCase()))].filter(Boolean)};
@@ -2801,6 +2801,7 @@ function genTgRiesgo(){
     if(sinNivel){H.push('');H.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
     H.push(`🔴 Alto: ${B(String(alto.length))} · 🟠 Medio: ${medio.length} (${B(mN.length+' entraron hoy')}) · 🟡 Bajo: ${bajo.length} (${B(bN.length+' entraron hoy')})`);
     if(alto.length)H.push(`🔴 Alto por clasificación: ${tgClsCuenta(alto)}`);
+    const nSe=(riesgoB||[]).filter(r=>r.se).length;if(nSe)H.push(`ℹ️ No se incluyen ${nSe} claves en riesgo que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).`);
     if(sinPrevNv&&all.length)H.push('ℹ️ Primer día con niveles: en medio y bajo se listan las que entraron hoy a riesgo.');
     const fm=f=>f?segFmt(f):'';
     const linea=r=>{

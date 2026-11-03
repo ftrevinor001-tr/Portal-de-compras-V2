@@ -421,7 +421,9 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
     const su=ctx.sust&&ctx.sust.get(k)||null;
     const ra=P.racha(pv,est,fecha,ctx.prevFecha);
-    const nr=P.nivelRiesgo(d.ex,D,lt,est,fecha,pv.xh);
+    // Sin ninguna entrada en su historial (ni de sus claves sustituidas) y sin BO (no hay OC en camino): no lleva nivel de riesgo ni alarma
+    const se=ctx.conEntrada&&!(d.bo>0)&&!ctx.conEntrada.has(Number(k))&&!(su&&su.some(x=>ctx.conEntrada.has(Number(x.o))))?1:0;
+    const nr=P.nivelRiesgo(d.ex,D,lt,se?'':est,fecha,pv.xh);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
     const sug=X=>X==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(X*(lt+pm)-(d.ex+bo)));
@@ -442,14 +444,14 @@ P.calcularDia=(fecha,filas,ctx)=>{
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
-      ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nv:nr.nv,...(pv.nv!==undefined?{pNv:pv.nv}:{}),dA:nr.dA,fAg:nr.fAg,rd:nr.rd,vr:nr.vr,...(nr.xh&&!P.esProd(d)?{xh:nr.xh}:{}),nt:notas.join(' · ')});
+      ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nv:nr.nv,...(se?{se:1}:{}),...(pv.nv!==undefined?{pNv:pv.nv}:{}),dA:nr.dA,fAg:nr.fAg,rd:nr.rd,vr:nr.vr,...(nr.xh&&!P.esProd(d)?{xh:nr.xh}:{}),nt:notas.join(' · ')});
   });
   return out;
 };
 const EN_RIESGO=['RIESGO','FALTANTE'];
 // Foto diaria del cálculo del portal (se guarda un archivo por día): lo necesario para el histórico por clave.
 // Meses de inventario con antecedente (mA), pronóstico (mP) y demanda del portal (mi); estatus con cada base.
-P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','exC','rs','hv','bD','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE','nv','dA','fAg','rd'];
+P.FOTO_CAMPOS=['c','n','m','g','u','abc','comp','rot','ex','exC','rs','hv','bD','bo','boT','lt','pm','A','P','D','mi','miB','est','eA','eP','s','sE','sA','sP','eD','eDx','pE','nv','dA','fAg','rd','se'];
 P.foto=res=>res.map(r=>{const o={};P.FOTO_CAMPOS.forEach(k=>{if(r[k]!=null&&r[k]!=='')o[k]=r[k];});if(!r.rs){delete o.rs;delete o.exC;}const q=x=>x>0?Math.round(r.ex/x*100)/100:null;o.mA=q(r.A);o.mP=q(r.P);return o;});
 // Rotación con acentos (como la escribe el Excel) para las vistas que agrupan por rotación
 P.ROT_X={'SAGRADOS':'SAGRADOS','ALTA ROTACION':'ALTA ROTACIÓN','MEDIA ROTACION':'MEDIA ROTACIÓN','LENTA ROTACION':'LENTA ROTACIÓN','NUEVOS':'NUEVOS','SIN COMPRA':'SIN COMPRA'};
@@ -548,7 +550,7 @@ P.alarmas=(prev,prevEst,res,fecha,restr)=>{
     if(r.pr)return;   // producción no genera alarmas
     const enR=EN_RIESGO.includes(r.est);if(enR)set.push(r.c);
     if(enR&&!prev.has(r.c)){
-      if(P.R.EXCLUIR_ROT.includes(r.rot)||!r.D)return;
+      if(P.R.EXCLUIR_ROT.includes(r.rot)||!r.D||r.se)return;   // se = nunca ha tenido entrada
       const directo=r.est==='FALTANTE';
       nuevas.push({clave:r.c,comprador:r.comp,rotacion:r.rot,fecha_alarma:fecha,tipo:directo?'FALTANTE_DIRECTO':'RIESGO',
         n_meses:r.N,t_entrega:r.lt,objetivo_meses:r.pm,antecedente:r.A,pronostico:r.P,demanda:r.D,existencias:r.ex,bo:r.bo,meses_inv:r.mi,
