@@ -13,8 +13,9 @@
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
     const est=JSON.parse(txt);const mes=est.fecha.slice(0,7);const ini=mes+'-01';
+    let metaCfg={};try{const{data}=await sb.from('plan_config').select('valor').eq('id','bono_objetivos').maybeSingle();metaCfg=(data&&data.valor)||{};}catch(e){}
     const [al,cer,cmp]=await Promise.all([
-      todo(()=>sb.from('plan_alarmas').select('clave,comprador,fecha_alarma,tipo,resultado_target,oc_folio,dias_dif').gte('fecha_alarma',ini).order('fecha_alarma').order('clave')),
+      todo(()=>sb.from('plan_alarmas').select('clave,comprador,fecha_alarma,tipo,resultado_target,oc_folio,fecha_oc,dias_dif').gte('fecha_alarma',ini).order('fecha_alarma').order('clave')),
       todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,cantidad_pend,fecha_entrega,cancelada,cerrada_en,pend_inicial,entrega_directa').gte('cerrada_en',ini).order('folio').order('clave')),
       todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))]);
     const folios=[...new Set(cer.map(l=>Number(l.folio)))];const recs=new Map();
@@ -22,7 +23,7 @@
     const comp=new Map(cmp.filter(c=>c.fecha).map(c=>[Number(c.folio),d10(c.fecha)]));
     const lt=new Map((est.claves||[]).map(r=>[Number(r.c),r.lt]));
     const otif=cer.map(l=>P.otifLinea({...l,fecha_oc:d10(l.fecha_oc),fecha_entrega:d10(l.fecha_entrega)},recs.get(Number(l.folio)+'|'+Number(l.clave)),comp,lt.get(Number(l.clave)))).filter(x=>x&&x.mes===mes);
-    return{fecha:est.fecha,mes,claves:(est.claves||[]).filter(r=>!r.pr&&!P.esProd(r)),ocs:est.ocs||{},alarmas:al.map(a=>({...a,fecha_alarma:d10(a.fecha_alarma)})),otif};
+    return{fecha:est.fecha,mes,claves:(est.claves||[]).filter(r=>!r.pr&&!P.esProd(r)),ocs:est.ocs||{},alarmas:al.map(a=>({...a,fecha_alarma:d10(a.fecha_alarma),fecha_oc:d10(a.fecha_oc)})),otif,metaCfg};
   }
 
   function aplicar(alarmas,v){
@@ -45,11 +46,16 @@
       push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario que el objetivo × 1.4.');
       const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));
       push(comp,'PEDIDO_PROPUESTO',ped,ped.length,nota+' Faltante y riesgo con propuesta = demanda × (tiempo de entrega + objetivo) − (existencia + BO del CEDI, sin entregas directas).');
-      const al=v.alarmas.filter(a=>mine(a.comprador));let n=0,ok=0,pend=0;
-      al.forEach(a=>{if(!a.resultado_target){pend++;return;}if(NO_CUENTA.includes(a.resultado_target))return;n++;if(CUMPLE.includes(a.resultado_target))ok++;});
-      const ord={'TARDE':0,'SIN OC':1,'ANTICIPACION EXCESIVA':2};
-      const itT=al.slice().sort((a,b)=>(ord[a.resultado_target]??5)-(ord[b.resultado_target]??5)).map(a=>({Clave:a.clave,'Fecha alarma':a.fecha_alarma.split('-').reverse().join('/'),Resultado:a.resultado_target||'EN PLAZO',OC:a.oc_folio||'','Días':a.dias_dif==null?'':a.dias_dif,...(comp==='GENERAL'?{Comprador:a.comprador}:{})}));
-      push(comp,'TARGET',itT,n,nota+' Cumple si la OC se coloca en tiempo o anticipada respecto al día en que la clave entró a riesgo.',{ocsOk:ok,pct:n?Math.round(ok/n*1000)/10:null,texto:ok+' de '+n+' alarmas evaluadas cumplen Target (<b>'+(n?(Math.round(ok/n*1000)/10)+'%':'—')+'</b>) · '+pend+' aún en plazo.'});
+      // Target por nivel de riesgo: nivel de la clave el día que se colocó la OC (bajo/anticipada = cumple · medio = con riesgo · alto/faltante/sin OC = no cumple)
+      const al=v.alarmas.filter(a=>mine(a.comprador));
+      const TR=P.targetResumen(al,c=>P.metaTarget(v.metaCfg,c)).gen;const meta=P.metaTarget(v.metaCfg,comp==='GENERAL'?'GENERAL':comp);
+      const ordT={'SIN OC':0,FALTANTE:1,ALTO:2,MEDIO:3};
+      const itT=al.slice().sort((a,b)=>(ordT[a.resultado_target]??5)-(ordT[b.resultado_target]??5)).map(a=>({Clave:a.clave,'Fecha alarma':a.fecha_alarma.split('-').reverse().join('/'),'Nivel al colocar la OC':P.T_LBL[a.resultado_target]||a.resultado_target||'⏳ En plazo',OC:a.oc_folio||'','Fecha OC':a.fecha_oc?a.fecha_oc.split('-').reverse().join('/'):'',...(comp==='GENERAL'?{Comprador:a.comprador}:{})}));
+      const pcT=x=>x==null?'—':Math.round(x*1000)/10+'%';
+      push(comp,'TARGET',itT,TR.n,nota+' Target por nivel de riesgo: cada alarma se califica con el nivel que tenía la clave el día que se colocó la OC. ✅ cumple: OC en riesgo bajo o antes de entrar a riesgo · ⚠️ cumple con riesgo: en medio · ❌ no cumple: en alto, en faltante, o sin OC cuando ya está en alto. Meta: '+meta+'% (Admin → Objetivos del bono).',
+        {ocsOk:TR.OK,pct:TR.target!=null?Math.round(TR.target*1000)/10:null,meta,
+         porClmov:Object.fromEntries([['✅ Cumple',TR.OK],['⚠️ Con riesgo (medio)',TR.RIESGO],['❌ No cumple',TR.NO],['⏳ En plazo',TR.PEND]].filter(x=>x[1])),
+         texto:'Target <b style="color:'+(TR.target==null?'inherit':TR.target*100>=meta?'#1f6f3a':'#b42318')+'">'+pcT(TR.target)+'</b> de OCs colocadas en riesgo bajo · meta '+meta+'% · '+TR.OK+' de '+TR.n+' evaluadas'+(TR.RIESGO?' · '+TR.RIESGO+' en medio (cumplen con riesgo: '+pcT(TR.cumpleTot)+' en total)':'')+(TR.PEND?' · '+TR.PEND+' aún en plazo':'')+'.'});
       const ol=v.otif.filter(l=>mine(l.comprador));
       const g=ol.length?P.otifResumen(ol.map(x=>({...x,g:'G'})),'g')[0]:null;
       const pc=x=>x==null?'—':(Math.round(x*1000)/10)+'%';

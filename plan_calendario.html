@@ -6,8 +6,8 @@
 <title>Calendario de pedidos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103d" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261103d" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103g" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261103g" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6;--blue:#1c4587;--bluebg:#e8eefc;--teal:#0f766e;--tealbg:#e3f4f1}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -187,7 +187,7 @@ async function recargar(){
     if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado.');
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.claves=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));
+    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.claves=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));S.byC=new Map(S.claves.map(r=>[Number(r.c),r]));
     S.F=await P.calFuentes(sb,sbc());S.F.prov=P.provPorClave(S.claves,S.F);
     S.abiertas=new Map();
     try{const fol=(await todo(()=>sb.from('plan_propuestas').select('folio,estado').order('folio'))).filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);
@@ -212,9 +212,11 @@ function calcular(){
 const enPed=(p,h)=>p&&p.t<=h;
 function clasePed(p){if(!p)return'c-lejos';if(p.atr>0||p.t===0)return'c-venc';if(p.t<=7)return'c-sem';if(p.t<=30)return'c-prox';return'c-lejos';}
 function etqPed(p){if(!p)return'sin pedido en el horizonte';if(p.atr>0)return'Vencido · pedir '+fCorta(p.f);if(p.t===0)return'Hoy '+fCorta(p.f);return fCorta(p.f)+' · en '+p.t+' días';}
+// Claves en riesgo ALTO de un pedido (del cálculo del portal)
+const altoDe=p=>p?p.lineas.filter(l=>(S.byC.get(Number(l.c))||{}).nv==='ALTO').length:0;
 function gruposVisibles(){
   const q=($('f-q').value||'').trim().toUpperCase();
-  return S.cal.filter(g=>(!S.diaF||g.pedidos.some(p=>p.f===S.diaF))).filter(g=>!q||g.g.toUpperCase().includes(q)||g.pedidos.some(p=>p.lineas.some(l=>String(l.c).startsWith(q)||(l.m||'').toUpperCase().includes(q))));
+  return S.cal.filter(g=>(!S.diaF||g.pedidos.some(p=>p.f===S.diaF))).filter(g=>!S.soloAlto||altoDe(g.prox)>0).filter(g=>!q||g.g.toUpperCase().includes(q)||g.pedidos.some(p=>p.lineas.some(l=>String(l.c).startsWith(q)||(l.m||'').toUpperCase().includes(q))));
 }
 function pintar(){
   const G=gruposVisibles(),H=Number($('f-h').value);
@@ -225,14 +227,15 @@ function pintar(){
   $('kpis').innerHTML='<div class="kpi r"><b>'+nf(venc.length)+'</b><span>pedidos vencidos o de hoy</span></div><div class="kpi a"><b>'+nf(sem.length)+'</b><span>pedidos esta semana</span></div>'
     +'<div class="kpi"><b>'+nf(q14.length)+'</b><span>pedidos en 14 días</span></div><div class="kpi"><b>'+mxn(v14)+'</b><span>valor estimado a 14 días</span></div>'
     +'<div class="kpi"><b>'+nf(G.reduce((a,g)=>a+g.pedidos.length,0))+'</b><span>pedidos en '+H+' días</span></div>'
-    +($('f-ag').value==='PROV'?'<div class="kpi"><b>'+nf(sinProv)+'</b><span>claves sin proveedor (agrupadas por marca)</span></div>':'');
+    +($('f-ag').value==='PROV'?'<div class="kpi"><b>'+nf(sinProv)+'</b><span>claves sin proveedor (agrupadas por marca)</span></div>':'')
+    +'<div class="kpi r" style="cursor:pointer;'+(S.soloAlto?'outline:2px solid var(--err)':'')+'" onclick="S.soloAlto=!S.soloAlto;pintar()" title="Clic para ver solo los pedidos con claves en riesgo alto"><b>'+nf(G.filter(g=>altoDe(g.prox)>0).length)+'</b><span>🔴 con claves en riesgo alto'+(S.soloAlto?' · <u>quitar filtro</u>':' · ver solo estos')+'</span></div>';
   const pedDe=g=>S.diaF?g.pedidos.find(x=>x.f===S.diaF):g.prox;
   const rows=G.filter(g=>pedDe(g));
   $('lista').innerHTML=rows.map(g=>{const p=pedDe(g),ip=g.pedidos.indexOf(p);const enF=p.lineas.filter(l=>S.abiertas.has(l.c)).length;
     const org=Object.entries(g.org).map(([o,n])=>'<span class="chip o-'+o.split(' ')[0]+'">'+esc(o.toLowerCase())+' '+n+'</span>').join(' ');
     return '<tr class="clic'+(S.sel===g.g?' sel':'')+'" onclick="abrirG(\''+encodeURIComponent(g.g)+'\','+ip+')"><td><span class="chip '+clasePed(p)+'">'+etqPed(p)+'</span></td><td><b>'+esc(g.g)+'</b></td><td class="sm" title="'+esc(g.comps.join(', '))+'">'+esc(g.comps.slice(0,2).join(', '))+(g.comps.length>2?' <span class="mut">+'+(g.comps.length-2)+'</span>':'')+'</td>'
       +'<td class="sm">'+(g.cicloAuto?'cada '+g.ciclo+' días <span class="mut">(auto)</span>':'cada <b>'+g.ciclo+'</b> días')+(g.dias?' · '+esc(g.dias):'')+'</td>'
-      +'<td class="num">'+nf(p.claves)+(enF?' <span class="chip c-teal" title="Ya están en un folio de propuesta abierto">'+enF+' en folio</span>':'')+'</td><td class="num">'+nf(p.pzas)+'</td><td class="num">'+mxn(p.valor)+(p.sinCosto?' <span class="mut sm" title="Claves sin costo de compra">+'+p.sinCosto+' s/c</span>':'')+'</td>'
+      +'<td class="num">'+nf(p.claves)+(altoDe(p)?' <span class="chip" style="background:#fde2e0;color:#b42318" title="Claves de este pedido en riesgo alto: se acaban antes de la mitad del tiempo de entrega">🔴 '+altoDe(p)+' alto</span>':'')+(enF?' <span class="chip c-teal" title="Ya están en un folio de propuesta abierto">'+enF+' en folio</span>':'')+'</td><td class="num">'+nf(p.pzas)+'</td><td class="num">'+mxn(p.valor)+(p.sinCosto?' <span class="mut sm" title="Claves sin costo de compra">+'+p.sinCosto+' s/c</span>':'')+'</td>'
       +'<td class="av">'+esc(p.av.join(' · '))+'</td><td class="sm mut">'+g.pedidos.slice(1,5).map(x=>fCorta(x.f)).join(' · ')+'</td><td>'+org+'</td></tr>';}).join('')
     ||'<tr><td colspan="10" class="mut">No hay pedidos en el horizonte con estos filtros.</td></tr>';
   const sinP=G.length-rows.length;
@@ -278,7 +281,8 @@ function pintarDet(){
   $('det-acc').innerHTML=(p.av.length?'<span class="av">⚠️ '+esc(p.av.join(' · '))+'</span>':'')
     +Object.entries(porComp).map(([c,ks])=>'<button class="sm" onclick="crearProp(\''+esc(c)+'\','+S.ped+')">📝 Crear propuesta '+esc(c)+' · '+ks.length+(ks.length===1?' clave':' claves')+'</button>').join('')
     +'<span class="d">'+(p.atr>0?'Pedido vencido: hay claves que ya pasaron su punto de pedido (en riesgo o faltante). ':'')+'La propuesta se abre en Propuestas de compra con estas claves para que la revises y crees el folio.</span>';
-  $('det-b').innerHTML=p.lineas.slice().sort((a,b)=>a.pos-b.pos).map(l=>'<tr><td><b>'+l.c+'</b></td><td class="desc">'+esc(l.n)+'</td><td>'+esc(l.m)+'</td><td>'+esc(l.comp||'')+'</td><td class="e-'+esc(l.est||'')+'">'+esc(l.est||'')+'</td>'
+  const rk=l=>P.nivRank(S.byC.get(Number(l.c)));
+  $('det-b').innerHTML=p.lineas.slice().sort((a,b)=>rk(a)-rk(b)||a.pos-b.pos).map(l=>'<tr><td><b>'+l.c+'</b></td><td class="desc">'+esc(l.n)+'</td><td>'+esc(l.m)+'</td><td>'+esc(l.comp||'')+'</td><td class="e-'+esc(l.est||'')+'">'+esc(l.est||'')+P.nivChip(S.byC.get(Number(l.c)))+'</td>'
     +'<td class="num">'+nf(l.D,1)+'</td><td class="num">'+nf(l.pos,1)+'</td><td class="num">'+nf(l.rop,1)+'</td><td>'+(l.atr>0?'<span class="chip c-venc">ya pasó</span>':fCorta(l.fp))+'</td>'
     +'<td class="num"><b>'+nf(l.q)+'</b> <span class="mut sm">'+esc(l.u)+'</span></td><td class="sm">'+esc(l.emp?l.emp.toLowerCase():'')+'</td><td class="num">'+(l.costo!=null?mxn(l.costo):'—')+'</td><td class="num">'+(l.valor!=null?mxn(l.valor):'—')+'</td>'
     +'<td class="sm">'+esc(l.prov.o==='MARCA'?'(sin proveedor)':l.prov.p)+' <span class="chip o-'+l.prov.o.split(' ')[0]+'">'+esc(l.prov.o.toLowerCase())+'</span></td><td>'+(S.abiertas.has(l.c)?'<span class="chip c-teal">'+esc(S.abiertas.get(l.c))+'</span>':'')+'</td></tr>').join('');
@@ -295,7 +299,7 @@ function crearProp(comp,i){
 // ── Excel ──
 function filasXL(gs,soloPed){
   const out=[];gs.forEach(g=>g.pedidos.forEach((p,i)=>{if(soloPed!=null&&i!==soloPed)return;p.lineas.forEach(l=>out.push({'Fecha de pedido':p.f,'Vencido':p.atr>0?'SÍ':'','Proveedor / grupo':g.g,'Ciclo (días)':g.ciclo,'Ciclo':g.cicloAuto?'automático':'definido',
-    'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est,'Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
+    'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est,'Nivel de riesgo':(S.byC.get(Number(l.c))||{}).nv||'','Se acaba (estimado)':(S.byC.get(Number(l.c))||{}).fAg||'','Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
     'Cantidad':l.q,'Unidad':l.u,'Empaque':l.emp||'','Costo':l.costo,'Valor':l.valor,'Proveedor de la clave':l.prov.o==='MARCA'?'':l.prov.p,'Origen proveedor':l.prov.o,'Folio abierto':S.abiertas.get(l.c)||'','Avisos del pedido':p.av.join(' · ')}));}));
   return out;
 }

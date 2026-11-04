@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103d" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261103d" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261103d" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103g" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261103g" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261103g" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -543,7 +543,7 @@ const TIPOS={
   OC_3_MESES:{t:'OC >3 meses sin recibir',sev:'alta',icon:'🚨',dash:'Back Orders'},
   OC_SIN_APLICAR:{t:'OC sin aplicar >1 semana',sev:'media',icon:'📋',dash:'Back Orders'},
   PEDIDO_PROPUESTO:{t:'Pedidos propuestos a colocar',sev:'media',icon:'🛒',dash:'Planeación e indicadores'},
-  TARGET:{t:'Target por comprador',sev:'ok',icon:'🎯',dash:'Planeación e indicadores'},
+  TARGET:{t:'Target por nivel de riesgo',sev:'ok',icon:'🎯',dash:'Planeación e indicadores'},
   OTIF:{t:'OTIF de proveedor del mes',sev:'ok',icon:'🚚',dash:'Planeación e indicadores'}
 };
 let RES={alarmas:null,resumen:null,mesesSel:new Set(),chart:null};
@@ -702,6 +702,7 @@ function renderResumen(){
     let body='';
     if(t==='TARGET'||t==='OTIF'){
       body=d.texto?`<p style="font-size:13px;color:#334155">${d.texto}</p>`:`<p style="font-size:13px;color:#334155">${d.ocsOk||0} de ${d.total||0} órdenes de compra cumplen Target (<b>${d.pct!=null?d.pct+'%':'—'}</b>).</p>`;
+      if(d.porClmov&&Object.keys(d.porClmov).length)body+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+Object.entries(d.porClmov).map(([k,v])=>`<span style="font-size:11px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:3px 10px;color:#334155"><b>${v}</b> ${k}</span>`).join('')+'</div>';
       const its=d.items||[];
       if(its.length){const its2=conMarca(its);const cols=Object.keys(its2[0]);
         body+='<div class="alist" style="margin-top:8px">'+tablaHTML(t,cols,its2)+'</div>';}

@@ -478,6 +478,13 @@ P.diasRacha=(eD,fecha)=>eD&&fecha?Math.round((new Date(fecha+'T12:00:00')-new Da
 //   BAJO  = todavía alcanza a cubrir el tiempo de entrega si se pide ya
 P.R.MES_DIAS=30.4;P.R.RITMO_DIAS=14;P.R.RITMO_MIN_DIAS=5;P.R.RITMO_MAX=2;P.R.NIV_ALTO=0.5;P.R.NIV_MEDIO=1;P.R.NIV_DIAS_ALTO=7;
 P.NIVELES=['ALTO','MEDIO','BAJO'];
+P.nivRank=r=>r&&r.est==='FALTANTE'?0:r&&r.nv==='ALTO'?1:r&&r.nv==='MEDIO'?2:r&&r.nv==='BAJO'?3:4;
+// Etiqueta del nivel de riesgo para las tablas (Propuestas, Calendario): «🔴 ALTO · 5d» con fecha estimada en el título
+P.nivChip=r=>{if(!r)return'';
+  if(r.se&&r.est==='RIESGO')return' <span style="display:inline-block;border-radius:10px;padding:1px 7px;font-size:10.5px;font-weight:700;background:#eef1f6;color:#64748b;white-space:nowrap" title="Nunca ha tenido entrada (sin compras desde 2024) y no tiene OC en camino: no lleva nivel de riesgo">sin entradas</span>';
+  const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
+  const d=Math.floor(r.dA||0),f=r.fAg?r.fAg.split('-').reverse().join('/'):'';
+  return' <span style="display:inline-block;border-radius:10px;padding:1px 7px;font-size:10.5px;font-weight:700;background:'+c[0]+';color:'+c[1]+';white-space:nowrap" title="Riesgo '+r.nv.toLowerCase()+': se acaba ~'+f+' ('+d+' días) · T. entrega '+Math.round((+r.lt||0)*P.R.MES_DIAS)+' días">'+c[2]+' '+r.nv+' · '+(d<=0?'hoy':d+'d')+'</span>';};
 P.addDias=(f,n)=>{const d=new Date(f+'T12:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+P.pad(d.getMonth()+1)+'-'+P.pad(d.getDate());};
 P.difDias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
 // Ritmo real de salida (piezas/día) con la existencia de los días anteriores: solo cuentan los tramos en que la existencia bajó o se quedó igual
@@ -751,6 +758,49 @@ P.target=(al,ocs,hoy)=>{
   if(P.dias(fa,hoy)>P.R.T_DESPUES)return res('SIN OC',null);   // provisional: cambia a TARDE si llega la OC
   return null;   // todavía dentro del plazo
 };
+// ══ Target por nivel de riesgo (nov-2026, reemplaza al Target por días) ══
+// Cada alarma se liga a la OC que se colocó para atenderla y se califica con el nivel de riesgo que tenía la clave
+// el día que se colocó la OC (foto diaria del portal de ese día o del último día anterior):
+//   ANTICIPADA o BAJO → ✅ cumple · MEDIO → ⚠️ cumple con riesgo · ALTO o FALTANTE → ❌ no cumple.
+// Sin OC: queda en plazo mientras la clave esté en bajo o medio; si sube a alto o cae a faltante queda «SIN OC» (no cumple, provisional:
+// cambia al nivel de la OC cuando se coloque). Si sale de riesgo sin OC: «SIN NECESIDAD» (no cuenta).
+P.R.T_NIVEL_DESDE='2026-11-01';P.R.META_TARGET=80;
+P.T_GRUPO={ANTICIPADA:'OK',BAJO:'OK',MEDIO:'RIESGO',ALTO:'NO',FALTANTE:'NO','SIN OC':'NO',
+  // esquema anterior (alarmas antes de nov-2026)
+  'EN TIEMPO':'OK','TARDE':'NO','ANTICIPACION EXCESIVA':'NO'};
+P.T_FINAL=['ANTICIPADA','BAJO','MEDIO','ALTO','FALTANTE','SIN NIVEL','SIN NECESIDAD'];
+// Grupo del resultado: OK · RIESGO · NO · PEND (aún en plazo) · NC (no cuenta)
+P.tGrupo=res=>!res?'PEND':P.T_GRUPO[res]||'NC';
+P.T_LBL={ANTICIPADA:'✅ Anticipada',BAJO:'🟡 Bajo',MEDIO:'🟠 Medio',ALTO:'🔴 Alto',FALTANTE:'⚫ Faltante','SIN OC':'❗ Sin OC','SIN NECESIDAD':'Sin necesidad','SIN NIVEL':'Sin nivel',EXCLUIDA:'Excluida','EN REVISION GERENCIA':'En revisión gerencia'};
+// Nivel de una fila del cálculo / foto diaria: FALTANTE · ALTO · MEDIO · BAJO · ANTICIPADA (aún no estaba en riesgo)
+P.nivelEn=(r,fecha)=>{if(!r)return null;if(r.est==='FALTANTE')return{nv:'FALTANTE',dA:0};
+  if(r.est==='RIESGO'){if(r.nv)return{nv:r.nv,dA:r.dA??null};const x=P.nivelRiesgo(Number(r.ex)||0,Number(r.D)||0,r.lt,'RIESGO',fecha,null);return{nv:x.nv||'BAJO',dA:x.dA};}
+  return{nv:'ANTICIPADA',dA:null};};
+// OC que atiende la alarma: una OC al CEDI que ya estaba abierta desde antes (anticipada), o la primera colocada desde (alarma − margen)
+P.targetOC=(al,ocs)=>{
+  const fa=P.d10(al.fecha_alarma),mg=P.margen(al.t_entrega);
+  const vs=ocs.filter(o=>o.fecha_oc&&!o.cancelada&&!o.entrega_directa).map(o=>({...o,fecha_oc:P.d10(o.fecha_oc),d:P.dias(fa,o.fecha_oc)})).sort((a,b)=>a.d-b.d);
+  const vieja=vs.filter(o=>o.d<-mg&&(!o.cerrada_en||P.d10(o.cerrada_en)>=fa)).pop();
+  if(vieja)return{o:vieja,ant:true};
+  const o=vs.find(o=>o.d>=-mg);return o?{o,ant:false}:null;
+};
+// nivOC(fecha,clave) → {nv,dA} con la foto de ese día · nivHoy = nivel actual de la clave
+P.targetNivel=(al,link,nivOC,nivHoy)=>{
+  const res=(r,o,dA)=>({resultado_target:r,oc_folio:o?Number(o.folio):null,fecha_oc:o?o.fecha_oc:null,dias_dif:o?o.d:null,dias_agotar:dA==null?null:Math.round(dA)});
+  if(link){if(link.ant)return res('ANTICIPADA',link.o,null);const n=nivOC(link.o.fecha_oc,Number(al.clave));return res(n&&n.nv?n.nv:'SIN NIVEL',link.o,n?n.dA:null);}
+  if(al.fecha_fin)return res('SIN NECESIDAD',null,null);
+  const h=nivHoy;return h&&(h.nv==='ALTO'||h.nv==='FALTANTE')?res('SIN OC',null,h.dA):res(null,null,null);
+};
+// Resumen por comprador: evaluadas = cumple + con riesgo + no cumple. Target = % cumple (OC en bajo o anticipada).
+P.targetResumen=(al,meta)=>{
+  const g={};al.forEach(a=>{const c=a.comprador||'(sin comprador)';const o=g[c]||(g[c]={nombre:c,total:0,OK:0,RIESGO:0,NO:0,PEND:0,NC:0,res:{}});o.total++;o[P.tGrupo(a.resultado_target)]++;const r=a.resultado_target||'EN PLAZO';o.res[r]=(o.res[r]||0)+1;});
+  const fin=o=>{const n=o.OK+o.RIESGO+o.NO;const m=meta?meta(o.nombre):P.R.META_TARGET;return{...o,n,target:n?o.OK/n:null,cumpleTot:n?(o.OK+o.RIESGO)/n:null,meta:m};};
+  const filas=Object.values(g).map(fin).sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)));
+  const t={nombre:'GENERAL',total:0,OK:0,RIESGO:0,NO:0,PEND:0,NC:0,res:{}};filas.forEach(o=>{['total','OK','RIESGO','NO','PEND','NC'].forEach(k=>t[k]+=o[k]);Object.entries(o.res).forEach(([k,v])=>t.res[k]=(t.res[k]||0)+v);});
+  return{filas,gen:fin(t)};
+};
+// Meta del Target (% de OCs colocadas en riesgo bajo o anticipadas) por comprador: Admin → Objetivos del bono (plan_config 'bono_objetivos', campo TARGET)
+P.metaTarget=(cfg,comp)=>{const k=cfg&&Object.keys(cfg).find(x=>x!=='GENERAL'&&P.mismoComp(x,comp));const v=k&&cfg[k].TARGET;const g=cfg&&cfg.GENERAL&&cfg.GENERAL.TARGET;return v!=null?Number(v):g!=null?Number(g):P.R.META_TARGET;};
 // OTIF por línea cerrada. compromisos: Map folio → fecha
 P.otifLinea=(l,recs,compromisos,lt)=>{
   if(l.entrega_directa)return null;                                 // entrega directa a sucursal: no es OTIF del CEDI
