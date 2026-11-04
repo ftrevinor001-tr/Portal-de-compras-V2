@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103b" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261103b" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261103b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261103c" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261103c" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261103c" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -192,6 +192,7 @@
         <span id="res-meses"></span>
         <button class="abtn" style="margin-top:0" id="res-dl" onclick="descargarResumenExcel()">⬇ Descargar Excel</button>
         <button class="abtn" style="margin-top:0;background:#1c4587" id="res-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
+        <button class="abtn" style="margin-top:0;background:#b42318" id="res-rg" onclick="openRiesgo()">⚠️ Riesgo del día</button>
         <button class="abtn" style="margin-top:0;background:#6a4bb3;display:none" id="res-seg" onclick="openSeg()">📝 Seguimiento llegadas</button>
         <button class="abtn" style="margin-top:0;background:#229ED9;display:none" id="res-tg" onclick="openTg()">📲 Resumen Telegram</button>
         <button class="abtn" style="margin-top:0;background:#b8860b;display:none" id="res-upload" onclick="document.getElementById('fx').click()">📂 Cargar Excel (Admin)</button>
@@ -455,6 +456,8 @@ function entrarPortal(){
   document.getElementById('user-name').textContent='👤 '+usuarioActual;
   chip.style.display='flex';
   switchTab(0);
+  // Link del mensaje de Telegram: ?riesgo=1 abre Riesgo del día
+  try{if(new URLSearchParams(location.search).has('riesgo'))setTimeout(()=>openRiesgo(),300);}catch(e){}
 }
 // ── Avisos de Propuestas de compra (plan_avisos · plan_tablas_18.sql) ──
 // Le llegan al usuario del portal cuyo nombre coincide con el destinatario (MARITZA = MARITZA HERNANDEZ).
@@ -2460,9 +2463,7 @@ init();
         <p style="font-size:10.5px;color:#6b7a99;margin-top:6px">Puedes editar el texto antes de copiarlo. Los datos salen de la base del portal (detalle diario).</p>
         <div style="margin-top:16px;border-top:1px dashed #c9d4f0;padding-top:12px">
           <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Claves en RIESGO por nivel (alto, medio, bajo) y clasificación</div>
-          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">🔴 <b>Alto</b> sale todos los días · 🟠 <b>Medio</b> y 🟡 <b>Bajo</b> solo el día que la clave entra a ese nivel. Nivel según los días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega. Si pasa de 4,096 caracteres se parte en varios mensajes.</div>
-          <div class="chk" style="font-size:12px;margin-bottom:2px"><input type="checkbox" id="tg-rsg-oc" checked onchange="tgSave();genTg()"> Mostrar OC en camino y su llegada estimada</div>
-          <div class="chk" style="font-size:12px;margin-bottom:6px"><input type="checkbox" id="tg-rsg-todas" checked onchange="tgSave();genTg()"> Riesgo alto: listar todas las clasificaciones (si no, Media, Lenta y Nuevos solo en conteo por comprador)</div>
+          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">Un solo mensaje: totales, una línea por comprador con su riesgo alto que pide acción (sin OC, OC atrasada u OC que llega tarde) y las claves Sagrados y Alta rotación en riesgo alto <b>sin OC</b>. El detalle completo está en el portal: <b>Mi Resumen → ⚠️ Riesgo del día</b> (el link del mensaje lo abre).</div>
           <div id="tg-rsg-parts"><textarea id="tg-txt2" spellcheck="false">Cargando…</textarea></div>
         </div>
       </div>
@@ -2484,7 +2485,7 @@ function tgV(id){return document.getElementById(id)?.value||'';}
 function tgC(id){return !!document.getElementById(id)?.checked;}
 function tgHandles(){const h={};document.querySelectorAll('#tg-handles input').forEach(i=>{if(i.value.trim())h[i.dataset.c]=i.value.trim();});return h;}
 function tgSave(){
-  const cfg={rsgOc:tgC('tg-rsg-oc'),rsgTodas:tgC('tg-rsg-todas'),hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),res:tgC('tg-res'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
+  const cfg={hora:tgV('tg-hora'),link:tgV('tg-link'),dias:tgV('tg-dias'),aviso:tgV('tg-aviso'),coment:tgC('tg-coment'),media:tgC('tg-media'),lenta:tgC('tg-lenta'),res:tgC('tg-res'),negritas:tgC('tg-negritas'),handles:{...(tgLoad().handles||{}),...tgHandles()}};
   document.querySelectorAll('#tg-handles input').forEach(i=>{if(!i.value.trim())delete cfg.handles[i.dataset.c];});
   try{localStorage.setItem(TG_KEY,JSON.stringify(cfg));}catch(e){}
 }
@@ -2524,8 +2525,6 @@ async function openTg(){
   if('res' in cfg)document.getElementById('tg-res').checked=cfg.res;
   if('negritas' in cfg)document.getElementById('tg-negritas').checked=cfg.negritas;
   if('coment' in cfg)document.getElementById('tg-coment').checked=cfg.coment;
-  if('rsgOc' in cfg)document.getElementById('tg-rsg-oc').checked=cfg.rsgOc;
-  if('rsgTodas' in cfg)document.getElementById('tg-rsg-todas').checked=cfg.rsgTodas;
   if(cfg.aviso!=null&&cfg.aviso!=='')document.getElementById('tg-aviso').value=cfg.aviso;
   document.getElementById('tg-ov').classList.add('on');
   document.getElementById('tg-msg').textContent='';
@@ -2633,7 +2632,7 @@ async function tgDatosPortal(forzar){
     resDesc:(E.sal||[]).filter(exc).map(tgFila),
     riesgoB:vivas.filter(r=>r.est==='RIESGO').map(r=>({...tgFila(r),_nueva:!sinPrev&&r.pE!=='RIESGO'&&r.pE!=='FALTANTE',_dias:tgRacha(r,fB),
       se:r.se?1:0,nv:r.nv||null,pNv:'pNv' in r?r.pNv:undefined,pE:r.pE,dA:r.dA,fAg:r.fAg,lt:r.lt,oc:tgOcCedi(E.ocs&&E.ocs[r.c],r.lt)})),
-    sinPrevNv:!vivas.some(r=>'pNv' in r),
+    sinPrevNv:!vivas.some(r=>'pNv' in r),rg:rgFilas(E),
     nA:vivas.filter(r=>r.pE==='FALTANTE').length,nB:falt.length,
     comps:[...new Set(vivas.map(r=>String(r.comp||'').trim().toUpperCase()))].filter(Boolean)};
 }
@@ -2781,67 +2780,37 @@ function genTg2(){
   el.style.color=n>4096?'#c0392b':'#6b7a99';
 }
 
-// ── SEGUNDO MENSAJE: claves en RIESGO por nivel (ALTO todos los días; MEDIO y BAJO solo al entrar) y por clasificación ──
-const TG_NV={ALTO:{i:'🔴',r:0},MEDIO:{i:'🟠',r:1},BAJO:{i:'🟡',r:2}};
-const tgNvR=n=>n&&TG_NV[n]?TG_NV[n].r:3;
-// ¿Entró hoy a este nivel? (antes no estaba en riesgo, o estaba en un nivel menos grave)
-function tgEntro(r,sinPrevNv){if(r.pE==null||r.pE==='FALTANTE')return false;if(r.pE!=='RIESGO')return true;if(sinPrevNv)return false;return tgNvR(r.nv)<tgNvR(r.pNv);}
+// ── SEGUNDO MENSAJE: riesgo compacto (un mensaje). El detalle está en Mi Resumen → Riesgo del día ──
 function genTgRiesgo(){
   const box=document.getElementById('tg-rsg-parts');if(!box)return;
   try{
-    const {fB,riesgoB,sinPrevNv}=TG;
-    if(!fB){box.innerHTML='';return;}
-    const h=tgHandles(),B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s),conOc=tgC('tg-rsg-oc');
-    const all=(riesgoB||[]).filter(r=>r.nv);
-    const sinNivel=(riesgoB||[]).length&&!all.length;
-    const alto=all.filter(r=>r.nv==='ALTO'),medio=all.filter(r=>r.nv==='MEDIO'),bajo=all.filter(r=>r.nv==='BAJO');
-    const mN=medio.filter(r=>tgEntro(r,sinPrevNv)),bN=bajo.filter(r=>tgEntro(r,sinPrevNv));
-    const H=[];   // encabezado
-    H.push(`⚠️ ${B('CLAVES EN RIESGO — '+tgFecha(fB).toUpperCase())}`);
-    if(sinNivel){H.push('');H.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
-    H.push(`🔴 Alto: ${B(String(alto.length))} · 🟠 Medio: ${medio.length} (${B(mN.length+' entraron hoy')}) · 🟡 Bajo: ${bajo.length} (${B(bN.length+' entraron hoy')})`);
-    if(alto.length)H.push(`🔴 Alto por clasificación: ${tgClsCuenta(alto)}`);
-    const nSe=(riesgoB||[]).filter(r=>r.se).length;if(nSe)H.push(`ℹ️ No se incluyen ${nSe} claves en riesgo que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).`);
-    if(sinPrevNv&&all.length)H.push('ℹ️ Primer día con niveles: en medio y bajo se listan las que entraron hoy a riesgo.');
-    const fm=f=>f?segFmt(f):'';
-    const linea=r=>{
-      const d=r.dA==null?null:Math.floor(r.dA);
-      let t=`   – ${r.clave} ${tgCorto(r.nombre,28)} → ${d===0?'hoy':'~'+fm(r.fAg)+' ('+d+'d)'}`;
-      if(conOc){if(r.oc){const ll=r.oc.llega;t+=` · 📦OC ${r.oc.folio}`+(ll?(ll<fB?' ⚠️atrasada':' ~'+fm(ll)+(r.fAg&&ll>r.fAg?' ⚠️después':'')):'');}else t+=' · ❗sin OC';}
-      return t;};
-    const todas=tgC('tg-rsg-todas');
-    // Bloques: nivel → clasificación → comprador. Cada bloque de comprador es una unidad para partir el mensaje.
-    const bloques=[];
-    const nivel=(icon,titulo,rows)=>{
-      if(!rows.length)return;
-      bloques.push(['',`${icon} ${B(titulo)} (${rows.length})`]);
-      TG_CLS.forEach(([k,ic,lbl])=>{const rc=rows.filter(r=>tgCls(r.rotacion)===k);if(!rc.length)return;
-        bloques.push([`${ic} ${B(lbl)} (${rc.length})`]);
-        const pc={};rc.forEach(r=>{const c=tgComp(r);(pc[c]=pc[c]||[]).push(r);});
-        const ent=Object.entries(pc).sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));
-        // En riesgo alto, Media/Lenta/Nuevos pueden ir solo en conteo por comprador (opción)
-        if(titulo.startsWith('RIESGO ALTO')&&!todas&&!['SAGRADOS','ALTA'].includes(k)){bloques.push(['   '+ent.map(([c,it])=>`${tgWho(c,h)} ${it.length}`).join(' · ')]);return;}
-        ent.forEach(([c,items])=>{
-          items.sort((a,b)=>(a.dA??9e9)-(b.dA??9e9));
-          // un comprador con muchas claves se parte en trozos para no pasar del límite de Telegram
-          const ls=items.map(linea);for(let i=0;i<ls.length;i+=40)bloques.push([`• ${tgWho(c,h)} (${items.length}${i?', continúa':''}):`,...ls.slice(i,i+40)]);});});
-    };
-    nivel('🔴','RIESGO ALTO — dar seguimiento hoy',alto);
-    nivel('🟠','RIESGO MEDIO — entraron hoy',mN);
-    nivel('🟡','RIESGO BAJO — entraron hoy',bN);
-    if(!alto.length&&!mN.length&&!bN.length&&!sinNivel){bloques.push(['','🎉 No hay claves en riesgo alto ni nuevas en medio o bajo.']);}
-    const link=tgV('tg-link').trim();
-    const pie=[''];pie.push('📅 → fecha estimada en que se acaba (existencia ÷ venta diaria) · 📦 OC abierta al CEDI y su llegada estimada (fecha OC + T. entrega)');if(link)pie.push(`🔗 Detalle: ${link}`);
-    // Partir en mensajes de ≤ 4,000 caracteres sin cortar un bloque
-    const LIM=4000,partes=[];let cur=H.slice();
-    bloques.forEach(bl=>{const txt=bl.join('\n');if(cur.join('\n').length+txt.length+1>LIM&&cur.length>H.length-0){partes.push(cur);cur=[`⚠️ ${B('CLAVES EN RIESGO — '+tgFecha(fB).toUpperCase())} (continúa)`];}cur.push(...bl);});
-    if(cur.join('\n').length+pie.join('\n').length>LIM){partes.push(cur);cur=[];}
-    cur.push(...pie);partes.push(cur);
-    const n=partes.length;
-    box.innerHTML=partes.map((p,i)=>`<div style="margin-top:${i?10:0}px">${n>1?`<div style="font-size:11px;font-weight:700;color:#9a5b00;margin-bottom:3px">Mensaje ${i+1} de ${n}</div>`:''}<textarea id="tg-txt2${i?'_'+i:''}" spellcheck="false" style="width:100%;min-height:${i?220:320}px;border:1.5px solid #c9d4f0;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.45;resize:vertical"></textarea>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><button class="tg-btn" style="background:#f39c12;color:#fff" onclick="copyTg2(${i})">📋 Copiar ${n>1?'mensaje '+(i+1):'mensaje de riesgo'}</button><span class="tg-m2" style="font-size:12px;color:#2e7d32;font-weight:600"></span><span class="tg-l2" style="margin-left:auto;font-size:11px;color:#6b7a99"></span></div></div>`).join('');
-    partes.forEach((p,i)=>{const ta=box.querySelectorAll('textarea')[i];ta.value=p.join('\n')+(n>1?`\n(${i+1}/${n})`:'');
-      const l=box.querySelectorAll('.tg-l2')[i];const m=ta.value.length;l.textContent=`${m.toLocaleString()} / 4,096 caracteres`;l.style.color=m>4096?'#c0392b':'#6b7a99';});
+    const {fB,rg}=TG;if(!fB||!rg){box.innerHTML='';return;}
+    const h=tgHandles(),B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s);
+    const L=[],F=rg.filas,alto=F.filter(r=>r.nv==='ALTO');
+    const n=st=>alto.filter(r=>r.st===st).length;
+    L.push(`⚠️ ${B('RIESGO — '+tgFecha(fB).toUpperCase())}`);
+    if(rg.sinNivel){L.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
+    L.push(`🔴 Alto ${B(String(alto.length))} → ❗${n('SIN_OC')} sin OC · ⚠️${n('ATRASADA')} OC atrasada · ⚠️${n('TARDE')} llega tarde · ✅${n('A_TIEMPO')} a tiempo`);
+    if(alto.length)L.push(`   ${tgClsCuenta(alto)}`);
+    L.push(`🟠 Medio nuevas: ${F.filter(r=>r.nv==='MEDIO'&&r.nueva).length}   🟡 Bajo nuevas: ${F.filter(r=>r.nv==='BAJO'&&r.nueva).length}`+(rg.sinPrevNv?' (primer día: las que entraron hoy a riesgo)':''));
+    // Una línea por comprador
+    const comps=rgPorComprador(F);
+    const lc=comps.filter(a=>a.accion||a.mN||a.bN);
+    if(lc.length){L.push('');L.push(`${B('Por comprador')} (riesgo alto que pide acción)`);
+      lc.forEach(a=>L.push(`• ${tgWho(a.c,h)} ${B(String(a.accion))}: `+[a.SIN_OC?'❗'+a.SIN_OC+' sin OC':'',a.ATRASADA?a.ATRASADA+(a.ATRASADA>1?' atrasadas':' atrasada'):'',a.TARDE?a.TARDE+' tarde':''].filter(Boolean).join(', ')+(a.mN||a.bN?' | nuevas'+(a.mN?' 🟠'+a.mN:'')+(a.bN?' 🟡'+a.bN:''):'')));}
+    // Sagrados y Alta rotación en riesgo alto SIN OC, separadas
+    const sin=alto.filter(r=>r.st==='SIN_OC');
+    const sec=[['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN']].map(([k,ic,t])=>[ic,t,sin.filter(r=>tgCls(r.rotacion)===k).sort((a,b)=>(a.dA??9e9)-(b.dA??9e9))]).filter(x=>x[2].length);
+    if(sec.length){L.push('');L.push(`🚨 ${B('Riesgo alto SIN OC')}`);
+      sec.forEach(([ic,t,rs])=>{L.push(`${ic} ${B(t)} (${rs.length})`);const top=rs.slice(0,15);
+        top.forEach(r=>L.push(`• ${tgWho(tgComp(r),h)} – ${r.clave} ${tgCorto(r.nombre,30)} → ${r.dA!=null&&Math.floor(r.dA)<=0?'HOY':segFmt(r.fAg)}`));
+        if(rs.length>top.length)L.push(`   …y ${rs.length-top.length} más en el portal`);});}
+    if(rg.nSe)L.push('',`ℹ️ No se incluyen ${rg.nSe} claves en riesgo que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).`);
+    const link=tgV('tg-link').trim();if(link){L.push('');L.push(`👉 Detalle por comprador: ${link.replace(/[?#].*$/,'')}?riesgo=1`);}
+    const txt=L.join('\n');
+    box.innerHTML=`<textarea id="tg-txt2" spellcheck="false" style="width:100%;min-height:340px;border:1.5px solid #c9d4f0;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.45;resize:vertical"></textarea>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><button class="tg-btn" style="background:#f39c12;color:#fff" onclick="copyTg2(0)">📋 Copiar mensaje de riesgo</button><span class="tg-m2" style="font-size:12px;color:#2e7d32;font-weight:600"></span><span class="tg-l2" style="margin-left:auto;font-size:11px;color:${txt.length>4096?'#c0392b':'#6b7a99'}">${txt.length.toLocaleString()} / 4,096 caracteres${txt.length>4096?' — ⚠️ Telegram lo cortará':''}</span></div>`;
+    box.querySelector('textarea').value=txt;
   }catch(e){box.innerHTML='<textarea id="tg-txt2" style="width:100%;min-height:120px">❌ Error al armar el mensaje de riesgo: '+String(e.message).replace(/</g,'&lt;')+'</textarea>';console.error(e);}
 }
 async function copyTg2(i){
@@ -2859,6 +2828,128 @@ async function copyTg(){
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('tg-ov')?.classList.contains('on'))closeTg();});
 </script>
 <!-- ══════════ /RESUMEN PARA TELEGRAM ══════════ -->
+
+<!-- ══════════ RIESGO DEL DÍA ══════════ -->
+<style>
+#rg-ov{position:fixed;inset:0;background:rgba(15,23,42,.6);display:none;align-items:flex-start;justify-content:center;z-index:9998;overflow:auto;padding:20px 10px}
+#rg-ov.on{display:flex}
+#rg-box{background:#fff;border-radius:12px;max-width:1280px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);color:#1a2035}
+#rg-box header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #e2e6ed;flex-wrap:wrap}
+#rg-box h2{font-size:15px;color:#1e3a5f}
+#rg-flt{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 18px;background:#f5f6fa;border-bottom:1px solid #e2e6ed}
+#rg-flt select{padding:5px 8px;border:1.5px solid #c9d4f0;border-radius:6px;font-size:12px;font-family:inherit}
+#rg-kpis{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px 0}
+.rg-k{border-radius:8px;padding:6px 10px;font-weight:700;font-size:12px}
+#rg-wrap{padding:6px 18px 16px;overflow:auto;max-height:calc(100vh - 250px)}
+#rg-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#rg-tbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569;padding:7px 6px;border-bottom:2px solid #e2e6ed;position:sticky;top:0;background:#fff;z-index:1}
+#rg-tbl td{padding:7px 6px;border-bottom:1px solid #eef1f6;vertical-align:middle}
+#rg-tbl td.n{text-align:right;font-variant-numeric:tabular-nums}
+#rg-tbl tr.cp{cursor:pointer}#rg-tbl tr.cp:hover td{background:#f5f8ff}
+#rg-tbl tr.cp td:first-child{font-weight:700;white-space:nowrap}
+#rg-tbl tr.det>td{background:#fafbfd;padding:0}
+#rg-tbl .sub{width:calc(100% - 18px);margin:4px 0 10px 18px;border-collapse:collapse;font-size:11.5px}
+#rg-tbl .sub th{position:static;border-bottom:1px solid #e2e6ed;background:transparent}
+#rg-tbl .sub td{padding:5px 6px}
+.rg-p{display:inline-block;border-radius:10px;padding:1px 8px;font-size:10.5px;font-weight:700;white-space:nowrap}
+.rg-ALTO,.rg-SIN_OC{background:#fde2e0;color:#b42318}.rg-MEDIO,.rg-ATRASADA{background:#ffedd5;color:#9a3412}.rg-BAJO{background:#fef9c3;color:#854d0e}.rg-TARDE{background:#fef3c7;color:#92400e}.rg-A_TIEMPO{background:#e3f2e6;color:#1f6f3a}
+.rg-z{color:#cbd5e1}.rg-m{font-size:10.5px;color:#6b7a99}
+</style>
+<div id="rg-ov" onclick="if(event.target===this)closeRiesgo()">
+  <div id="rg-box">
+    <header>
+      <h2>⚠️ Riesgo del día</h2>
+      <span id="rg-st" style="font-size:11px;color:#6b7a99"></span>
+      <button class="tg-x" style="margin-left:auto" onclick="closeRiesgo()">✕ Cerrar</button>
+    </header>
+    <div id="rg-kpis"></div>
+    <div id="rg-flt">
+      <select id="rg-comp" onchange="renderRiesgo()"><option value="">Todos los compradores</option></select>
+      <select id="rg-nv" onchange="renderRiesgo()"><option value="">Todos los niveles</option><option value="ALTO">🔴 Alto</option><option value="MEDIO">🟠 Medio</option><option value="BAJO">🟡 Bajo</option></select>
+      <select id="rg-cls" onchange="renderRiesgo()"><option value="">Todas las clasificaciones</option><option value="SAGRADOS">⭐ Sagrados</option><option value="ALTA">🔺 Alta rotación</option><option value="MEDIA">🔸 Media rotación</option><option value="LENTA">🔹 Lenta rotación</option><option value="NUEVOS">🆕 Nuevos</option></select>
+      <select id="rg-st2" onchange="renderRiesgo()"><option value="">Toda situación de OC</option><option value="SIN_OC">❗ Sin OC</option><option value="ATRASADA">⚠️ OC atrasada</option><option value="TARDE">⚠️ OC llega tarde</option><option value="A_TIEMPO">✅ OC a tiempo</option></select>
+      <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="rg-acc" checked onchange="renderRiesgo()"> Solo las que piden acción</label>
+      <button class="sg-save" style="background:#1e7a4a;padding:6px 12px;font-size:12px;margin-left:auto" onclick="rgExcel()">⬇ Descargar Excel</button>
+    </div>
+    <div id="rg-wrap">
+      <table id="rg-tbl"><thead><tr><th>Comprador</th><th class="n">🔴 Alto</th><th class="n">❗ Sin OC</th><th class="n">⚠️ OC atrasada</th><th class="n">⚠️ OC llega tarde</th><th class="n">✅ OC a tiempo</th><th class="n">🟠 Medio nuevas</th><th class="n">🟡 Bajo nuevas</th></tr></thead>
+      <tbody id="rg-body"><tr><td colspan="8" style="padding:30px;text-align:center;color:#6b7a99">Cargando…</td></tr></tbody></table>
+      <p class="rg-m" style="margin-top:10px;line-height:1.5"><b>Nivel</b>: días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega — 🔴 alto: se acaba en 7 días o menos o antes de la mitad del T. entrega · 🟠 medio: antes del T. entrega · 🟡 bajo: aún cubre el T. entrega.
+      <b>Se acaba</b> = fecha estimada en que se termina la existencia. <b>OC</b> = la OC abierta al CEDI más antigua; llega = fecha OC + T. entrega. <b>Pide acción</b> = riesgo alto sin OC, con OC atrasada o que llega después de que se acabe; y medio/bajo solo el día que entran a ese nivel.</p>
+    </div>
+  </div>
+</div>
+<script>
+// ── RIESGO DEL DÍA (lee el cálculo publicado del portal) ──
+const RG={d:null,open:new Set()};
+const RG_ST={SIN_OC:'❗ Sin OC',ATRASADA:'⚠️ OC atrasada',TARDE:'⚠️ Llega tarde',A_TIEMPO:'✅ OC a tiempo'};
+const RG_NV={ALTO:'🔴 Alto',MEDIO:'🟠 Medio',BAJO:'🟡 Bajo'};
+const rgRank=n=>({ALTO:0,MEDIO:1,BAJO:2})[n]??3;
+// ¿Entró hoy a este nivel? (antes no estaba en riesgo, o estaba en un nivel menos grave)
+function rgEntro(r,sinPrevNv){if(r.pE==null||r.pE==='FALTANTE')return false;if(r.pE!=='RIESGO')return true;if(sinPrevNv)return false;return rgRank(r.nv)<rgRank(r.pNv);}
+// Filas de riesgo con su situación de OC: SIN_OC · ATRASADA (su llegada estimada ya pasó) · TARDE (llega después de que se acabe) · A_TIEMPO
+function rgFilas(E){
+  const viv=(E.claves||[]).filter(r=>!r.pr&&!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase()));
+  const sinPrev=!viv.some(r=>'pE' in r),sinPrevNv=!viv.some(r=>'pNv' in r);
+  const rs=viv.filter(r=>r.est==='RIESGO');
+  const filas=rs.filter(r=>r.nv&&!r.se).map(r=>{const oc=tgOcCedi(E.ocs&&E.ocs[r.c],r.lt);
+    const st=!oc?'SIN_OC':oc.llega&&oc.llega<E.fecha?'ATRASADA':oc.llega&&r.fAg&&oc.llega>r.fAg?'TARDE':'A_TIEMPO';
+    return{...tgFila(r),nv:r.nv,dA:r.dA,fAg:r.fAg,lt:r.lt,ex:r.ex,oc,st,nueva:r.nv==='ALTO'?false:(sinPrev?false:rgEntro(r,sinPrevNv))};});
+  return{fecha:E.fecha,filas,sinPrevNv,nSe:rs.filter(r=>r.se).length,sinNivel:rs.length>0&&!rs.some(r=>r.nv)};
+}
+const rgAccion=r=>r.nv==='ALTO'?r.st!=='A_TIEMPO':r.nueva;
+function rgPorComprador(F){
+  const m={};F.forEach(r=>{const c=tgComp(r);const a=m[c]||(m[c]={c,alto:0,SIN_OC:0,ATRASADA:0,TARDE:0,A_TIEMPO:0,accion:0,mN:0,bN:0});
+    if(r.nv==='ALTO'){a.alto++;a[r.st]++;if(r.st!=='A_TIEMPO')a.accion++;}else if(r.nueva){if(r.nv==='MEDIO')a.mN++;else a.bN++;}});
+  return Object.values(m).sort((x,y)=>y.accion-x.accion||y.alto-x.alto||x.c.localeCompare(y.c));
+}
+async function openRiesgo(){
+  document.getElementById('rg-ov').classList.add('on');
+  const st=document.getElementById('rg-st');st.textContent='⏳ leyendo el cálculo del portal…';
+  try{
+    const E=await estadoPortal();RG.d=rgFilas(E);
+    const comps=rgPorComprador(RG.d.filas).map(a=>a.c).sort();
+    const sel=document.getElementById('rg-comp');const prev=sel.value;
+    sel.innerHTML='<option value="">Todos los compradores</option>'+comps.map(c=>`<option value="${c}">${tgCorto2(c)}</option>`).join('');
+    // Al comprador se le abre directo lo suyo
+    const yo=comps.find(c=>P.mismoComp(c,usuarioActual));
+    if(prev&&comps.includes(prev))sel.value=prev;else if(yo&&!esAdmin){sel.value=yo;}
+    RG.open=new Set(yo?[yo]:[]);
+    st.textContent='Cálculo del portal al '+tgDMY(RG.d.fecha)+(RG.d.nSe?' · no incluye '+RG.d.nSe+' claves que nunca han tenido entrada':'')+(RG.d.sinNivel?' · ⚠️ el cálculo publicado no trae niveles: corre el Cálculo diario':'');
+    renderRiesgo();
+  }catch(e){st.textContent='';document.getElementById('rg-body').innerHTML='<tr><td colspan="8" style="padding:20px;color:#b42318">❌ '+String(e.message||e).replace(/</g,'&lt;')+'</td></tr>';}
+}
+function closeRiesgo(){document.getElementById('rg-ov').classList.remove('on');}
+function rgFiltro(){const v=id=>document.getElementById(id).value;const comp=v('rg-comp'),nv=v('rg-nv'),cls=v('rg-cls'),st=v('rg-st2'),acc=document.getElementById('rg-acc').checked;
+  return r=>(!comp||tgComp(r)===comp)&&(!nv||r.nv===nv)&&(!cls||tgCls(r.rotacion)===cls)&&(!st||(r.nv==='ALTO'&&r.st===st))&&(!acc||rgAccion(r));}
+function renderRiesgo(){
+  if(!RG.d)return;const F=RG.d.filas,ok=rgFiltro(),comp=document.getElementById('rg-comp').value;
+  const base=comp?F.filter(r=>tgComp(r)===comp):F;const al=base.filter(r=>r.nv==='ALTO');const n=s=>al.filter(r=>r.st===s).length;
+  document.getElementById('rg-kpis').innerHTML=[['🔴 Alto',al.length,'#fde2e0'],['❗ Sin OC',n('SIN_OC'),'#fde2e0'],['⚠️ OC atrasada',n('ATRASADA'),'#ffedd5'],['⚠️ Llega tarde',n('TARDE'),'#fef3c7'],['✅ OC a tiempo',n('A_TIEMPO'),'#e3f2e6'],['🟠 Medio nuevas',base.filter(r=>r.nv==='MEDIO'&&r.nueva).length,'#ffedd5'],['🟡 Bajo nuevas',base.filter(r=>r.nv==='BAJO'&&r.nueva).length,'#fef9c3']]
+    .map(x=>`<div class="rg-k" style="background:${x[2]}">${x[1]} <span style="font-weight:600">${x[0]}</span></div>`).join('')
+    +`<div class="rg-k" style="background:#f1f5f9">${tgClsCuenta(al)||'—'} <span style="font-weight:600">en alto</span></div>`;
+  const z=v=>v?v:'<span class="rg-z">0</span>';const esc3=x=>String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+  const fd=r=>r.dA!=null&&Math.floor(r.dA)<=0?'<b>HOY</b>':'<b>'+segFmt(r.fAg)+'</b> <span class="rg-m">('+Math.floor(r.dA)+' d)</span>';
+  const rows=rgPorComprador(base).map(a=>{
+    const rs=F.filter(r=>tgComp(r)===a.c&&ok(r)).sort((x,y)=>rgRank(x.nv)-rgRank(y.nv)||tgRank(x.rotacion)-tgRank(y.rotacion)||(x.dA??9e9)-(y.dA??9e9));
+    const ab=RG.open.has(a.c);
+    let h=`<tr class="cp" onclick="rgToggle('${a.c.replace(/'/g,"\\'")}')"><td>${ab?'▾':'▸'} ${esc3(tgCorto2(a.c))} <span class="rg-m">(${rs.length})</span></td><td class="n"><b>${z(a.alto)}</b></td><td class="n">${z(a.SIN_OC)}</td><td class="n">${z(a.ATRASADA)}</td><td class="n">${z(a.TARDE)}</td><td class="n">${z(a.A_TIEMPO)}</td><td class="n">${z(a.mN)}</td><td class="n">${z(a.bN)}</td></tr>`;
+    if(ab)h+=`<tr class="det"><td colspan="8"><table class="sub"><thead><tr><th>Nivel</th><th>Clasificación</th><th>Clave</th><th>Descripción</th><th style="text-align:right">Existencia</th><th>Se acaba</th><th style="text-align:right">T. entrega</th><th>OC</th><th>Situación</th></tr></thead><tbody>`+
+      (rs.map(r=>`<tr><td><span class="rg-p rg-${r.nv}">${RG_NV[r.nv]}</span>${r.nueva?' <span class="rg-m">nueva</span>':''}</td><td class="rg-m">${(TG_CLS.find(x=>x[0]===tgCls(r.rotacion))||[])[1]||''} ${tgNombre(((TG_CLS.find(x=>x[0]===tgCls(r.rotacion))||[])[2]||'').split(' ')[0])}</td><td>${r.clave}</td><td>${esc3(tgCorto(r.nombre,46))}</td><td style="text-align:right">${Math.round(+r.ex||0).toLocaleString('es-MX')}</td><td>${fd(r)}</td><td style="text-align:right">${Math.round((+r.lt||0)*P.R.MES_DIAS)} d</td><td>${r.oc?r.oc.folio+' <span class="rg-m">llega '+segFmt(r.oc.llega)+'</span>':'—'}</td><td>${r.nv==='ALTO'?`<span class="rg-p rg-${r.st}">${RG_ST[r.st]}</span>`:'<span class="rg-m">'+(r.oc?RG_ST[r.st]:'sin OC')+'</span>'}</td></tr>`).join('')||'<tr><td colspan="9" class="rg-m" style="padding:8px">Nada con este filtro ✅</td></tr>')+'</tbody></table></td></tr>';
+    return h;}).join('');
+  document.getElementById('rg-body').innerHTML=rows||'<tr><td colspan="8" style="padding:30px;text-align:center;color:#6b7a99">Sin claves en riesgo. ✅</td></tr>';
+}
+function rgToggle(c){RG.open.has(c)?RG.open.delete(c):RG.open.add(c);renderRiesgo();}
+function rgExcel(){
+  if(!RG.d)return;const ok=rgFiltro();
+  const rows=RG.d.filas.filter(ok).sort((x,y)=>tgComp(x).localeCompare(tgComp(y))||rgRank(x.nv)-rgRank(y.nv)||tgRank(x.rotacion)-tgRank(y.rotacion)||(x.dA??9e9)-(y.dA??9e9))
+    .map(r=>({Comprador:tgComp(r),Nivel:r.nv,Nueva:r.nueva?'SÍ':'',Clasificación:P.ROT_X[r.rotacion]||r.rotacion,Clave:Number(r.clave),Descripción:r.nombre,Marca:r.marca||'',Existencia:r.ex,'Días para agotarse':r.dA,'Se acaba (estimado)':r.fAg,'T. entrega (días)':Math.round((+r.lt||0)*P.R.MES_DIAS),'OC abierta':r.oc?r.oc.folio:'','Llegada estimada OC':r.oc?r.oc.llega:'','Situación':RG_ST[r.st]}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riesgo del día');
+  XLSX.writeFile(wb,'Riesgo_del_dia_'+RG.d.fecha+'.xlsx');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('rg-ov')?.classList.contains('on'))closeRiesgo();});
+</script>
+<!-- ══════════ /RIESGO DEL DÍA ══════════ -->
 
 <!-- ══════════ SEGUIMIENTO DE FALTANTES (fechas de llegada) ══════════ -->
 <style>
