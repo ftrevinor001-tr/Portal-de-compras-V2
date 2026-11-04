@@ -529,7 +529,7 @@ P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
 // Se usa proporción porque la cantidad de la OC puede venir en unidad de compra y el BO en unidad de inventario.
 P.fracBoCEDI=(cur,enc,sinED)=>{
   const g=new Map();
-  (cur?[...cur.values()]:[]).forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;const e=enc&&enc.get(Number(l.folio));const ed=P.esED(e&&e.destino,l.comprador||(e&&e.comprador),sinED);
+  (cur?[...cur.values()]:[]).forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;const e=enc&&enc.get(Number(l.folio));const ed=P.edOC(l.folio,e&&e.destino,l.comprador||(e&&e.comprador),sinED);
     const o=g.get(l.clave)||{t:0,ed:0};o.t+=p;if(ed)o.ed+=p;g.set(l.clave,o);});
   const m=new Map();g.forEach((o,k)=>{if(o.ed>0)m.set(k,(o.t-o.ed)/o.t);});return m;
 };
@@ -709,6 +709,11 @@ P.recetaTxt=x=>{const f=Number(x[1]),q=x[2],z=Number(x[3])||1,um=String(x[4]||''
 // aunque Observaciones traiga una sucursal. La lista se edita en Cálculo diario (tabla plan_config); esta es la de arranque.
 P.R.SIN_ED_DEF=['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA'];
 P.esED=(destino,comprador,sinED)=>!!destino&&!(sinED||new Set(P.R.SIN_ED_DEF)).has(P.norm(comprador||''));
+// Tipo de entrega definido a mano por OC (plan_oc_tipo): manda sobre la regla de observaciones. folio → 'ED' | 'CEDI'
+P.R.OC_TIPO=new Map();
+P.edOC=(folio,destino,comprador,sinED)=>{const t=P.R.OC_TIPO.get(Number(folio));return t?t==='ED':P.esED(destino,comprador,sinED);};
+// ¿La observación deja dudas? (no nombra sucursal: solo una frase como «ENTREGA DIRECTA» o un lugar sin sucursal)
+P.edDudosa=obs=>{const d=P.destinoED(obs||'');return!d||P.esLugarExtra(d);};
 // Encabezados de OC (RP01-23): Map folio → {estatus, estado, obs}
 P.ocEncabezados=wb=>{
   const ws=P.hoja(wb,['RP01-23 Ordenes de Compra']);if(!ws)return new Map();

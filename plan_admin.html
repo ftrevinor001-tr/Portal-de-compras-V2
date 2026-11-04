@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261103g" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261104a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -112,6 +112,16 @@ td:first-child,th:first-child{text-align:left}
       <div><div class="d" style="margin-bottom:4px">Frases</div><textarea id="ed-fra" rows="5" style="width:260px" placeholder="ENTREGA DIRECTA&#10;DIRECTO A CLIENTE"></textarea></div>
       <div style="align-self:flex-end"><button onclick="guardarCfgED()">Guardar lugares y frases</button><div class="d" id="ed-res2" style="margin-top:6px;max-width:420px"></div></div>
     </div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>Tipo de entrega por OC (definido a mano).</b> Para las OCs cuya observación <b>no dice la sucursal</b> (p. ej. la cal: «PAGO ANTICIPADO - ENTREGA DIRECTA»), aquí se define si fue <b>CEDI</b> o <b>entrega directa</b> y eso manda sobre la regla de observaciones (BO del CEDI, OTIF, Target y limpieza de la venta).
+      <br>• <b>Archivo</b> «Entregas directas por OC» (hoja con <b>Folio OC</b>, <b>Observaciones</b>, <b>Comprador</b> y <b>TIPO DE SOLICITUD</b>): se guardan las OCs cuya observación no nombra sucursal y las que el archivo clasifica distinto a la observación. Los compradores que reciben en sucursal se quedan en CEDI. Cada carga actualiza las que trae.
+      <br>• <b>Una por una</b>: <code>folio, ED o CEDI, sucursal</code> (un renglón por OC).</p>
+    <div class="row" style="align-items:flex-start">
+      <div><input type="file" id="f-octipo" accept=".xlsx,.xls"><button onclick="run('octipo')">Cargar archivo</button></div>
+      <div><textarea id="octipo-man" rows="3" style="width:260px" placeholder="114614, ED, AHUATENO&#10;114608, CEDI"></textarea><br><button class="sec" onclick="run('octipo_man')">Guardar renglones</button></div>
+      <div class="d" id="octipo-res" style="max-width:420px"></div>
+    </div>
+    <div class="log" id="log-octipo"></div>
   </div>
   <div class="card">
     <h2><span class="n">🏬</span>Número base de Mas Ferre <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
@@ -237,7 +247,7 @@ async function sesionOk(){const{data:{session}}=await sb.auth.getSession();if(!s
 async function run(tipo){
   if(ocupado[tipo])return;ocupado[tipo]=true;
   const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
-  const log=L(tipo.startsWith('prov_')?'prov':tipo.startsWith('ori')?'ori':tipo);log.clear();
+  const log=L(tipo.startsWith('prov_')?'prov':tipo.startsWith('ori')?'ori':tipo.startsWith('octipo')?'octipo':tipo);log.clear();
   try{
     await sesionOk();
     if(tipo==='ventas')await cargaVentas(log);
@@ -257,6 +267,8 @@ async function run(tipo){
     if(tipo==='prov_plant')await plantillaProv(log);
     if(tipo==='prov_reg')await cargaProvReg(log);
     if(tipo==='sustx')await bajarConversiones(log);
+    if(tipo==='octipo')await cargaOcTipo(log,false);
+    if(tipo==='octipo_man')await cargaOcTipo(log,true);
   }catch(e){log.msg('❌ '+e.message,'e');}
   finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
 }
@@ -400,6 +412,7 @@ async function cargaCalc(log){
   // Producción: relación insumo → producto (hoja Base produccion; si no viene, la última guardada)
   await baseProduccion(wb,ctx,log);
   // BO de entregas directas: no llega al CEDI, se quita del BO para la propuesta
+  await leerOcTipo(log);
   try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb),await cargarSinED());log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
   // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
   const prevEst=await leerEstadoPublicado(pub,log);
@@ -864,6 +877,48 @@ async function guardarHistEstatus(res,f,log){
 }
 // ── Compradores sin entrega directa (configurables) ──
 let SIN_ED=null;
+// ── Tipo de entrega por OC definido a mano (plan_oc_tipo) ──
+async function leerOcTipo(log){
+  try{const rs=await todo(()=>sb.from('plan_oc_tipo').select('folio,tipo').order('folio'));P.R.OC_TIPO=new Map(rs.map(r=>[Number(r.folio),r.tipo]));
+    if(log&&rs.length)log.msg('📌 Tipo de entrega definido a mano: '+fmt(rs.length)+' OCs ('+fmt(rs.filter(r=>r.tipo==='ED').length)+' entrega directa · '+fmt(rs.filter(r=>r.tipo==='CEDI').length)+' CEDI).');}
+  catch(e){P.R.OC_TIPO=new Map();}
+}
+async function cargaOcTipo(log,manual){
+  const out=document.getElementById('octipo-res');out.textContent='';
+  const sinED=await cargarSinED();await cargarCfgED();
+  let filas=[];
+  if(manual){
+    const err=[];document.getElementById('octipo-man').value.split('\n').map(x=>x.trim()).filter(Boolean).forEach((ln,i)=>{const p=ln.split(/[,;\t]/).map(x=>x.trim());
+      const f=P.clave(p[0]),t=P.norm(p[1]||'');const tipo=t==='ED'||t.includes('DIRECTA')?'ED':t==='CEDI'||t.includes('CEDI')?'CEDI':null;
+      if(f==null||!tipo){err.push('renglón '+(i+1));return;}filas.push({folio:f,tipo,sucursal:P.norm(p[2]||'')||null,fuente:'MANUAL'});});
+    if(err.length)throw new Error('Revisa: '+err.join(', ')+' (formato: folio, ED o CEDI, sucursal)');
+  }else{
+    const fi=document.getElementById('f-octipo').files[0];if(!fi)throw new Error('Selecciona el archivo de entregas directas por OC.');
+    log.msg('📄 Leyendo '+fi.name+'…');const wb=XLSX.read(await fi.arrayBuffer(),{type:'array',cellDates:true});
+    let aoa=null,h=null;for(const n of wb.SheetNames){const a=P.aoa(wb.Sheets[n]);const hh=P.header(a,['FOLIO OC','OBSERVACIONES','TIPO DE SOLICITUD']);if(hh){aoa=a;h=hh;break;}}
+    if(!h)throw new Error('No encontré una hoja con las columnas Folio OC, Observaciones y TIPO DE SOLICITUD.');
+    const iC0=h.cols.indexOf('COMPRADOR'),iC=iC0>=0?iC0:null;let tot=0,suc=0,sinEd=0;
+    for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx['FOLIO OC']]);if(f==null)continue;tot++;
+      const obs=r[h.idx['OBSERVACIONES']]||'',t=P.norm(r[h.idx['TIPO DE SOLICITUD']]||'');if(!t)continue;
+      const comp=iC!=null?P.norm(r[iC]||''):'';
+      if(sinED.has(comp)){sinEd++;continue;}                                 // comprador que recibe en sucursal y mueve al CEDI: se queda en CEDI
+      const tipo=t.includes('DIRECTA')?'ED':'CEDI';const d=P.destinoED(obs);const regla=P.esED(d,comp,sinED)?'ED':'CEDI';
+      // Se guarda si la observación deja dudas (no nombra sucursal) o si el archivo dice otra cosa que la regla de observaciones
+      if(!P.edDudosa(obs)&&tipo===regla){suc++;continue;}
+      if(!d&&tipo==='CEDI')continue;                                          // sin frase ni lugar y CEDI: ya es CEDI por la regla
+      filas.push({folio:f,tipo,sucursal:d&&!P.esLugarExtra(d)?d:null,fuente:'ARCHIVO ED'});}
+    log.msg('   '+fmt(tot)+' OCs en el archivo · '+fmt(suc)+' ya quedan igual con la observación · '+fmt(sinEd)+' de compradores que reciben en sucursal (se quedan en CEDI) · '+fmt(filas.length)+' se guardan como definidas a mano.');
+  }
+  if(!filas.length){out.textContent='Nada que guardar.';log.msg('Nada que guardar.');return;}
+  await enLotes('plan_oc_tipo',filas.map(x=>({...x,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio'});
+  // Corregir las OCs ya registradas en el portal
+  await leerOcTipo();let n=0;
+  for(const tipo of ['ED','CEDI']){const fs=filas.filter(x=>x.tipo===tipo).map(x=>x.folio);
+    for(let i=0;i<fs.length;i+=200){const{data,error}=await sb.from('plan_oc_lineas').update({entrega_directa:tipo==='ED'}).in('folio',fs.slice(i,i+200)).neq('entrega_directa',tipo==='ED').select('folio');if(error)throw error;n+=(data||[]).length;}}
+  const ne=filas.filter(x=>x.tipo==='ED').length;
+  const msg='✅ '+fmt(filas.length)+' OCs guardadas ('+fmt(ne)+' entrega directa · '+fmt(filas.length-ne)+' CEDI). '+(n?fmt(n)+' líneas de OC ya registradas cambiaron de clasificación. ':'')+'El próximo Cálculo diario recalcula el BO del CEDI, OTIF, Target y la limpieza de la venta.';
+  out.textContent=msg;log.msg(msg);
+}
 async function cargarSinED(forzar){
   if(SIN_ED&&!forzar)return SIN_ED;
   try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
@@ -903,7 +958,8 @@ async function guardarCfgED(){
     const rows=await todo(()=>sb.from('plan_oc_lineas').select('folio,comprador,observaciones,destino,entrega_directa').order('folio').order('clave'));
     const porFolio=new Map();rows.forEach(r=>{if(!porFolio.has(r.folio))porFolio.set(r.folio,r);});
     let n=0;
-    for(const [f,r] of porFolio){const d=P.destinoED(r.observaciones||'');const ed=P.esED(d,r.comprador,sinED);
+    await leerOcTipo();
+    for(const [f,r] of porFolio){const d=P.destinoED(r.observaciones||'');const ed=P.edOC(f,d,r.comprador,sinED);
       if((d||null)!==(r.destino||null)||!!ed!==!!r.entrega_directa){const{error:e}=await sb.from('plan_oc_lineas').update({destino:d,entrega_directa:ed}).eq('folio',f);if(e)throw e;n++;}}
     out.textContent='✅ Guardado: '+valor.lugares.length+' lugares y '+valor.frases.length+' frases. '+(n?n+' OCs ya registradas cambiaron de clasificación. ':'Ninguna OC registrada cambió. ')+'El próximo cálculo diario recalcula el BO del CEDI, OTIF y Target.';
   }catch(e){out.textContent='✅ Guardado, pero no se pudieron corregir las OCs registradas: '+(e.message||e)+'. Se corrigen con el próximo cálculo diario.';}
@@ -936,7 +992,8 @@ async function procesarOCs(wb,fecha,log,res,prevEst){
   const enc=P.ocEncabezados(wb);
   const sinED=await cargarSinED();await cargarCfgED();
   if(P.R.ED_LUGARES.length||P.R.ED_FRASES.length)log.msg('   Entrega directa también por: '+[...P.R.ED_LUGARES,...P.R.ED_FRASES].join(', '));
-  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=P.esED(l.destino,l.comprador||(e&&e.comprador),sinED);});
+  await leerOcTipo();
+  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=P.edOC(l.folio,l.destino,l.comprador||(e&&e.comprador),sinED);});
   log.msg('   Compradores que reciben en sucursal y mueven al CEDI (no cuentan como entrega directa): '+[...sinED].join(', '));
   log.msg('   '+fmt([...cur.values()].filter(l=>l.entrega_directa).length)+' líneas son de entrega directa a sucursal (no cuentan para OTIF, Target ni vencidas del CEDI)');
   log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
