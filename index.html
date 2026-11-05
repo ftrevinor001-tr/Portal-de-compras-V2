@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261105b" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261105b" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261105b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105f" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261105f" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261105f" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -240,6 +240,10 @@
         <div class="admin-card">
           <h2>📤 Cargar Excel maestro</h2>
           <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los dashboards, las alarmas y el Cálculo diario del portal: Histórico de Inventarios (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
+          <div style="background:#f4f7ff;border:1px solid #d6e0f5;border-radius:8px;padding:9px 11px;margin:6px 0 10px;font-size:12.5px;line-height:1.5">
+            <b>Sin hoja Detalle (nuevo):</b> selecciona primero el <b>RP03-08 Existencias con Todas las Unidades</b> y su fecha; después sube el Excel del día con las OCs (RP01-23, Productos Incluidos en) y la Base produccion. El portal arma el Detalle: existencia EXIUNIMIN (menor a 1 = 0) de las claves L+, LS, PRUEBA e INSUMO PRODUCCION, BO de las OCs abiertas y comprador, rotación, T. entrega y objetivo de los <b>Parámetros por clave</b> (Cálculo diario → 6a). Hoja1 ya no hace falta.
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px"><label>RP03-08: <input type="file" id="fx-rp" accept=".csv,.xlsx"></label><label>Fecha de la existencia: <input type="date" id="fx-fecha"></label><label title="Otro Excel con hojas que no vienen en el del día, p. ej. Historico de faltantes">Otro archivo (opcional): <input type="file" id="fx-extra" accept=".xlsx,.xlsm"></label></div>
+          </div>
           <div class="drop" id="drop" onclick="document.getElementById('fx').click()">📂 Arrastra aquí el Excel o haz clic para seleccionarlo</div>
           <input type="file" id="fx" accept=".xlsx,.xlsm" style="display:none">
           <div class="chkrow"><input type="checkbox" id="chk-bk" checked><label for="chk-bk">Guardar copia del Excel original como respaldo descargable</label></div>
@@ -1859,27 +1863,43 @@ async function procesarExcel(file){
     await new Promise(r=>setTimeout(r,50));
     const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
     log('✅ Hojas encontradas: '+wb.SheetNames.join(', '));
-
-    const wsH=wb.Sheets['Hoja1']||wb.Sheets[wb.SheetNames[0]];
-    const wsD=wb.Sheets['Detalle'];
-    if(!wsH) throw new Error('No se encontró la hoja Hoja1.');
-    if(!wsD) throw new Error('No se encontró la hoja Detalle.');
-    log('⚙️ Procesando Hoja1…');
-    const raw=XLSX.utils.sheet_to_json(wsH,{raw:false,defval:''});
-    log('   '+raw.length.toLocaleString()+' filas');
-    log('⚙️ Procesando Detalle…');
-    const rawD=XLSX.utils.sheet_to_json(wsD,{raw:false,defval:''});
-    log('   '+rawD.length.toLocaleString()+' filas');
-    // ── GUARDAR el/los día(s) nuevo(s) del Excel en la base ──
-    log('💾 Guardando en base de datos…');
-    try{ await guardarDiasNuevos(rawD); }
-    catch(e){ log('⚠️ Guardado en base: '+e.message+' (se continúa con el Excel)'); }
+    // Otro archivo opcional (p. ej. Historico de faltantes): sus hojas se suman al libro del día
+    const fxE=document.getElementById('fx-extra').files[0];
+    if(fxE){const wbE=XLSX.read(new Uint8Array(await fxE.arrayBuffer()),{type:'array'});wbE.SheetNames.forEach(n=>{if(!wb.Sheets[n]){wb.Sheets[n]=wbE.Sheets[n];wb.SheetNames.push(n);}});log('   + hojas de '+fxE.name+': '+wbE.SheetNames.join(', '));}
+    // ── Modo RP03-08 (nov-2026): el Detalle lo arma el Cálculo diario con el RP03-08 + parámetros por clave + BO de las OCs ──
+    const rpFile=document.getElementById('fx-rp').files[0];
+    const modoRP=!!rpFile||!wb.Sheets['Detalle'];
+    if(modoRP&&!rpFile)throw new Error('El Excel no trae la hoja Detalle: selecciona también el RP03-08 del día (arriba).');
+    const fechaRP=document.getElementById('fx-fecha').value||new Date().toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'});
+    const wsH=wb.Sheets['Hoja1']||(modoRP?null:wb.Sheets[wb.SheetNames[0]]);
+    const wsD=modoRP?null:wb.Sheets['Detalle'];
+    if(!wsH&&!modoRP) throw new Error('No se encontró la hoja Hoja1.');
+    let raw=[];
+    if(wsH){log('⚙️ Procesando Hoja1…');raw=XLSX.utils.sheet_to_json(wsH,{raw:false,defval:''});log('   '+raw.length.toLocaleString()+' filas');
+      try{await guardarHoja1Hist(raw);}catch(e){log('⚠️ No se guardó la copia de Hoja1: '+e.message);}}
+    else{try{const h=await leerHoja1Hist();raw=Array.isArray(h)?h:[];log('📥 Hoja1 histórica guardada: '+raw.length.toLocaleString()+' filas (los días nuevos se arman con el cálculo del portal)');}catch(e){raw=[];log('ℹ️ Sin Hoja1 histórica guardada ('+e.message+'): la serie usa solo los días con detalle en la base.');}}
+    let rawD=[];
+    if(wsD){log('⚙️ Procesando Detalle…');rawD=XLSX.utils.sheet_to_json(wsD,{raw:false,defval:''});log('   '+rawD.length.toLocaleString()+' filas');
+      // ── GUARDAR el/los día(s) nuevo(s) del Excel en la base ──
+      log('💾 Guardando en base de datos…');
+      try{ await guardarDiasNuevos(rawD); }
+      catch(e){ log('⚠️ Guardado en base: '+e.message+' (se continúa con el Excel)'); }}
+    else log('🧾 Detalle del '+fechaRP+': lo arma el Cálculo diario con '+rpFile.name+'.');
     // ── Primera fecha con existencia por clave (hoja Historico de faltantes): separa NUEVA de SIN MOVIMIENTO ──
     let rawH=null;const wsHist0=wb.Sheets['Historico de faltantes'];
     if(wsHist0){log('⚙️ Leyendo Historico de faltantes…');await new Promise(r=>setTimeout(r,50));rawH=XLSX.utils.sheet_to_json(wsHist0,{raw:false,defval:''});
       try{await registrarPrimeraExistencia(rawH);}catch(e){log('⚠️ Primera fecha con existencia: '+e.message);}}
     // ── CÁLCULO DIARIO DEL PORTAL primero: su foto del día es la que alimenta los tableros ──
-    if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
+    if(modoRP){
+      const ok=await calculoAutomatico(file,{rp:rpFile,fecha:fechaRP});
+      if(!ok)throw new Error('Sin Cálculo diario no se puede armar el Detalle desde el RP03-08. Revisa el mensaje de arriba.');
+      // El Detalle del día = foto del cálculo del portal (existencia, BO, comprador, rotación, estatus y meses del portal)
+      const E=await estadoPortal(true);
+      rawD=(E.claves||[]).map(r=>P.fotoADetalle(r,E.fecha));
+      log('💾 Guardando el Detalle del '+E.fecha+' ('+rawD.length.toLocaleString()+' claves) en la base…');
+      try{ await guardarDiasNuevos(rawD); }catch(e){ log('⚠️ Guardado en base: '+e.message); }
+    }
+    else if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
     else log('ℹ️ Sin Cálculo diario en esta carga: los tableros usan el último día calculado por el portal.');
 
     // ── RECONSTRUIR todo el histórico desde la base de datos ──
@@ -1952,7 +1972,7 @@ async function procesarExcel(file){
     const ds=await sb.from('datasets').upsert({clave:'faltantes',payload:meta,actualizado_por:usuarioActual||'admin'});
     if(ds.error) throw new Error('datasets: '+ds.error.message);
 
-    const cg=await sb.from('cargas').insert({archivo:file.name,usuario:usuarioActual||'admin',periodo_inicio:payload.pf,periodo_fin:payload.uf,resumen:{hoja1:raw.length,detalle:rawD.length,dashboard:'faltantes'}});
+    const cg=await sb.from('cargas').insert({archivo:file.name,usuario:usuarioActual||'admin',periodo_inicio:payload.pf,periodo_fin:payload.uf,resumen:{hoja1:raw.length,detalle:rawD.length,dashboard:'faltantes',...(modoRP?{rp0308:rpFile.name,fecha:fechaRP}:{})}});
     if(cg.error) log('⚠️ Historial de cargas: '+cg.error.message);
 
     // ── ALARMAS POR COMPRADOR ──
@@ -2101,7 +2121,16 @@ async function registrarPrimeraExistencia(rawH){
   log('   🆕 Primera fecha con existencia: '+min.size.toLocaleString()+' claves en la hoja · '+filas.length.toLocaleString()+' nuevas o más antiguas guardadas.');
 }
 // ── Cálculo diario con el mismo archivo: lo corre la página de Cálculo diario (oculta) y aquí se ve el avance ──
-async function calculoAutomatico(file){
+// Copia de la Hoja1 del Excel (histórico anterior al detalle por clave): se guarda una vez para cuando ya no venga
+async function guardarHoja1Hist(raw){
+  if(!raw||!raw.length)return;const body=await new Response(new Blob([JSON.stringify(raw)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  const up=await sb.storage.from('respaldos').upload('payloads/hoja1_hist.json.gz',body,{upsert:true,contentType:'application/octet-stream'});if(up.error)throw new Error(up.error.message);
+}
+async function leerHoja1Hist(){
+  const{data,error}=await sb.storage.from('respaldos').download('payloads/hoja1_hist.json.gz');if(error)throw new Error(error.message||'no existe');
+  return JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+}
+async function calculoAutomatico(file,rpOpt){
   log('');log('🧮 CÁLCULO DIARIO DEL PORTAL con el mismo archivo…');
   try{
     const fr=document.getElementById('fr-8');
@@ -2113,14 +2142,16 @@ async function calculoAutomatico(file){
     for(let i=0;i<100&&!(w.document.getElementById('app')&&w.document.getElementById('app').style.display==='block');i++)await new Promise(r=>setTimeout(r,200));
     if(!(w.document.getElementById('app')&&w.document.getElementById('app').style.display==='block'))throw new Error('no hay sesión de administrador en Cálculo diario; ábrelo una vez desde Admin');
     const inp=w.document.getElementById('f-calc'),dt=new w.DataTransfer();dt.items.add(file);inp.files=dt.files;
+    const inpR=w.document.getElementById('f-calc-rp'),dtR=new w.DataTransfer();if(rpOpt&&rpOpt.rp)dtR.items.add(rpOpt.rp);if(inpR)inpR.files=dtR.files;
+    if(rpOpt&&rpOpt.fecha&&w.document.getElementById('calc-fecha'))w.document.getElementById('calc-fecha').value=rpOpt.fecha;
     const lg=w.document.getElementById('log-calc');let visto=0;
     const espejo=()=>{const ls=[...lg.children].map(d=>d.textContent).filter(Boolean);for(;visto<ls.length;visto++)log('   '+ls[visto]);};
     const iv=setInterval(espejo,700);
     try{await w.run('calc');}finally{clearInterval(iv);espejo();}
     const t=lg.textContent||'';
-    if(/❌/.test(t))log('❌ El Cálculo diario no terminó. Revisa el mensaje de arriba o córrelo desde Admin → Cálculo diario → 6.');
-    else{log('✅ Cálculo diario publicado: Planeación, Telegram y Seguimiento ya usan los datos de hoy.');EST_PORTAL=null;}
-  }catch(e){log('❌ Cálculo diario: '+e.message+'. Córrelo desde Admin → Cálculo diario → 6.');}
+    if(/❌/.test(t)){log('❌ El Cálculo diario no terminó. Revisa el mensaje de arriba o córrelo desde Admin → Cálculo diario → 6.');return false;}
+    else{log('✅ Cálculo diario publicado: Planeación, Telegram y Seguimiento ya usan los datos de hoy.');EST_PORTAL=null;return true;}
+  }catch(e){log('❌ Cálculo diario: '+e.message+'. Córrelo desde Admin → Cálculo diario → 6.');return false;}
 }
 
 // ── Descargas ──

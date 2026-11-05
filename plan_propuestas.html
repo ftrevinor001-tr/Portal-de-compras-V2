@@ -6,8 +6,8 @@
 <title>Propuestas de compra</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261105b" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261105b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105f" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261105f" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -289,7 +289,7 @@ function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(
 // Lo que se congela del portal por clave
 function snap(r){
   const ocs=(S.ocs[r.c]||S.ocs[String(r.c)]||[]).filter(o=>!o[4]).length;
-  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,exC:r.exC??null,rs:r.rs||0,rsD:r.rsD||null,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,nv:r.nv||null,dA:r.dA??null,fAg:r.fAg||null,se:r.se||0,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,mfB:r.mfB??null,ocs};
+  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,exC:r.exC??null,rs:r.rs||0,rsD:r.rsD||null,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,eI:r.eI||null,eM:r.eM||null,uC:r.uC||null,fC:r.fC||null,mi:r.mi,nv:r.nv||null,dA:r.dA??null,fAg:r.fAg||null,se:r.se||0,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,mfB:r.mfB??null,ocs};
 }
 async function crearFolio(){
   const claves=claveNueva().filter(k=>S.byClave.has(k));if(!claves.length){toast('Marca o pega al menos una clave');return;}
@@ -369,11 +369,11 @@ function pintarFolio(){
   $('f-body').innerHTML=L.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);const necesita=l.semaforo==='AMARILLO'||l.semaforo==='ROJO';
     const v=e.dmA!=null||e.dmP!=null?'<div>ant. '+sg(e.dmA,1)+'</div><div>pron. '+sg(e.dmP,1)+'</div>':'—';
     const vR=e.difR==null?'—':'<b>'+sg(e.difR)+' pzs</b><div class="mut">'+sg(e.dmR,1)+' meses</div>';
-    const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b><div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
+    const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b> <span class="mut" style="font-size:10.5px">'+esc((p.u||'').toLowerCase())+'</span>'+(e.sRE!=null?'<div style="font-size:10.5px">→ '+esc(e.sRET)+' <b>'+nf(e.sRE)+'</b></div>':'')+(p.fC?'<div class="mut" style="font-size:10.5px">'+esc(P.eqCompra(e.sRE!=null?e.sRE:e.sR,p))+'</div>':'')+'<div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
     const mot=necesita||l.motivo?(ed?'<select onchange="guardarMotivo('+l.clave+',this.value,null)">'+ops.replace('<option>'+esc(l.motivo||'')+'</option>','<option selected>'+esc(l.motivo||'')+'</option>')+'</select><br><textarea placeholder="'+(l.semaforo==='ROJO'?'Comentario obligatorio':'Comentario')+'" onchange="guardarMotivo('+l.clave+',null,this.value)">'+esc(l.comentario||'')+'</textarea>':'<b>'+esc(l.motivo||'—')+'</b><div class="av">'+esc(l.comentario||'')+'</div>'):'<span class="mut">—</span>';
     return '<tr'+(faltaMotivo(l)&&ed?' style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+(oriDe(l.clave)?'<span class="chip s-SIN">🚛 '+esc(oriDe(l.clave))+'</span>':'<span class="mut">—</span>')+'</td><td>'+provCelda(l.clave)+'</td><td>'+esc(p.est||'')+P.nivChip(p)+'</td>'
       +'<td class="num">'+exRG(p)+'</td><td class="num">'+nf(p.bo)+'</td><td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(p.lt,1)+'</td><td class="num">'+nf(p.pm,1)+'</td><td class="num">'+nf(e.sA)+'</td><td class="num">'+nf(e.sP)+'</td><td style="min-width:160px;max-width:200px;white-space:normal;line-height:1.3">'+rec+'<div style="font-size:10.5px;color:var(--tx2)">'+esc(e.br?e.br.por:'')+'</div></td>'
-      +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
+      +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(p.fC&&l.pedido?'<div class="mut" style="font-size:10.5px">'+esc(P.eqCompra(l.pedido,p))+'</div>':'')+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
       +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="25" class="mut">El folio no tiene claves.</td></tr>';
 }
 async function cambiarBO(v){
@@ -583,7 +583,7 @@ function descargarPlantilla(){
     ['3. Pégalas en la hoja "Pegar surtimiento" a partir de la celda A1 (pegar valores).'],['4. Guarda y súbela en el portal con "Subir plantilla con surtimiento".'],[],
     ['El portal toma por su encabezado: ID, Pedido, Pron, Anteo, Redond, Tiempos de entrega, Pedido máximo, Exist, BO, Exist MF e Inversión. No importa el orden ni que vengan columnas de más.'],
     ['Si pegas dos escenarios de la misma clave, el portal toma el último.']];
-  const fol=S.lineas.map(l=>{const p=l.portal||{},e=evaluar(l);return{'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus portal':p.est,'Existencia':p.ex,'Existencia CEDI':p.exC??p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Por qué esa base':e.br.por,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP};});
+  const fol=S.lineas.map(l=>{const p=l.portal||{},e=evaluar(l);return{'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Estatus portal':p.est,'Existencia':p.ex,'Existencia CEDI':p.exC??p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Recomendada con empaque':e.sRE!=null?e.sRE:'','Unidad':p.u||'','Recomendada en unidad de compra':p.fC?Math.round((e.sRE!=null?e.sRE:e.sR)/p.fC*100)/100:'','Unidad de compra':p.uC||'','Por qué esa base':e.br.por,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP};});
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ins),'Instrucciones');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(fol),'Folio');
@@ -611,7 +611,7 @@ async function subirPlantilla(file){
   }catch(e){toast('❌ No se pudo leer el archivo: '+(e.message||e));}
 }
 function excelFolio(){
-  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Origen recolección':oriDe(l.clave),'Proveedor':provNom(l.clave),'Origen del proveedor':(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?PROV_ORG[x.o]:'';})(),'Proveedor última compra':(provDe(l.clave)||{}).oc||'','Fecha última compra':(provDe(l.clave)||{}).ocF||'','Estatus':p.est,'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
+  const rows=S.lineas.map(l=>{const p=l.portal||{},s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Origen recolección':oriDe(l.clave),'Proveedor':provNom(l.clave),'Origen del proveedor':(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?PROV_ORG[x.o]:'';})(),'Proveedor última compra':(provDe(l.clave)||{}).oc||'','Fecha última compra':(provDe(l.clave)||{}).ocF||'','Estatus':p.est,'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':p.lt,'Objetivo':p.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Recomendada con empaque':e.sRE!=null?e.sRE:'','Unidad':p.u||'','Recomendada en unidad de compra':p.fC?Math.round((e.sRE!=null?e.sRE:e.sR)/p.fC*100)/100:'','Unidad de compra':p.uC||'','Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
     'Pedido':l.pedido,'Pedido autorizado':l.pedido_aut??l.pedido,'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Meses al llegar (recomendada)':e.lR,'Diferencia vs antecedente (meses)':e.dmA,'Diferencia vs pronóstico (meses)':e.dmP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Folio');XLSX.writeFile(wb,S.actual.folio+'.xlsx');
 }
