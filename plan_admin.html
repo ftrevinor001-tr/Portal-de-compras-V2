@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261104a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -110,6 +110,7 @@ td:first-child,th:first-child{text-align:left}
     <div class="row" style="align-items:flex-start">
       <div><div class="d" style="margin-bottom:4px">Lugares</div><textarea id="ed-lug" rows="5" style="width:260px" placeholder="RAYON&#10;OZULUAMA"></textarea></div>
       <div><div class="d" style="margin-bottom:4px">Frases</div><textarea id="ed-fra" rows="5" style="width:260px" placeholder="ENTREGA DIRECTA&#10;DIRECTO A CLIENTE"></textarea></div>
+      <div><div class="d" style="margin-bottom:4px" title="Las OCs de entrega directa cuya observación trae alguna de estas palabras salen abajo en «OCs por revisar», porque la sucursal puede ser solo la razón del descuento y no el destino">Palabras para revisar</div><textarea id="ed-rev" rows="5" style="width:200px" placeholder="APERTURA&#10;DESCUENTO"></textarea></div>
       <div style="align-self:flex-end"><button onclick="guardarCfgED()">Guardar lugares y frases</button><div class="d" id="ed-res2" style="margin-top:6px;max-width:420px"></div></div>
     </div>
     <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
@@ -122,6 +123,9 @@ td:first-child,th:first-child{text-align:left}
       <div class="d" id="octipo-res" style="max-width:420px"></div>
     </div>
     <div class="log" id="log-octipo"></div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>OCs por revisar.</b> OCs abiertas que el portal toma como <b>entrega directa</b> pero cuya observación trae una de las «Palabras para revisar» (apertura, apoyo, descuento…): la sucursal puede ser solo la razón del descuento y la mercancía llegar al CEDI. Define cada una; queda guardada en «Tipo de entrega por OC» y su BO vuelve a contar para el CEDI desde el siguiente Cálculo diario.</p>
+    <div id="ed-revisar" class="d">Cargando…</div>
   </div>
   <div class="card">
     <h2><span class="n">🏬</span>Número base de Mas Ferre <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
@@ -919,6 +923,25 @@ async function cargaOcTipo(log,manual){
   const msg='✅ '+fmt(filas.length)+' OCs guardadas ('+fmt(ne)+' entrega directa · '+fmt(filas.length-ne)+' CEDI). '+(n?fmt(n)+' líneas de OC ya registradas cambiaron de clasificación. ':'')+'El próximo Cálculo diario recalcula el BO del CEDI, OTIF, Target y la limpieza de la venta.';
   out.textContent=msg;log.msg(msg);
 }
+// OCs abiertas de entrega directa con observación dudosa (apertura, apoyo, descuento…) sin tipo definido a mano
+async function pintarRevisarED(){
+  const box=document.getElementById('ed-revisar');if(!box)return;
+  try{
+    await leerOcTipo();
+    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,comprador,proveedor,fecha_oc,observaciones,destino,cantidad_pend,entrega_directa,cerrada_en,cancelada').eq('entrega_directa',true).is('cerrada_en',null).order('folio'));
+    const pf=new Map();rs.forEach(r=>{if(r.cancelada||!(Number(r.cantidad_pend)>0))return;const f=Number(r.folio);if(P.R.OC_TIPO.has(f))return;const w=P.edRevisar(r.observaciones);if(!w)return;
+      const o=pf.get(f)||{folio:f,comp:r.comprador,prov:r.proveedor,fecha:String(r.fecha_oc||'').slice(0,10),obs:r.observaciones,dest:r.destino,w,claves:0};o.claves++;pf.set(f,o);});
+    const L=[...pf.values()].sort((a,b)=>b.folio-a.folio);
+    if(!L.length){box.innerHTML='✅ No hay OCs abiertas de entrega directa con observación dudosa.';return;}
+    box.innerHTML='<div class="scroll" style="max-height:320px"><table><tr><th>OC</th><th>Fecha</th><th>Comprador</th><th>Proveedor</th><th>Observación</th><th>Destino que leyó</th><th>Claves</th><th></th></tr>'+L.map(o=>'<tr><td><b>'+o.folio+'</b></td><td>'+o.fecha+'</td><td>'+(o.comp||'')+'</td><td>'+String(o.prov||'').slice(0,28)+'</td><td style="max-width:360px">'+String(o.obs||'').replace(/</g,'&lt;').replace(new RegExp('('+o.w+')','i'),'<mark>$1</mark>')+'</td><td>'+(o.dest||'')+'</td><td>'+o.claves+'</td><td style="white-space:nowrap"><button class="sec" onclick="definirOC('+o.folio+',\'CEDI\')">Es CEDI</button> <button class="sec" onclick="definirOC('+o.folio+',\'ED\',\''+String(o.dest||'').replace(/'/g,'')+'\')">Es entrega directa</button></td></tr>').join('')+'</table></div><div class="d" style="margin-top:4px">'+L.length+' OCs por definir.</div>';
+  }catch(e){box.textContent='No se pudo leer la lista ('+(e.message||e)+'). ¿Ya corriste plan_tablas_21.sql?';}
+}
+async function definirOC(folio,tipo,suc){
+  const{error}=await sb.from('plan_oc_tipo').upsert({folio,tipo,sucursal:suc||null,fuente:'MANUAL',actualizado_en:new Date().toISOString()},{onConflict:'folio'});
+  if(error){alert('❌ '+error.message);return;}
+  await sb.from('plan_oc_lineas').update({entrega_directa:tipo==='ED'}).eq('folio',folio);
+  pintarRevisarED();
+}
 async function cargarSinED(forzar){
   if(SIN_ED&&!forzar)return SIN_ED;
   try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
@@ -942,13 +965,13 @@ async function guardarEDManual(){
 // Lugares y frases extra de entrega directa (plan_config id 'ed_destinos')
 async function cargarCfgED(){
   try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data)P.aplicarCfgED(data.valor);}catch(e){}
-  return{lugares:P.R.ED_LUGARES,frases:P.R.ED_FRASES};
+  return{lugares:P.R.ED_LUGARES,frases:P.R.ED_FRASES,revisar:P.R.ED_REVISAR};
 }
-async function pintarCfgED(){const c=await cargarCfgED();document.getElementById('ed-lug').value=c.lugares.join('\n');document.getElementById('ed-fra').value=c.frases.join('\n');}
+async function pintarCfgED(){const c=await cargarCfgED();document.getElementById('ed-lug').value=c.lugares.join('\n');document.getElementById('ed-fra').value=c.frases.join('\n');document.getElementById('ed-rev').value=c.revisar.join('\n');pintarRevisarED();}
 async function guardarCfgED(){
   const out=document.getElementById('ed-res2');out.textContent='Guardando…';
   const lista=id=>[...new Set(document.getElementById(id).value.split(/\n|,/).map(P.norm).filter(x=>x.length>=3))];
-  const valor={lugares:lista('ed-lug'),frases:lista('ed-fra')};
+  const valor={lugares:lista('ed-lug'),frases:lista('ed-fra'),revisar:lista('ed-rev')};
   const{error}=await sb.from('plan_config').upsert({id:'ed_destinos',valor,actualizado_en:new Date().toISOString()},{onConflict:'id'});
   if(error){out.textContent='❌ No se guardó: '+error.message;return;}
   P.aplicarCfgED(valor);pintarCfgED();

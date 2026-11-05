@@ -594,7 +594,10 @@ P.R.SANVER_SUC_ES_ED=false;  // "SANVER ALAMO", "SANVER LA FUENTE": entran al CE
 P.SUCURSALES=['AHUATENO','ALAMO','ARISTA','ATLAPEXCO','BODEGA','CENTRO','CHICONTEPEC','COATZINTLA','DEL CARMEN','EL CARMEN','EBANO','LA FUENTE','LA RIVERA','MANTE','MARTINEZ','MERCADO','MORA','NARANJOS','PINTURAS','PUEBLO VIEJO','TAMIAHUA','TAMPICO','TEMPOAL','TIHUATLAN','TUXPAN','VALLES','VALLEZ','ZACATIPAN'];
 // Lugares y frases extra de entrega directa (se configuran en Cálculo diario → Entregas directas; plan_config id 'ed_destinos')
 P.R.ED_LUGARES=[];P.R.ED_FRASES=[];
-P.aplicarCfgED=v=>{const L=x=>(Array.isArray(x)?x:[]).map(P.norm).filter(Boolean);P.R.ED_LUGARES=L(v&&v.lugares);P.R.ED_FRASES=L(v&&v.frases);};
+P.aplicarCfgED=v=>{const L=x=>(Array.isArray(x)?x:[]).map(P.norm).filter(Boolean);P.R.ED_LUGARES=L(v&&v.lugares);P.R.ED_FRASES=L(v&&v.frases);P.R.ED_REVISAR=v&&Array.isArray(v.revisar)?L(v.revisar):P.R.ED_REVISAR_DEF.slice();};
+// Palabras que vuelven dudosa una OC de entrega directa (la sucursal puede ser solo la razón del descuento, no el destino)
+P.R.ED_REVISAR_DEF=['APERTURA','APOYO','PAGO EN ESPECIE','BONIFICA','BONIFICADO','PROMO','PROMOCION','DESCUENTO','SIN CARGO'];P.R.ED_REVISAR=P.R.ED_REVISAR_DEF.slice();
+P.edRevisar=obs=>{const o=P.norm(obs||'');return P.R.ED_REVISAR.find(w=>new RegExp('(?:^|[^A-Z])'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![A-Z])').test(o))||null;};
 const escRx=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 P.destinoED=obs=>{
   const o=P.norm(obs).replace(/^[^A-Z0-9]+/,'');if(!o)return null;

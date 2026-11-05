@@ -6,8 +6,8 @@
 <title>Propuestas de compra</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261104a" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261104a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -311,6 +311,17 @@ async function crearFolio(){
 }
 
 // ── Folio ──
+// Folio abierto: vuelve a tomar los datos del portal con el cálculo publicado más reciente (BO, existencia, consumo, estatus)
+async function refrescarFolio(){
+  const f=S.actual;if(!f||!editable())return;
+  if(!confirm('¿Actualizar el folio '+f.folio+' con el cálculo del portal del '+fF(S.fecha)+'? Lo pegado de surtimiento y los motivos se conservan.'))return;
+  const ahora=new Date().toISOString();let n=0,falt=0;
+  for(const l of S.lineas){const r=S.byClave.get(Number(l.clave));if(!r){falt++;continue;}l.portal=snap(r);
+    const e=l.surt?evaluar(l):null;if(e){l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;}
+    const{error}=await sb.from('plan_propuesta_lineas').update({portal:l.portal,semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',f.folio).eq('clave',l.clave);if(error){toast('❌ '+error.message);return;}n++;}
+  const{error}=await sb.from('plan_propuestas').update({fecha_calculo:S.fecha,actualizado_en:ahora}).eq('folio',f.folio);if(error){toast('❌ '+error.message);return;}
+  f.fecha_calculo=S.fecha;toast('✓ '+n+' claves actualizadas al cálculo del '+fF(S.fecha)+(falt?' · '+falt+' ya no vienen en el cálculo':''));await recargar();await abrirFolio(f.folio);
+}
 async function abrirFolio(folio){
   const f=S.folios.find(x=>x.folio===folio)||(await sb.from('plan_propuestas').select('*').eq('folio',folio).maybeSingle()).data;if(!f){toast('No encontré el folio');return;}
   S.actual=f;S.lineas=await todo(()=>sb.from('plan_propuesta_lineas').select('*').eq('folio',folio).order('clave'));
@@ -343,6 +354,7 @@ function pintarFolio(){
   if(f.estado==='EN REVISION')acc+='<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
   if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
   acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
+  if(ed&&S.fecha&&S.fecha!==f.fecha_calculo)acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo del '+fF(S.fecha)+'</button>';
   if(ed)acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio (pide motivo)">✕</button>';
   else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
   $('f-acc').innerHTML=acc;
