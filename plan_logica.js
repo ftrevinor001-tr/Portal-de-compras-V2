@@ -109,12 +109,14 @@ P.empaques=wb=>{
   const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE SANVER','UNI COMPRA','CTD. EN UM','CTD. EN UM2','VALIDACION']);
   if(!h)throw new Error('No encontré los encabezados de la hoja BD (CLAVE SANVER, UNI COMPRA, Ctd. En UM, Ctd. En UM2, VALIDACION).');
   const iC=h.cols.indexOf('CAMBIO DE UNIDADES');
+  // Si CAMBIO DE UNIDADES viene vacío se lee el «C/30 PZAS.» de CONTENIDO UNIDAD COMPRA
+  const iCt=h.cols.indexOf('CONTENIDO UNIDAD COMPRA');const cN=x=>{const m=String(x||'').match(/C\s*\/\s*(\d+(?:\.\d+)?)/i);return m?Number(m[1]):null;};
   const m=new Map();
   for(let i=h.fila+1;i<aoa.length;i++){
     const r=aoa[i];const k=P.clave(r[h.idx['CLAVE SANVER']]);if(k==null)continue;
     const fila={clave:k,uni_compra:String(r[h.idx['UNI COMPRA']]||'').trim()||null,
       inner_cant:P.num(r[h.idx['CTD. EN UM']]),master_cant:P.num(r[h.idx['CTD. EN UM2']]),
-      factor_conv:iC>=0?P.num(r[iC]):null,validacion:P.norm(r[h.idx.VALIDACION])||null};
+      factor_conv:(iC>=0&&P.num(r[iC])>0?P.num(r[iC]):null)??(iCt>=0?cN(r[iCt]):null),validacion:P.norm(r[h.idx.VALIDACION])||null};
     const prev=m.get(k);
     if(!prev||(prev.validacion!=='VALIDO'&&fila.validacion==='VALIDO'))m.set(k,fila);
   }
