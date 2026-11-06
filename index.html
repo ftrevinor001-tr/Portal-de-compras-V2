@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261106b" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261106b" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261106b" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261106c" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261106c" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261106c" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -1821,8 +1821,9 @@ async function guardarDiasNuevos(rawD,opt){
   // 3. Determinar qué días son NUEVOS
   const dias=Object.keys(porDia).sort();
   // Modo RP03-08: el día calculado por el portal reemplaza lo que hubiera guardado de ese día (para poder recargarlo)
-  const reemp=opt.reemplazar?dias.filter(d=>yaCargados.has(d)):[];
-  for(const d of reemp){const{error:eDel}=await sb.from('detalle_diario').delete().eq('fecha',d);if(eDel)throw new Error('reemplazar '+d+': '+eDel.message);const{error:eDd}=await sb.from('dias_cargados').delete().eq('fecha',d);if(eDd)throw new Error('reemplazar '+d+': '+eDd.message);yaCargados.delete(d);log('   ♻️ '+d+' ya estaba guardado: se reemplaza con el cálculo de hoy.');}
+  // 'ultimo' (carga con Excel maestro): solo el día más reciente del Detalle se reemplaza, por si ese día se había cargado con el RP03-08
+  const reemp=opt.reemplazar==='ultimo'?dias.slice(-1).filter(d=>yaCargados.has(d)):opt.reemplazar?dias.filter(d=>yaCargados.has(d)):[];
+  for(const d of reemp){const{error:eDel}=await sb.from('detalle_diario').delete().eq('fecha',d);if(eDel)throw new Error('reemplazar '+d+': '+eDel.message);const{error:eDd}=await sb.from('dias_cargados').delete().eq('fecha',d);if(eDd)throw new Error('reemplazar '+d+': '+eDd.message);yaCargados.delete(d);log('   ♻️ '+d+' ya estaba guardado: se reemplaza con lo de esta carga.');}
   const nuevos=dias.filter(d=>!yaCargados.has(d));
   if(!nuevos.length){log('   ✔️ La base ya tiene todos los días ('+dias.length+'). Nada nuevo que guardar.');return;}
   log('   💾 Guardando '+nuevos.length+' día(s) nuevo(s) en la base…');
@@ -1886,7 +1887,7 @@ async function procesarExcel(file){
     if(wsD){log('⚙️ Procesando Detalle…');rawD=XLSX.utils.sheet_to_json(wsD,{raw:false,defval:''});log('   '+rawD.length.toLocaleString()+' filas');
       // ── GUARDAR el/los día(s) nuevo(s) del Excel en la base ──
       log('💾 Guardando en base de datos…');
-      try{ await guardarDiasNuevos(rawD); }
+      try{ await guardarDiasNuevos(rawD,{reemplazar:'ultimo'}); }
       catch(e){ log('⚠️ Guardado en base: '+e.message+' (se continúa con el Excel)'); }}
     else log('🧾 Detalle del '+fechaRP+': lo arma el Cálculo diario con '+rpFile.name+'.');
     // ── Primera fecha con existencia por clave (hoja Historico de faltantes): separa NUEVA de SIN MOVIMIENTO ──
