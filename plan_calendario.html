@@ -6,8 +6,8 @@
 <title>Calendario de pedidos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261106c" charset="utf-8"></script>
-<script src="plan_ms.js?v=20261106c" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6;--blue:#1c4587;--bluebg:#e8eefc;--teal:#0f766e;--tealbg:#e3f4f1}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -205,7 +205,7 @@ function filasFiltradas(){const comp=$('f-comp').value;const base=S.claves.filte
 function calcular(){
   if(!S.F)return;
   const hoy=S.fecha;
-  S.cal=P.calendario(filasFiltradas(),{hoy,prov:S.F.prov,reglas:S.F.reglas,costo:S.F.costo,emp:S.F.emp,uni:S.F.uni,agrupar:$('f-ag').value,origen:S.F.origen,horiz:Number($('f-h').value)});
+  S.cal=P.calendario(filasFiltradas(),{hoy,prov:S.F.prov,reglas:S.F.reglas,costo:S.F.costo,emp:S.F.emp,agrupar:$('f-ag').value,origen:S.F.origen,horiz:Number($('f-h').value)});
   if(S.sel){const g=S.cal.find(x=>x.g===S.sel);if(!g){S.sel=null;$('det').style.display='none';}}
   pintar();if(S.sel)pintarDet();
 }
@@ -284,7 +284,7 @@ function pintarDet(){
   const rk=l=>P.nivRank(S.byC.get(Number(l.c)));
   $('det-b').innerHTML=p.lineas.slice().sort((a,b)=>rk(a)-rk(b)||a.pos-b.pos).map(l=>'<tr><td><b>'+l.c+'</b></td><td class="desc">'+esc(l.n)+'</td><td>'+esc(l.m)+'</td><td>'+esc(l.comp||'')+'</td><td class="e-'+esc(l.est||'')+'">'+esc(l.est||'')+P.nivChip(S.byC.get(Number(l.c)))+'</td>'
     +'<td class="num">'+nf(l.D,1)+'</td><td class="num">'+nf(l.pos,1)+'</td><td class="num">'+nf(l.rop,1)+'</td><td>'+(l.atr>0?'<span class="chip c-venc">ya pasó</span>':fCorta(l.fp))+'</td>'
-    +'<td class="num"><b>'+nf(l.q)+'</b> <span class="mut sm">'+esc(l.u)+'</span>'+(l.eq?'<div class="mut sm">'+esc(l.eq)+'</div>':'')+'</td><td class="sm">'+esc(l.emp?l.emp.toLowerCase():'')+'</td><td class="num">'+(l.costo!=null?mxn(l.costo):'—')+'</td><td class="num">'+(l.valor!=null?mxn(l.valor):'—')+'</td>'
+    +'<td class="num"><b>'+nf(l.q)+'</b> <span class="mut sm">'+esc(l.u)+'</span></td><td class="sm">'+esc(l.emp?l.emp.toLowerCase():'')+'</td><td class="num">'+(l.costo!=null?mxn(l.costo):'—')+'</td><td class="num">'+(l.valor!=null?mxn(l.valor):'—')+'</td>'
     +'<td class="sm">'+esc(l.prov.o==='MARCA'?'(sin proveedor)':l.prov.p)+' <span class="chip o-'+l.prov.o.split(' ')[0]+'">'+esc(l.prov.o.toLowerCase())+'</span></td><td>'+(S.abiertas.has(l.c)?'<span class="chip c-teal">'+esc(S.abiertas.get(l.c))+'</span>':'')+'</td></tr>').join('');
 }
 function crearProp(comp,i){
@@ -300,7 +300,7 @@ function crearProp(comp,i){
 function filasXL(gs,soloPed){
   const out=[];gs.forEach(g=>g.pedidos.forEach((p,i)=>{if(soloPed!=null&&i!==soloPed)return;p.lineas.forEach(l=>out.push({'Fecha de pedido':p.f,'Vencido':p.atr>0?'SÍ':'','Proveedor / grupo':g.g,'Ciclo (días)':g.ciclo,'Ciclo':g.cicloAuto?'automático':'definido',
     'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est,'Nivel de riesgo':(S.byC.get(Number(l.c))||{}).nv||'','Se acaba (estimado)':(S.byC.get(Number(l.c))||{}).fAg||'','Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
-    'Cantidad':l.q,'Unidad':l.u,'Equivale en unidad de compra':l.eq||'','Empaque':l.emp||'','Costo':l.costo,'Valor':l.valor,'Proveedor de la clave':l.prov.o==='MARCA'?'':l.prov.p,'Origen proveedor':l.prov.o,'Folio abierto':S.abiertas.get(l.c)||'','Avisos del pedido':p.av.join(' · ')}));}));
+    'Cantidad':l.q,'Unidad':l.u,'Empaque':l.emp||'','Costo':l.costo,'Valor':l.valor,'Proveedor de la clave':l.prov.o==='MARCA'?'':l.prov.p,'Origen proveedor':l.prov.o,'Folio abierto':S.abiertas.get(l.c)||'','Avisos del pedido':p.av.join(' · ')}));}));
   return out;
 }
 function exportar(){

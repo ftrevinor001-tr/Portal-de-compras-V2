@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261106c" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -81,13 +81,6 @@ td:first-child,th:first-child{text-align:left}
     <p class="d">Archivo <b>Informacion_de_empaques.xlsx</b> (hoja BD). Solo las claves VALIDO se usarán para redondear.</p>
     <div class="row"><input type="file" id="f-emp" accept=".xlsx"><button onclick="run('emp')">Cargar empaques</button></div>
     <div class="log" id="log-emp"></div>
-  </div>
-
-  <div class="card">
-    <h2><span class="n">3b</span>Unidades de compra (RP03-08) <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
-    <p class="d">Archivo <b>RP03-08_Existencias_con_Todas_las_Unidades</b> (.csv o .xlsx). Toma de cada clave su <b>unidad de compra</b> y cuántas unidades mínimas trae (<b>PZASXUNI_COMPRA</b>). Las OCs vienen en unidad de compra y el portal calcula todo en unidad mínima: con esto se convierten las OCs (Pedidos propuestos, OCs abiertas), el INNER/MASTER de empaques y se muestra la equivalencia de la propuesta (p. ej. «≈ 19.56 CIENTO»). Se aplica desde el siguiente Cálculo diario.</p>
-    <div class="row"><input type="file" id="f-uni" accept=".csv,.xlsx"><button onclick="run('uni')">Cargar unidades</button></div>
-    <div class="log" id="log-uni"></div>
   </div>
 
   <div class="card">
@@ -182,20 +175,9 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-resg"></div>
     <div id="resg-lista" style="margin-top:10px"></div>
   </div>
-  <div class="card">
-    <h2><span class="n">6a</span>Parámetros por clave <small style="color:var(--tx2);font-weight:400">· cuando salga una clave nueva o cambie la clasificación</small></h2>
-    <p class="d">Comprador, clasificación por movimiento (rotación), tiempo de entrega, objetivo de meses y ABC de cada clave. Con ellos y el <b>RP03-08</b> el portal arma solo el Detalle del día (ya no hace falta la hoja Detalle). Sube cualquier Excel con <b>CLAVE, COMPRADOR, CLASIFICACION POR MOVIMIENTO, TIEMPO DE ENTREGA, OBJETIVO_MESES DE INVENTARIO</b> (y CLASIFICACION para el ABC): sirve la hoja Detalle del Excel maestro; si trae varios días se toma el más reciente. Solo se actualizan las claves que vienen en el archivo.</p>
-    <div class="row"><input type="file" id="f-par" accept=".xlsx,.xlsm,.xls,.csv"><button onclick="run('par')">Cargar parámetros</button><button class="sec" onclick="run('par_est')">Tomar del último Cálculo diario</button><button class="sec" onclick="plantillaPar()">⬇ Descargar los parámetros</button></div>
-    <div class="row" style="margin-top:10px"><input type="text" id="par-q" placeholder="Clave para editar a mano" style="width:190px"><button class="sec" onclick="editarPar()">Editar</button></div>
-    <div class="log" id="log-par"></div>
-    <div id="par-edit" style="margin-top:10px"></div>
-    <div id="par-falta" style="margin-top:10px"></div>
-  </div>
   <div class="card" style="border:2px solid var(--navy2)">
     <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
     <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (la base recomendada: pronóstico si es temporada, si no antecedente), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
-    <p class="d" style="margin-top:-4px"><b>Sin hoja Detalle:</b> si el archivo del día solo trae las OCs (Productos Incluidos en, RP01-23) y la Base produccion, selecciona también el <b>RP03-08</b>: la existencia sale de EXIUNIMIN (menor a 1 = 0) solo de las claves L+, LS, PRUEBA e INSUMO PRODUCCION, el BO de las OCs abiertas y lo demás de los Parámetros por clave (6a). También actualiza las unidades de compra (3b).</p>
-    <div class="row" style="margin-bottom:8px"><label class="d" style="margin:0">RP03-08:</label><input type="file" id="f-calc-rp" accept=".csv,.xlsx"><label class="d" style="margin:0">Fecha de la existencia:</label><input type="date" id="calc-fecha" style="padding:7px 9px;border:1.5px solid #c9d4f0;border-radius:8px"></div>
     <div class="row"><input type="file" id="f-calc" accept=".xlsx,.xlsm"><button onclick="run('calc')">Calcular</button><button class="sec" id="btn-xl" style="display:none" onclick="descargarCalc()">⬇ Descargar resultado (Excel)</button></div>
     <div class="log" id="log-calc"></div>
     <div id="calc-res"></div>
@@ -233,7 +215,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarBono();}catch(e){}try{pintarParFalta();}catch(e){}try{const f=document.getElementById('calc-fecha');if(f&&!f.value)f.value=hoyMX();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarBono();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -275,9 +257,6 @@ async function run(tipo){
     if(tipo==='ventas')await cargaVentas(log);
     if(tipo==='mf')await cargaMF(log);
     if(tipo==='emp')await cargaEmp(log);
-    if(tipo==='uni')await cargaUni(log);
-    if(tipo==='par')await cargaPar(log);
-    if(tipo==='par_est')await parDesdeEstado(log);
     if(tipo==='hist')await cargaHist(log);
     if(tipo==='ed')await cargaED(log);
     if(tipo==='calc')await cargaCalc(log);
@@ -342,127 +321,6 @@ async function cargaEmp(log){
   log.msg('🎉 Listo.');
 }
 
-
-// ── Parámetros por clave (plan_parametros) y Detalle del día desde el RP03-08 (nov-2026) ──
-function hoyMX(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'});}
-const PAR_CAMPOS=['comprador','rotacion','t_entrega','obj_meses','abc'];
-async function guardarPar(rows,fuente,log){
-  const ahora=new Date().toISOString();
-  const lim=rows.map(r=>({clave:Number(r.clave),comprador:r.comprador?P.norm(r.comprador):null,rotacion:r.rotacion?P.rotLbl(r.rotacion):null,
-    t_entrega:r.t_entrega==null||r.t_entrega===''?null:Number(r.t_entrega),obj_meses:r.obj_meses==null||r.obj_meses===''?null:Number(r.obj_meses),abc:r.abc?String(r.abc).trim():null,fuente,actualizado_en:ahora}));
-  await enLotes('plan_parametros',lim,log,{onConflict:'clave'});
-}
-async function cargaPar(log){
-  let wb=await leerLibro('f-par',['Parametros','Parámetros','Detalle'],log);
-  if(!wb.SheetNames.some(n=>wb.Sheets[n]&&['PARAMETROS','DETALLE'].includes(P.norm(n))))wb=await leerLibro('f-par',null,log);
-  const r=P.parametrosArchivo(wb);
-  log.msg('⚙️ Hoja '+r.hoja+': '+fmt(r.rows.length)+' claves');
-  // «SIN COMPRA» no viene en la clasificación semestral: si el archivo no trae ninguna, se respeta la que ya tenía cada clave
-  if(!r.rows.some(x=>x.rotacion==='SIN COMPRA')){
-    const sc=new Set((await todo(()=>sb.from('plan_parametros').select('clave').eq('rotacion','SIN COMPRA').order('clave'))).map(x=>Number(x.clave)));
-    let n=0;r.rows.forEach(x=>{if(sc.has(Number(x.clave))){x.rotacion='SIN COMPRA';n++;}});
-    if(n)log.msg('   El archivo no trae «SIN COMPRA»: se conserva en '+fmt(n)+' claves que ya la tenían.');
-  }
-  const ant=new Map((await todo(()=>sb.from('plan_parametros').select('clave,rotacion').order('clave'))).map(x=>[Number(x.clave),x.rotacion]));
-  const cam={};r.rows.forEach(x=>{const a=ant.get(Number(x.clave));if(a&&a!==x.rotacion){const k=a+' → '+x.rotacion;cam[k]=(cam[k]||0)+1;}});
-  const cl=Object.entries(cam).sort((a,b)=>b[1]-a[1]);if(cl.length)log.msg('   Cambios de rotación: '+cl.map(([k,v])=>k+' '+fmt(v)).join(' · '));
-  await guardarPar(r.rows,'ARCHIVO',log);
-  log.msg('🎉 Listo. Se usan desde el siguiente Cálculo diario.');pintarParFalta();
-}
-async function parDesdeEstado(log){
-  const{data:pub}=await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle();
-  if(!pub)throw new Error('No hay Cálculo diario publicado.');
-  const E=await leerEstadoPublicado(pub,log);if(!E||!E.map)throw new Error('No se pudo leer el cálculo publicado.');
-  const rows=[...E.map.values()].map(r=>({clave:r.c,comprador:r.comp,rotacion:P.ROT_X[r.rot]||r.rot,t_entrega:r.lt,obj_meses:r.pm,abc:r.abc||null}));
-  log.msg('⚙️ '+fmt(rows.length)+' claves del cálculo del '+pub.fecha);
-  const ya=new Set((await todo(()=>sb.from('plan_parametros').select('clave').eq('fuente','MANUAL').order('clave'))).map(x=>Number(x.clave)));
-  const n=rows.filter(x=>!ya.has(Number(x.clave)));if(ya.size)log.msg('   Se respetan '+fmt(ya.size)+' claves capturadas a mano.');
-  await guardarPar(n,'CALCULO '+pub.fecha,log);log.msg('🎉 Listo.');pintarParFalta();
-}
-async function plantillaPar(){
-  const rows=await todo(()=>sb.from('plan_parametros').select('clave,comprador,rotacion,t_entrega,obj_meses,abc,fuente,actualizado_en').order('clave'));
-  const ws=XLSX.utils.json_to_sheet(rows.map(r=>({'CLAVE':r.clave,'COMPRADOR':r.comprador,'CLASIFICACION POR MOVIMIENTO':r.rotacion,'TIEMPO DE ENTREGA':r.t_entrega,'OBJETIVO_MESES DE INVENTARIO':r.obj_meses,'CLASIFICACION':r.abc,'FUENTE':r.fuente,'ACTUALIZADO':String(r.actualizado_en||'').slice(0,10)})));
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Parametros');XLSX.writeFile(wb,'Parametros_por_clave_'+hoyMX()+'.xlsx');
-}
-const ROT_OPC=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN','NUEVOS','SIN COMPRA'];
-function filaParHTML(k,nom,p,extra){p=p||{};const e=x=>String(x==null?'':x).replace(/"/g,'&quot;');
-  return '<tr data-k="'+k+'"><td><b>'+k+'</b></td><td style="text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis">'+e(nom||'')+'</td>'
-   +'<td><input type="text" data-f="comprador" value="'+e(p.comprador)+'" list="par-comp" style="width:130px;padding:4px 6px"></td>'
-   +'<td><select data-f="rotacion" style="padding:4px">'+['',...ROT_OPC].map(o=>'<option'+(o===p.rotacion?' selected':'')+'>'+o+'</option>').join('')+'</select></td>'
-   +'<td><input type="text" data-f="t_entrega" value="'+e(p.t_entrega)+'" style="width:60px;padding:4px 6px"></td>'
-   +'<td><input type="text" data-f="obj_meses" value="'+e(p.obj_meses)+'" style="width:60px;padding:4px 6px"></td>'
-   +'<td><input type="text" data-f="abc" value="'+e(p.abc)+'" style="width:44px;padding:4px 6px"></td>'
-   +'<td>'+(extra||'')+'</td><td><button class="sec" onclick="guardarParFila(this)">Guardar</button></td></tr>';}
-const PAR_HEAD='<tr><th>Clave</th><th style="text-align:left">Descripción</th><th>Comprador</th><th>Rotación</th><th>T. entrega (meses)</th><th>Objetivo (meses)</th><th>ABC</th><th></th><th></th></tr>';
-async function listaCompPar(){const r=await todo(()=>sb.from('plan_parametros').select('comprador').order('clave'));return [...new Set(r.map(x=>x.comprador).filter(Boolean))].sort();}
-async function editarPar(){
-  const k=Number(document.getElementById('par-q').value);const box=document.getElementById('par-edit');if(!k){box.innerHTML='';return;}
-  const{data}=await sb.from('plan_parametros').select('*').eq('clave',k).maybeSingle();const comp=await listaCompPar();
-  box.innerHTML='<datalist id="par-comp">'+comp.map(c=>'<option value="'+c+'">').join('')+'</datalist><div class="scroll"><table>'+PAR_HEAD+filaParHTML(k,'',data,data?'<span class="d">'+(data.fuente||'')+'</span>':'<span class="d">sin parámetros</span>')+'</table></div>';
-}
-async function guardarParFila(btn){
-  const tr=btn.closest('tr');const k=Number(tr.dataset.k);const row={clave:k};tr.querySelectorAll('[data-f]').forEach(i=>row[i.dataset.f]=i.value.trim()||null);
-  const tN=Number(row.t_entrega),oN=Number(row.obj_meses);
-  if(!row.comprador||!row.rotacion||!(tN>0)||!(oN>0)){alert('Captura comprador, rotación, tiempo de entrega y objetivo (en meses, mayores a 0).');return;}
-  try{await guardarPar([row],'MANUAL',{msg:()=>{}});btn.textContent='✓ Guardado';btn.disabled=true;
-    const{data}=await sb.from('plan_config').select('valor').eq('id','sin_parametros').maybeSingle();
-    if(data&&data.valor&&Array.isArray(data.valor.lista)){data.valor.lista=data.valor.lista.filter(x=>Number(x.clave)!==k);await sb.from('plan_config').upsert({id:'sin_parametros',valor:data.valor,actualizado_en:new Date().toISOString()},{onConflict:'id'});}
-  }catch(e){alert('No se guardó: '+(e.message||e)+(/plan_parametros/.test(e.message||'')?' · Corre plan_tablas_23.sql':''));}
-}
-async function pintarParFalta(){
-  const box=document.getElementById('par-falta');if(!box)return;
-  const{data}=await sb.from('plan_config').select('valor').eq('id','sin_parametros').maybeSingle();const v=data&&data.valor;
-  if(!v||!Array.isArray(v.lista)||!v.lista.length){box.innerHTML=v?'<div class="d">✅ Todas las claves resurtibles del RP03-08 del '+v.fecha+' tienen parámetros.</div>':'';return;}
-  const par=new Map((await todo(()=>sb.from('plan_parametros').select('*').in('clave',v.lista.slice(0,300).map(x=>x.clave)).order('clave'))).map(r=>[Number(r.clave),r]));
-  const comp=await listaCompPar();
-  box.innerHTML='<div class="note"><b>'+fmt(v.lista.length)+' claves resurtibles sin parámetros completos</b> en el RP03-08 del '+v.fecha+': <b>no entran al cálculo</b> hasta que se capturen aquí o vengan en el archivo de parámetros.</div>'
-   +'<datalist id="par-comp">'+comp.map(c=>'<option value="'+c+'">').join('')+'</datalist><div class="scroll" style="max-height:360px"><table>'+PAR_HEAD
-   +v.lista.slice(0,300).map(x=>filaParHTML(x.clave,x.nombre,par.get(Number(x.clave)),'<span class="d">'+(x.est_compra||'')+' · falta '+(x.falta||'')+'</span>')).join('')+'</table></div>'+(v.lista.length>300?'<div class="d">Se muestran 300 de '+fmt(v.lista.length)+'.</div>':'');
-}
-// Arma la hoja Detalle del día con el RP03-08 + parámetros + BO de las OCs abiertas, y la mete al libro del cálculo
-async function armarDetalleDia(wb,log){
-  const f=document.getElementById('f-calc-rp').files[0];
-  if(!f)throw new Error('El archivo no trae hoja Detalle: selecciona también el RP03-08 del día.');
-  const fecha=document.getElementById('calc-fecha').value||hoyMX();
-  log.msg('📖 Leyendo '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)…');await pausa();
-  const wbRP=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});
-  const rp=P.rpExistencias(wbRP);
-  log.msg('⚙️ RP03-08: '+fmt(rp.total)+' claves · '+fmt(rp.rows.length)+' resurtibles ('+Object.entries(rp.porEst).map(([e,n])=>e+' '+fmt(n)).join(', ')+')'+(rp.menor1?' · '+fmt(rp.menor1)+' con existencia menor a 1 o negativa → 0':''));
-  // Unidades de compra del mismo archivo (tarjeta 3b)
-  const un=P.unidadesRP(wbRP);const uni=new Map(un.rows.map(x=>[x.clave,x]));
-  try{const{error}=await sb.from('plan_unidades').delete().gte('clave',0);if(error)throw error;
-    await enLotes('plan_unidades',un.rows.map(x=>({...x,actualizado_en:new Date().toISOString()})),{msg:()=>{}},{onConflict:'clave'});
-    log.msg('   Unidades de compra actualizadas: '+fmt(un.rows.length)+' claves se compran en unidad distinta a la mínima.');}
-  catch(e){log.msg('⚠️ No se actualizaron las unidades de compra ('+(e.message||e)+'; ¿ya corriste plan_tablas_22.sql?)','w');}
-  let parR;try{parR=await todo(()=>sb.from('plan_parametros').select('*').order('clave'));}catch(e){throw new Error('plan_parametros: '+(e.message||e)+' · Corre plan_tablas_23.sql y carga los Parámetros por clave (6a).');}
-  if(!parR.length)throw new Error('No hay Parámetros por clave. Cárgalos en la tarjeta 6a (sirve «Tomar del último Cálculo diario»).');
-  const par=new Map(parR.map(r=>[Number(r.clave),r]));
-  const cur=P.ocLineas(wb);if(!cur)log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: el BO queda en 0.','w');
-  const bo=P.boDeOCs(cur,uni);
-  let conEnt=null;try{const[cs,rc2]=await Promise.all([todo(()=>sb.from('plan_costos').select('clave').order('clave')),todo(()=>sb.from('plan_recepciones').select('clave').order('clave'))]);if(cs.length)conEnt=new Set([...cs,...rc2].map(r=>Number(r.clave)));}catch(e){}
-  const d=P.armarDetalle(rp.rows,par,bo,fecha,conEnt);
-  if(d.omitidas)log.msg('   '+fmt(d.omitidas)+' claves sin parámetros que nunca han tenido entrada, sin existencia ni BO: se omiten.');
-  log.msg('🧾 Detalle del '+fecha+' armado: '+fmt(d.rows.length)+' claves · BO de '+fmt([...bo.values()].filter(v=>v>0).length)+' claves con OC abierta'+(d.sinPar.length?' · ⚠️ '+fmt(d.sinPar.length)+' resurtibles sin parámetros NO entran (captúralos en 6a)':''),d.sinPar.length?'w':undefined);
-  try{await sb.from('plan_config').upsert({id:'sin_parametros',valor:{fecha,lista:d.sinPar},actualizado_en:new Date().toISOString()},{onConflict:'id'});}catch(e){}
-  if(!d.rows.length)throw new Error('No quedó ninguna clave para calcular.');
-  // Si el libro también trae la hoja Detalle: se compara (sirve para validar los primeros días) y se reemplaza
-  if(P.hoja(wb,['Detalle'])){try{const pf=P.detalle(wb);const fs=[...pf.keys()].sort();const D0=pf.get(fs[fs.length-1]);
-    if(D0){let nE=0,iE=0,iB=0;const dif=[];d.rows.forEach(x=>{const o=D0.get(Number(x.Clave));if(!o)return;nE++;if(Math.abs(o.ex-x.Existencias)<1)iE++;if(Math.abs(o.bo-x['Back Order'])<0.01)iB++;else if(dif.length<8)dif.push(x.Clave+' (Detalle '+fmt(o.bo)+' · OCs '+fmt(x['Back Order'])+')');});
-      log.msg('🔍 Contra la hoja Detalle del '+fs[fs.length-1]+': '+fmt(nE)+' claves en ambos · existencia igual en '+fmt(iE)+' · BO igual en '+fmt(iB)+(dif.length?' · BO distinto, p. ej.: '+dif.join(', '):''));}}catch(e){}}
-  wb.Sheets['Detalle']=XLSX.utils.json_to_sheet(d.rows);if(!wb.SheetNames.includes('Detalle'))wb.SheetNames.push('Detalle');
-  window.__DETALLE_RP={fecha,rows:d.rows,sinPar:d.sinPar.length};
-  try{pintarParFalta();}catch(e){}
-}
-
-async function cargaUni(log){
-  const wb=await leerLibro('f-uni',null,log);
-  const r=P.unidadesRP(wb);
-  log.msg('⚙️ '+fmt(r.total)+' claves en el archivo · '+fmt(r.rows.length)+' se compran en una unidad distinta a la mínima'+(r.sinF?' · '+fmt(r.sinF)+' sin PZASXUNI_COMPRA (se omiten)':''));
-  const{error}=await sb.from('plan_unidades').delete().gte('clave',0);if(error)throw new Error('plan_unidades: '+error.message+(/plan_unidades/.test(error.message)?' · Corre plan_tablas_22.sql':''));
-  await enLotes('plan_unidades',r.rows.map(x=>({...x,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
-  log.msg('🎉 Listo. Corre el Cálculo diario para aplicarlo.');
-}
-
 async function cargaHist(log){
   const wb=await leerLibro('f-hist',['Historico de faltantes','Detalle'],log);
   log.msg('⚙️ Buscando días en existencia 0…');await pausa();
@@ -489,23 +347,21 @@ async function cargaED(log){
 let ULTIMO_CALC=null;
 async function contexto(log){
   log.msg('📥 Leyendo ventas, compras ED, agotados, existencias MF, empaques y restricciones…');
-  const [ven,ed,ag,mf,em,un,rs]=await Promise.all([
+  const [ven,ed,ag,mf,em,rs]=await Promise.all([
     todo(()=>sb.from('plan_ventas').select('empresa,clave,meses').order('empresa').order('clave')),
     todo(()=>sb.from('plan_compras_ed').select('clave,mes,cantidad').order('clave').order('mes')),
     todo(()=>sb.from('plan_agotados_mes').select('empresa,clave,mes,dias_agotado').gte('dias_agotado',P.R.DIAS_AGOTADO).order('clave').order('mes')),
     todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').order('clave')),
     todo(()=>sb.from('plan_empaques').select('*').order('clave')),
-    todo(()=>sb.from('plan_unidades').select('clave,uni_compra,f_compra,uni_min').order('clave')).catch(e=>{log.msg('⚠️ Sin catálogo de unidades (¿ya corriste plan_tablas_22.sql?): '+e.message,'w');return[];}),
     todo(()=>sb.from('claves_restringidas').select('clave,comprador,activa,autorizado_en').eq('activa',true).order('clave'))]);
-  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),uni:new Map(),ultimo:{SANVER:null,MF:null},primero:{SANVER:null,MF:null}};
-  un.forEach(r=>ctx.uni.set(Number(r.clave),{...r,f_compra:Number(r.f_compra)}));
+  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),ultimo:{SANVER:null,MF:null},primero:{SANVER:null,MF:null}};
   ven.forEach(r=>{const k=Number(r.clave);ctx.ventas[r.empresa].set(k,r.meses||{});Object.keys(r.meses||{}).forEach(m=>{if(!ctx.ultimo[r.empresa]||m>ctx.ultimo[r.empresa])ctx.ultimo[r.empresa]=m;if(!ctx.primero[r.empresa]||m<ctx.primero[r.empresa])ctx.primero[r.empresa]=m;});});
   ed.forEach(r=>{const k=Number(r.clave);if(!ctx.ed.has(k))ctx.ed.set(k,{});ctx.ed.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad);});
   ag.forEach(r=>ctx.agot.add(r.empresa+'|'+Number(r.clave)+'|'+String(r.mes).slice(0,7)));
   mf.forEach(r=>ctx.invMF.set(Number(r.clave),Number(r.existencia)));
   em.forEach(r=>ctx.emp.set(Number(r.clave),{...r,inner_cant:r.inner_cant==null?null:Number(r.inner_cant),master_cant:r.master_cant==null?null:Number(r.master_cant),factor_conv:r.factor_conv==null?null:Number(r.factor_conv)}));
   const restr=new Set();rs.forEach(x=>{if(x.autorizado_en){const d=(Date.now()-new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'))/864e5;if(d>=30)return;}restr.add(Number(x.clave)+'|'+P.norm(x.comprador));});
-  log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · unidades de compra '+fmt(un.length)+' · restringidas '+restr.size);
+  log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · restringidas '+restr.size);
   if(!ctx.ventas.SANVER.size)throw new Error('No hay ventas cargadas. Primero usa la sección 1.');
   // Primera fecha con existencia por clave (NUEVA hasta P.R.DIAS_NUEVA días; después SIN MOVIMIENTO si nunca se vendió)
   try{const pe=await todo(()=>sb.from('plan_primera_existencia').select('clave,fecha').order('clave'));ctx.primeraEx=new Map(pe.map(r=>[Number(r.clave),String(r.fecha).slice(0,10)]));
@@ -541,25 +397,11 @@ async function contexto(log){
 }
 async function cargaCalc(log){
   const wb=await leerLibro('f-calc',['Detalle','Productos Incluidos en','RP01-23 Ordenes de Compra','Base produccion'],log);
-  window.__DETALLE_RP=null;
-  if(document.getElementById('f-calc-rp').files[0]||!P.hoja(wb,['Detalle']))await armarDetalleDia(wb,log);
   const porFecha=P.detalle(wb);
   const fechas=[...porFecha.keys()].sort();
   if(!fechas.length)throw new Error('La hoja Detalle no trae fechas válidas.');
   log.msg('⚙️ Detalle: '+fechas.length+' día(s), del '+fechas[0]+' al '+fechas[fechas.length-1]);
   // 1. días agotados de SANVER desde el Detalle
-  // ¿El último día publicado se calculó con el RP03-08 y ahora se carga el mismo día con la hoja Detalle del Excel maestro? → se rehace ese día completo
-  const fU=fechas[fechas.length-1];let rehacer=false;
-  if(!window.__DETALLE_RP){try{
-    const[{data:pb0},{data:sp}]=await Promise.all([sb.from('plan_publicacion').select('fecha,resumen').eq('id','estado').maybeSingle(),sb.from('plan_config').select('valor').eq('id','sin_parametros').maybeSingle()]);
-    const deRP=pb0&&((pb0.resumen&&pb0.resumen.fuente==='RP0308')||(sp&&sp.valor&&sp.valor.fecha===pb0.fecha));
-    if(deRP&&pb0.fecha>fU)throw new Error('El último cálculo publicado ('+pb0.fecha+') se hizo con el RP03-08 y tu hoja Detalle llega al '+fU+'. Carga el Excel maestro cuyo Detalle llegue al '+pb0.fecha+'.');
-    if(deRP&&pb0.fecha===fU){rehacer=true;log.msg('♻️ El '+fU+' se había calculado con el RP03-08: se rehace completo con la hoja Detalle (alarmas, estatus y foto del día).','w');
-      const e1=await sb.from('plan_alarmas').delete().eq('fecha_alarma',fU);if(e1.error)throw new Error('alarmas: '+e1.error.message);
-      const e2=await sb.from('plan_alarmas').update({fecha_fin:null}).eq('fecha_fin',fU);if(e2.error)throw new Error('alarmas: '+e2.error.message);
-      const e3=await sb.from('plan_agotados_dia').delete().eq('empresa','SANVER').eq('fecha',fU);if(e3.error)throw new Error('agotados: '+e3.error.message);
-      await sb.from('plan_config').upsert({id:'sin_parametros',valor:{fecha:null,lista:[]},actualizado_en:new Date().toISOString()},{onConflict:'id'});}
-  }catch(e){if(/RP03-08/.test(e.message||''))throw e;log.msg('⚠️ '+(e.message||e),'w');}}
   const ag=[];porFecha.forEach((m,f)=>m.forEach(d=>{if(d.ex<=0)ag.push({empresa:'SANVER',clave:d.clave,fecha:f,dias:1});}));
   log.msg('💾 Guardando '+fmt(ag.length)+' días-clave en existencia 0…');
   await enLotes('plan_agotados_dia',ag,log,{onConflict:'empresa,clave,fecha',ignoreDuplicates:true});
@@ -569,8 +411,7 @@ async function cargaCalc(log){
   let prev=pub?new Set((pub.en_riesgo||[]).map(Number)):null;
   let pendientes=fechas.filter(f=>!pub||f>pub.fecha);
   let soloPublicar=false;
-  if(!pendientes.length&&rehacer)pendientes=[fU];
-  else if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
+  if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
   const{ctx,restr}=await contexto(log);
   // Producción: relación insumo → producto (hoja Base produccion; si no viene, la última guardada)
   await baseProduccion(wb,ctx,log);
@@ -586,18 +427,6 @@ async function cargaCalc(log){
   const mismoDia=prevEst&&prevEst.fecha===pendientes[0];
   ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,mismoDia&&'pE' in r?{est:r.pE,eA:r.eA,eP:r.eP,eD:r.pD,eDx:!!r.pDx,nv:r.pNv,xh:r.xh}:{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]):[]);
   ctx.prevFecha=mismoDia?(prevEst.fecha_ant||null):(prevEst?prevEst.fecha:null);
-  // Al rehacer el día: las alarmas se comparan contra el estatus del día anterior (pE), no contra lo que publicó el cálculo con RP03-08
-  if(rehacer&&mismoDia){
-    prev=new Set([...prevEst.map.values()].filter(r=>EN_RIESGO.includes(r.pE)).map(r=>r.c));
-    // Mejor: la foto completa del día anterior (trae todas las claves, también las que el cálculo con RP03-08 no tuvo)
-    if(prevEst.fecha_ant){try{const{data:blob,error}=await sb.storage.from('respaldos').download('plan/dias/'+prevEst.fecha_ant+'.json.gz');if(error)throw error;
-      const F=JSON.parse(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text());
-      const fm=new Map((F.claves||[]).map(r=>[Number(r.c),r]));prev=new Set((F.claves||[]).filter(r=>EN_RIESGO.includes(r.est)).map(r=>Number(r.c)));
-      // estatus y racha del día anterior para cada clave, desde la foto
-      fm.forEach((r,k)=>{const x=ctx.prevEst.get(k);ctx.prevEst.set(k,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:x&&x.xh});});
-      log.msg('   Alarmas contra el '+prevEst.fecha_ant+': '+fmt(prev.size)+' claves estaban en RIESGO/FALTANTE.');}
-    catch(e){log.msg('⚠️ No se leyó la foto del '+prevEst.fecha_ant+' ('+(e.message||e)+'); se usa el estatus anterior del cálculo publicado.','w');}}
-  }
   let antMap=mismoDia?(prevEst.antMap||null):(prevEst?prevEst.map:null),antFecha=ctx.prevFecha,salAnt=mismoDia?(prevEst.sal||null):null;
   if(prevEst&&![...prevEst.map.values()].some(r=>'eD' in r))await rachasIniciales(ctx,prevEst,log);
   if(prevEst&&![...prevEst.map.values()].some(r=>'xh' in r))await ritmoInicial(ctx,pendientes[0],log);
@@ -637,7 +466,7 @@ async function cargaCalc(log){
   if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
   const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
   if(up.error)throw new Error('Storage: '+up.error.message);
-  const resumen={...(window.__DETALLE_RP?{fuente:'RP0308'}:{}),target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
+  const resumen={target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
   const{error:eu}=await sb.from('plan_publicacion').upsert({id:'estado',fecha:fUlt,ruta,version:Date.now().toString(),resumen,en_riesgo:[...prev],actualizado_en:new Date().toISOString()},{onConflict:'id'});
   if(eu)throw new Error('plan_publicacion: '+eu.message);
   ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia,oc:ocx};
@@ -830,7 +659,7 @@ const PROV_COLS=[['ciclo_dias','Ciclo (días)','n'],['dias_pedido','Días de ped
   ['monto_flete','Monto para flete completo $','n'],['lead_time_dias','Tiempo de entrega real (días)','n'],['contacto','Contacto','t'],['notas','Notas','t']];
 async function plantillaProv(log){
   const{E,F}=await fuentesProv(log);
-  const cal=P.calendario(E.claves,{hoy:E.fecha,prov:F.prov,reglas:F.reglas,costo:F.costo,emp:F.emp,uni:F.uni,agrupar:'PROV'});
+  const cal=P.calendario(E.claves,{hoy:E.fecha,prov:F.prov,reglas:F.reglas,costo:F.costo,emp:F.emp,agrupar:'PROV'});
   const vistos=new Set();const rows=[];
   cal.filter(g=>!/^MARCA /.test(g.g)).sort((a,b)=>b.valMes-a.valMes).forEach(g=>{const k=P.provKey(g.g);vistos.add(k);const r=g.regla||{};const o={'Proveedor':r.proveedor||g.g};
     PROV_COLS.forEach(([c,t,ty])=>o[t]=r[c]==null?'':ty==='b'?(r[c]?'SI':'NO'):r[c]);
@@ -1249,9 +1078,7 @@ async function procesarOCs(wb,fecha,log,res,prevEst){
   const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;
   log.msg('🚚 OTIF del mes: '+fmt(oLin.length)+' líneas cerradas evaluables'+(oGen?' · OTIF '+(oGen.otif==null?'— (sin líneas con fecha válida)':(oGen.otif*100).toFixed(1)+'%'):''));
   // OCs abiertas por clave para el tablero: [folio, pendiente, fecha OC, proveedor, entrega directa]
-  // nov-2026: el pendiente se pasa a unidad mínima (la OC viene en unidad de compra) para compararlo con existencia, BO y propuesta
-  const fcM=new Map((res||[]).filter(r=>r.fC>0).map(r=>[Number(r.c),r.fC]));
-  const abiertas={};cur.forEach(l=>{const f=fcM.get(Number(l.clave))||1;(abiertas[l.clave]||(abiertas[l.clave]=[])).push([l.folio,Math.round(l.cantidad_pend*f*10000)/10000,l.fecha_oc,l.proveedor||'',l.entrega_directa?1:0]);});
+  const abiertas={};cur.forEach(l=>{(abiertas[l.clave]||(abiertas[l.clave]=[])).push([l.folio,l.cantidad_pend,l.fecha_oc,l.proveedor||'',l.entrega_directa?1:0]);});
   return{tRows,tGen:tN?{evaluadas:tN,target:tOk/tN,riesgo:TR.gen.RIESGO,no:TR.gen.NO,meta:P.metaTarget(metaCfg,'GENERAL')}:null,alarmasMes:am,oLin,oProv:P.otifResumen(oLin,'proveedor'),oGen,abiertas};
 }
 function pct(x){return x==null?'—':(x*100).toFixed(1)+'%';}

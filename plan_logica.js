@@ -109,96 +109,17 @@ P.empaques=wb=>{
   const aoa=P.aoa(ws);const h=P.header(aoa,['CLAVE SANVER','UNI COMPRA','CTD. EN UM','CTD. EN UM2','VALIDACION']);
   if(!h)throw new Error('No encontré los encabezados de la hoja BD (CLAVE SANVER, UNI COMPRA, Ctd. En UM, Ctd. En UM2, VALIDACION).');
   const iC=h.cols.indexOf('CAMBIO DE UNIDADES');
-  // Si CAMBIO DE UNIDADES viene vacío se lee el «C/30 PZAS.» de CONTENIDO UNIDAD COMPRA
-  const iCt=h.cols.indexOf('CONTENIDO UNIDAD COMPRA');const cN=x=>{const m=String(x||'').match(/C\s*\/\s*(\d+(?:\.\d+)?)/i);return m?Number(m[1]):null;};
-  // Unidad en que viene cada cantidad (la columna «Unidad de medida» junto a Ctd. En UM / Ctd. En UM2)
-  const iU1=h.cols.indexOf('UNIDAD DE MEDIDA'),iU2=h.cols.indexOf('UNIDAD DE MEDIDA2');
   const m=new Map();
   for(let i=h.fila+1;i<aoa.length;i++){
     const r=aoa[i];const k=P.clave(r[h.idx['CLAVE SANVER']]);if(k==null)continue;
     const fila={clave:k,uni_compra:String(r[h.idx['UNI COMPRA']]||'').trim()||null,
       inner_cant:P.num(r[h.idx['CTD. EN UM']]),master_cant:P.num(r[h.idx['CTD. EN UM2']]),
-      inner_um:iU1>=0?String(r[iU1]||'').trim()||null:null,master_um:iU2>=0?String(r[iU2]||'').trim()||null:null,
-      factor_conv:(iC>=0&&P.num(r[iC])>0?P.num(r[iC]):null)??(iCt>=0?cN(r[iCt]):null),validacion:P.norm(r[h.idx.VALIDACION])||null};
+      factor_conv:iC>=0?P.num(r[iC]):null,validacion:P.norm(r[h.idx.VALIDACION])||null};
     const prev=m.get(k);
     if(!prev||(prev.validacion!=='VALIDO'&&fila.validacion==='VALIDO'))m.set(k,fila);
   }
   const rows=[...m.values()];
   return{rows,validos:rows.filter(r=>r.validacion==='VALIDO').length};
-};
-
-// 3b. Catálogo de unidades del sistema (RP03-08 «Existencias con todas las unidades»).
-// Por clave: unidad de compra y cuántas unidades mínimas trae (PZASXUNI_COMPRA). Las OCs vienen en unidad de compra;
-// todo el cálculo del portal (ventas, existencia, BO, propuesta, surtimiento) va en unidad mínima.
-// Solo se guardan las claves donde la unidad de compra es distinta a la mínima (o su factor no es 1).
-P.unidadesRP=wb=>{
-  const req=['IDARTICULO','UNIDAD_COMPRA','PZASXUNI_COMPRA','UNIDAD_MINIMA'];let aoa=null,h=null;
-  for(const n of wb.SheetNames){if(!wb.Sheets[n])continue;const a=P.aoa(wb.Sheets[n]);const x=P.header(a,req);if(x){aoa=a;h=x;break;}}
-  if(!h)throw new Error('No encontré los encabezados del RP03-08 (IDARTICULO, UNIDAD_COMPRA, PZASXUNI_COMPRA, UNIDAD_MINIMA).');
-  const ix=c=>h.cols.indexOf(c),iE=ix('UNIDAD_EMPAQUE'),iFE=ix('PZASXUNIDAD_EMPAQUE'),iM=ix('UNIDAD_MASTER'),iFM=ix('PZASXUNIDAD_MASTER');
-  const t=x=>String(x==null?'':x).trim()||null;const m=new Map();let total=0,sinF=0;
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const k=P.clave(r[h.idx.IDARTICULO]);if(k==null)continue;total++;
-    const uc=t(r[h.idx.UNIDAD_COMPRA]),um=t(r[h.idx.UNIDAD_MINIMA]),f=P.num(r[h.idx.PZASXUNI_COMPRA]);
-    if(P.norm(uc)===P.norm(um)&&(f==null||f===1))continue;
-    if(!(f>0)){sinF++;continue;}
-    m.set(k,{clave:k,uni_compra:uc,f_compra:f,uni_min:um,uni_emp:iE>=0?t(r[iE]):null,f_emp:iFE>=0?P.num(r[iFE]):null,uni_master:iM>=0?t(r[iM]):null,f_master:iFM>=0?P.num(r[iFM]):null});}
-  return{rows:[...m.values()],total,sinF};
-};
-// Factor de la unidad de compra a la unidad mínima (null si la clave se compra en su unidad mínima)
-P.fCompra=(uc,unidad)=>uc&&+uc.f_compra>0&&(!unidad||!uc.uni_min||P.norm(uc.uni_min)===P.norm(unidad))&&!(P.norm(uc.uni_compra)===P.norm(unidad)&&+uc.f_compra===1)?+uc.f_compra:null;
-// «≈ 19.56 CIENTO» para una cantidad en unidad mínima (r = fila del cálculo con uC/fC)
-P.eqCompra=(q,r)=>{if(q==null||!r||!(r.fC>0)||!r.uC)return'';const x=Math.round(q/r.fC*100)/100;return'≈ '+x.toLocaleString('es-MX',{maximumFractionDigits:2})+' '+r.uC;};
-
-// ── Detalle del día armado desde el RP03-08 (nov-2026): reemplaza la hoja Detalle del Excel maestro ──
-// Existencia = EXIUNIMIN (existencia del CEDI en unidad mínima); menor a 1 → 0 (faltante).
-// Solo claves resurtibles (estatus de compra). Comprador, rotación, T. entrega, objetivo y ABC salen de plan_parametros.
-// BO = pendiente de las OCs abiertas (hoja Productos Incluidos en) pasado a unidad mínima.
-P.RESURTIBLES=['L+','LS','PRUEBA','INSUMO PRODUCCION'];
-P.rotLbl=v=>{const n=P.norm(v);return n?({'SAGRADOS':'SAGRADOS','ALTA ROTACION':'ALTA ROTACIÓN','MEDIA ROTACION':'MEDIA ROTACIÓN','LENTA ROTACION':'LENTA ROTACIÓN','NUEVOS':'NUEVOS','SIN COMPRA':'SIN COMPRA'})[n]||String(v).trim().toUpperCase():'';};
-P.rpExistencias=wb=>{
-  const req=['IDARTICULO','ESTATUS_COMPRA','EXIUNIMIN'];let aoa=null,h=null;
-  for(const n of wb.SheetNames){if(!wb.Sheets[n])continue;const a=P.aoa(wb.Sheets[n]);const x=P.header(a,req);if(x){aoa=a;h=x;break;}}
-  if(!h)throw new Error('No encontré los encabezados del RP03-08 (IDARTICULO, ESTATUS_COMPRA, EXIUNIMIN).');
-  const ix=c=>h.cols.indexOf(c),iD=ix('DESCRIPCION'),iM=ix('MARCA'),iG=ix('GRUPO'),iU=ix('UNIDAD_MINIMA');
-  const ok=new Set(P.RESURTIBLES.map(P.norm));const rows=[];const porEst={};let total=0,menor1=0;
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const k=P.clave(r[h.idx.IDARTICULO]);if(k==null)continue;total++;
-    const e=P.norm(r[h.idx.ESTATUS_COMPRA]);if(!ok.has(e))continue;porEst[e]=(porEst[e]||0)+1;
-    let ex=P.num(r[h.idx.EXIUNIMIN])||0;if(ex<1){if(ex!==0)menor1++;ex=0;}
-    rows.push({clave:k,nombre:iD>=0?String(r[iD]||'').trim():'',marca:iM>=0?String(r[iM]||'').trim():'',grupo:iG>=0?String(r[iG]||'').trim():'',unidad:iU>=0?P.norm(r[iU]):'',est_compra:e,ex});}
-  return{rows,total,porEst,menor1};
-};
-// Parámetros por clave desde cualquier hoja con CLAVE, COMPRADOR, CLASIFICACION POR MOVIMIENTO, TIEMPO DE ENTREGA y OBJETIVO_MESES DE INVENTARIO
-// (sirve la hoja Detalle del Excel maestro: si trae varios días, se queda el más reciente de cada clave)
-P.parametrosArchivo=wb=>{
-  const req=['CLAVE','COMPRADOR','CLASIFICACION POR MOVIMIENTO','TIEMPO DE ENTREGA','OBJETIVO_MESES DE INVENTARIO'];let aoa=null,h=null,hoja=null;
-  const orden=[...wb.SheetNames].sort((a,b)=>(P.norm(b)==='PARAMETROS')-(P.norm(a)==='PARAMETROS')||(P.norm(b)==='DETALLE')-(P.norm(a)==='DETALLE'));
-  for(const n of orden){if(!wb.Sheets[n])continue;const a=P.aoa(wb.Sheets[n]);const x=P.header(a,req);if(x){aoa=a;h=x;hoja=n;break;}}
-  if(!h)throw new Error('No encontré una hoja con '+req.join(', ')+'.');
-  const iF=h.cols.indexOf('FECHA'),iA=h.cols.indexOf('CLASIFICACION');const m=new Map();
-  for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const k=P.clave(r[h.idx.CLAVE]);if(k==null)continue;
-    const f=iF>=0?P.fecha(r[iF])||'':'';const p=m.get(k);if(p&&p._f>f)continue;
-    const t=x=>{const s=String(x==null?'':x).trim();return s||null;};
-    m.set(k,{_f:f,clave:k,comprador:t(P.norm(r[h.idx.COMPRADOR])),rotacion:t(P.rotLbl(r[h.idx['CLASIFICACION POR MOVIMIENTO']])),
-      t_entrega:P.num(r[h.idx['TIEMPO DE ENTREGA']]),obj_meses:P.num(r[h.idx['OBJETIVO_MESES DE INVENTARIO']]),abc:iA>=0?t(r[iA]):null});}
-  const rows=[...m.values()].map(({_f,...x})=>x);
-  return{rows,hoja};
-};
-// BO por clave (unidad mínima) con las OCs abiertas: cur = P.ocLineas(wb); uni = Map clave → {f_compra}
-P.boDeOCs=(cur,uni)=>{const m=new Map();if(!cur)return m;
-  cur.forEach(l=>{const p=Number(l.cantidad_pend)||0;if(p<=0)return;if(/CANCEL/.test(l.estado_oc||''))return;
-    const u=uni&&uni.get(Number(l.clave));const f=u&&+u.f_compra>0?+u.f_compra:1;m.set(l.clave,(m.get(l.clave)||0)+p*f);});
-  m.forEach((v,k)=>m.set(k,Math.round(v*10000)/10000));return m;};
-// Filas con los mismos encabezados de la hoja Detalle del Excel maestro (para que el resto del portal no cambie)
-// conEntrada (opcional) = claves que alguna vez tuvieron entrada. Una clave sin parámetros que nunca ha tenido entrada,
-// sin existencia y sin BO (p. ej. refacciones YY* que nunca se compran) se omite: no entra al cálculo ni a la lista de pendientes.
-P.armarDetalle=(rp,par,bo,fecha,conEntrada)=>{
-  const rows=[],sinPar=[];let omitidas=0;
-  rp.forEach(x=>{const p=par.get(x.clave);
-    if(!p&&conEntrada&&!conEntrada.has(x.clave)&&!(x.ex>0)&&!(bo.get(x.clave)>0)){omitidas++;return;}
-    if(!p||!p.comprador||!p.rotacion||p.t_entrega==null||p.obj_meses==null){sinPar.push({clave:x.clave,nombre:x.nombre,est_compra:x.est_compra,falta:!p?'todo':[!p.comprador&&'comprador',!p.rotacion&&'rotación',p.t_entrega==null&&'T. entrega',p.obj_meses==null&&'objetivo'].filter(Boolean).join(', ')});return;}
-    rows.push({'Fecha':fecha,'Clave':x.clave,'Nombre':x.nombre,'Marca':x.marca,'Unidad':x.unidad,'Clasificación':p.abc||'','Existencias':x.ex,'GRUPO':x.grupo,'COMPRADOR':p.comprador,
-      'Clasificación por movimiento':p.rotacion,'Tiempo de entrega':+p.t_entrega,'Objetivo_Meses de inventario':+p.obj_meses,'Meses de inventario':'','Clasificacion_estatus de inventario':'','Clasificacion_Punto de reorden':'','Back Order':bo.get(x.clave)||0});});
-  return{rows,sinPar,omitidas};
 };
 
 // 4. Histórico de agotados SANVER: rows [{empresa,clave,fecha,dias}]
@@ -372,31 +293,14 @@ P.cadenaExcel=filas=>{
   return out;
 };
 // Redondeo a empaque: ≥1 MASTER → múltiplo de MASTER más cercano; menor → hacia arriba al INNER
-// nov-2026: INNER y MASTER se pasan a unidad mínima según la unidad en que viene cada cantidad («Unidad de medida» del archivo de empaques):
-// si ya viene en la unidad mínima no se convierte; si viene en unidad de compra se multiplica por PZASXUNI_COMPRA del RP03-08
-// (o el factor del archivo de empaques si la clave no está en el RP03-08). La propuesta NO se redondea a unidades de compra.
-P.empaquePzs=(e,unidad,uc)=>{
-  if(!e||e.validacion!=='VALIDO')return null;
-  const mi=P.norm(unidad),comp=P.norm(e.uni_compra);
-  const fc=P.fCompra(uc,unidad)||(+e.factor_conv>0?+e.factor_conv:null);
-  const fac=um=>{const u=P.norm(um);if(comp===mi)return 1;if(u&&u===mi)return 1;return fc;};
-  const fi=e.inner_cant>0?fac(e.inner_um):1,fm=e.master_cant>0?fac(e.master_um):1;
-  if(fi==null||fm==null)return{err:'empaque en otra unidad sin factor'};
-  const r4=x=>Math.round(x*10000)/10000;
-  return{inn:r4((e.inner_cant||0)*fi),mas:r4((e.master_cant||0)*fm)};
-};
-// Redondeo a empaque (en unidad mínima): ≥1 MASTER → múltiplo de MASTER más cercano; menor → hacia arriba al INNER
-P.redEmp=(q,inn,mas)=>{
-  if(!q)return{q,ok:false};
+P.empaque=(q,e,unidad)=>{
+  if(!q||!e||e.validacion!=='VALIDO')return{q,ok:false};
+  let f=1;if(P.norm(e.uni_compra)!==P.norm(unidad)){if(!e.factor_conv)return{q,ok:false,nota:'empaque en otra unidad sin factor'};f=e.factor_conv;}
+  const inn=(e.inner_cant||0)*f,mas=(e.master_cant||0)*f;
   if(mas>0&&q>=mas)return{q:Math.max(mas,Math.round(q/mas)*mas),ok:true,tipo:'MASTER'};
   if(inn>0)return{q:Math.ceil(q/inn)*inn,ok:true,tipo:'INNER'};
   if(mas>0)return{q:mas,ok:true,tipo:'MASTER'};
   return{q,ok:false};
-};
-P.empaque=(q,e,unidad,uc)=>{
-  if(!q)return{q,ok:false};const z=P.empaquePzs(e,unidad,uc);
-  if(!z)return{q,ok:false};if(z.err)return{q,ok:false,nota:z.err};
-  return{...P.redEmp(q,z.inn,z.mas),inn:z.inn,mas:z.mas};
 };
 // ── Inventario en resguardo con proveedores (oct-2026) ──
 // Cuenta como existencia propia para meses de inventario, estatus (incluido faltante) y propuesta.
@@ -514,17 +418,16 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const dsx=pexOk?Math.round((new Date(fecha+'T12:00:00')-new Date(pexOk+'T12:00:00'))/864e5):null;
     const hv=hv0||(dsx!=null&&dsx>P.R.DIAS_NUEVA);
     const pv=ctx.prevEst&&ctx.prevEst.get(k)||{};
+    const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
     const su=ctx.sust&&ctx.sust.get(k)||null;
+    const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     // Sin ninguna entrada en su historial (ni de sus claves sustituidas) y sin BO (no hay OC en camino): no lleva nivel de riesgo ni alarma
     const se=ctx.conEntrada&&!(d.bo>0)&&!ctx.conEntrada.has(Number(k))&&!(su&&su.some(x=>ctx.conEntrada.has(Number(x.o))))?1:0;
-    const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
-    const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     const nr=P.nivelRiesgo(d.ex,D,lt,se?'':est,fecha,pv.xh);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
     const sug=X=>X==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(X*(lt+pm)-(d.ex+bo)));
-    const uc=ctx.uni&&ctx.uni.get(k)||null,fC=P.fCompra(uc,d.unidad),ez=P.empaquePzs(ctx.emp.get(k),d.unidad,uc);
-    const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad,uc);
+    const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
     // MF
     const smf=P.serie(cut(ctx.ventas.MF.get(k)),null);
     const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),uM,ctx.primero&&ctx.primero.MF);
@@ -539,7 +442,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
-      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,...(ez&&!ez.err&&(ez.inn>0||ez.mas>0)?{eI:ez.inn||null,eM:ez.mas||null}:{}),...(fC?{uC:uc.uni_compra,fC}:{}),
+      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nv:nr.nv,...(se?{se:1}:{}),...(pv.nv!==undefined?{pNv:pv.nv}:{}),dA:nr.dA,fAg:nr.fAg,rd:nr.rd,vr:nr.vr,...(nr.xh&&!P.esProd(d)?{xh:nr.xh}:{}),nt:notas.join(' · ')});
   });
@@ -946,7 +849,7 @@ P.R.PROP_TOL=0.20;P.R.PROP_DIF_MESES=0.5;P.R.PROP_ROJO_MESES=1;
 // aoa = filas de la hoja donde el comprador pegó surtimiento (con encabezados). Toma cada dato por el nombre de su columna.
 P.leerSurtimiento=aoa=>{
   const C={id:h=>h==='ID',pedido:h=>h==='PEDIDO',pron:h=>h==='PRON'||h.startsWith('PRON '),anteo:h=>h.startsWith('ANTE'),redond:h=>h.startsWith('REDOND'),
-    te:h=>h.startsWith('TIEMPO'),pmax:h=>h.startsWith('PEDIDO MAX'),exist:h=>(h.startsWith('EXIST')&&!h.startsWith('EXIST MF')&&!h.startsWith('EXISTENCIA MF')),bo:h=>h==='BO'||h==='BACK ORDER',existMF:h=>h==='EXIST MF',inversion:h=>h.startsWith('INVERSION'),uMin:h=>h==='UNI MIN'||h==='UNIDAD MIN'||h==='UNIDAD MINIMA'||h==='UNI MINIMA'};
+    te:h=>h.startsWith('TIEMPO'),pmax:h=>h.startsWith('PEDIDO MAX'),exist:h=>(h.startsWith('EXIST')&&!h.startsWith('EXIST MF')&&!h.startsWith('EXISTENCIA MF')),bo:h=>h==='BO'||h==='BACK ORDER',existMF:h=>h==='EXIST MF',inversion:h=>h.startsWith('INVERSION')};
   let best=null;
   for(let i=0;i<Math.min(25,aoa.length);i++){const r=(aoa[i]||[]).map(P.norm);const idx={};Object.keys(C).forEach(k=>{const j=r.findIndex(h=>h&&C[k](h));if(j>=0)idx[k]=j;});
     const n=Object.keys(idx).length;if(idx.id!=null&&idx.pedido!=null&&(!best||n>best.n))best={fila:i,idx,n};}
@@ -954,7 +857,7 @@ P.leerSurtimiento=aoa=>{
   const faltan=[['pron','Pron'],['anteo','Anteo']].filter(([k])=>best.idx[k]==null).map(([,t])=>t);
   const m=new Map();const v=(r,k)=>best.idx[k]==null?null:P.num(r[best.idx[k]]);
   for(let i=best.fila+1;i<aoa.length;i++){const r=aoa[i]||[];const c=P.clave(r[best.idx.id]);if(c==null)continue;
-    m.set(c,{clave:c,pedido:v(r,'pedido'),pron:v(r,'pron'),anteo:v(r,'anteo'),redond:v(r,'redond'),te:v(r,'te'),pmax:v(r,'pmax'),exist:v(r,'exist'),bo:v(r,'bo'),existMF:v(r,'existMF'),inversion:v(r,'inversion'),...(best.idx.uMin!=null&&String(r[best.idx.uMin]||'').trim()?{uMin:String(r[best.idx.uMin]).trim()}:{})});}
+    m.set(c,{clave:c,pedido:v(r,'pedido'),pron:v(r,'pron'),anteo:v(r,'anteo'),redond:v(r,'redond'),te:v(r,'te'),pmax:v(r,'pmax'),exist:v(r,'exist'),bo:v(r,'bo'),existMF:v(r,'existMF'),inversion:v(r,'inversion')});}
   return{filas:[...m.values()],faltan,repetidas:0};
 };
 // Base recomendada para comprar, según el historial de la clave.
@@ -993,9 +896,7 @@ P.propSug=(p,c,conBO)=>c>0&&!P.R.SIN_SUG_ROT.includes(p.rot)?Math.max(0,P.ceil3(
 P.propLinea=(p,s,o)=>{
   const conBO=!(o&&o.conBO===false);
   const br=P.baseRec(p),sA=P.propSug(p,p.A,conBO),sP=P.propSug(p,p.P,conBO),sR=P.propSug(p,br.c,conBO);
-  // nov-2026: la recomendada también ajustada a INNER/MASTER (en unidad mínima) cuando la clave tiene empaque válido
-  const sRE=sR>0&&(p.eI||p.eM)?P.redEmp(sR,p.eI,p.eM):null;
-  const out={br,sA,sP,sR,sRE:sRE&&sRE.ok&&sRE.q!==sR?sRE.q:null,sRET:sRE&&sRE.ok?sRE.tipo:null,conBO};
+  const out={br,sA,sP,sR,conBO};
   if(!s||s.pedido==null)return{...out,sem:'SIN DATO',mA:null,mP:null,mR:null,lA:null,lP:null,lR:null,varA:null,varP:null,varR:null,difR:null,avisos:['No viene en lo pegado de surtimiento']};
   const ped=Math.max(0,Number(s.pedido)||0),bo=Number(p.bo)||0,base=(Number(p.ex)||0)+(conBO?bo:0),lt=Number(p.lt)||0,pm=Number(p.pm)||0;
   const r2=x=>Math.round(x*100)/100;   // a 2 decimales para que 4.2 contra 3 × 1.4 no falle por redondeo
@@ -1006,8 +907,6 @@ P.propLinea=(p,s,o)=>{
   const lo=r2(Math.min(lt*P.R.FACT_ENTREGA,pm)),hi=r2(pm*P.R.FACT_MAX),bajo=r2(Math.min(lt*P.R.FACT_ENTRA_RIESGO,pm));
   const inR=m=>m!=null&&m>=lo&&m<=hi,fuera=m=>m!=null&&(m>hi||m<bajo);
   const near=sug=>sug==null?false:sug>0?Math.abs(ped-sug)/sug<=P.R.PROP_TOL:ped<=0;
-  const nearE=out.sRE!=null&&Math.abs(ped-out.sRE)<=Math.max(1e-6,out.sRE*0.001);   // pide justo lo recomendado ajustado a empaque
-  const uT=p.u?String(p.u).toLowerCase():'pzs';
   const r1=x=>Math.round(x*10)/10,av=[],fN=x=>Math.round(x).toLocaleString('es-MX'),fM=x=>r1(x).toLocaleString('es-MX',{minimumFractionDigits:1,maximumFractionDigits:1});
   // Semáforo (oct-2026): se mide en MESES de inventario con la base recomendada, no en %.
   // Verde: pide lo recomendado (±20% o ±0.5 meses) o al llegar queda dentro del objetivo.
@@ -1016,12 +915,11 @@ P.propLinea=(p,s,o)=>{
   const c=br.c>0?br.c:null,dif=sR==null?null:ped-sR,dm=c&&dif!=null?r2(dif/c):null;
   const dmX=(x,sx)=>x>0&&sx!=null?r2((ped-sx)/x):null;
   const rangoTxt='objetivo ('+fM(lo)+' a '+fM(hi)+' meses)';
-  const difTxt=dif==null?'':(dif>0?'pide '+fN(dif)+' '+uT+' más que lo recomendado (+'+fM(dm)+' meses)':'pide '+fN(-dif)+' '+uT+' menos que lo recomendado (−'+fM(-dm)+' meses)');
+  const difTxt=dif==null?'':(dif>0?'pide '+fN(dif)+' pzs más que lo recomendado (+'+fM(dm)+' meses)':'pide '+fN(-dif)+' pzs menos que lo recomendado (−'+fM(-dm)+' meses)');
   let sem,por;
   if(!c){sem=ped>0?'AMARILLO':'VERDE';por=ped>0?'Sin consumo en el portal: se compra sin historial de venta':'Sin consumo y no se pide';}
   else if(ped<=0&&(sR||0)<=0){sem='VERDE';por='No requiere compra y no se pide (al llegar '+fM(lR)+' meses)';}
-  else if(nearE){sem='VERDE';por='Pide lo recomendado ajustado a '+out.sRET+' ('+fN(out.sRE)+' '+uT+'); al llegar '+fM(lR)+' meses';}
-  else if(near(sR)||Math.abs(dm)<=P.R.PROP_DIF_MESES){sem='VERDE';por='Pide lo recomendado'+(dif?' ('+(dif>0?'+':'−')+fN(Math.abs(dif))+' '+uT+(Math.abs(dm)>=0.05?', '+(dm>0?'+':'−')+fM(Math.abs(dm))+' meses':'')+')':'')+'; al llegar '+fM(lR)+' meses';}
+  else if(near(sR)||Math.abs(dm)<=P.R.PROP_DIF_MESES){sem='VERDE';por='Pide lo recomendado'+(dif?' ('+(dif>0?'+':'−')+fN(Math.abs(dif))+' pzs'+(Math.abs(dm)>=0.05?', '+(dm>0?'+':'−')+fM(Math.abs(dm))+' meses':'')+')':'')+'; al llegar '+fM(lR)+' meses';}
   else if(inR(lR)){sem='VERDE';por='Al llegar queda con '+fM(lR)+' meses, dentro del '+rangoTxt+'; '+difTxt;}
   // Lo que el pedido mismo agrega al exceso (o al faltante): si la clave ya venía en sobre inventario, solo cuenta lo que se pide de más
   else if(dif>0&&lR>hi&&Math.min(dm,lR-hi)>P.R.PROP_ROJO_MESES){sem='ROJO';por='Sobre inventario: al llegar quedaría con '+fM(lR)+' meses, '+fM(lR-hi)+' arriba del máximo ('+fM(hi)+'); '+difTxt;}
@@ -1037,7 +935,6 @@ P.propLinea=(p,s,o)=>{
     if(bo>0&&x!=null&&Math.abs(sm-x)<=tol){avBO=true;return;}dd.push('meses con '+t+' '+r1(sm)+' (portal '+r1(m)+')');};
   difM(s.anteo,mA,p.A,'antecedente');difM(s.pron,mP,p.P,'pronóstico');
   if(avBO)av.push(conBO?'Surtimiento calculó los meses sin BO (¿Considerar BO? = No); el folio está con BO':'Surtimiento calculó los meses con BO; el folio está sin BO');
-  if(s.uMin&&p.u&&P.norm(s.uMin)!==P.norm(p.u))dd.push('unidad mínima '+s.uMin+' (portal '+p.u+')');
   if(s.te!=null&&Math.abs(s.te-lt)>0.01)dd.push('T. entrega '+s.te+' (portal '+lt+')');
   if(s.pmax!=null&&Math.abs(s.pmax-pm)>0.01)dd.push('pedido máximo '+s.pmax+' (objetivo portal '+pm+')');
   const exP=Number(p.ex)||0;if(s.exist!=null&&Math.abs(s.exist-exP)>Math.max(1,exP*0.02))dd.push('existencia '+fN(s.exist)+' (portal '+fN(exP)+')');
@@ -1087,7 +984,7 @@ P.calendario=(filas,o)=>{
     if(ag==='PROV'){const n=NOM.get(g)||new Map();n.set(pv.p,(n.get(pv.p)||0)+1);NOM.set(g,n);}
     const rg=regla(g),lt=rg&&rg.lead_time_dias>0?rg.lead_time_dias/MD:(Number(r.lt)||0),pm=Number(r.pm)||0,rop=lt*P.R.FACT_ENTRA_RIESGO,meta=lt+pm;
     const pos=((Number(r.ex)||0)+(Number(r.bo)||0))/D;
-    (G.get(g)||G.set(g,[]).get(g)).push({r,k,D,pv,lt,pm,rop,meta,pos0:pos,t0:0,due:(pos-rop)*MD,costo:o.costo?o.costo.get(k)||null:null,emp:o.emp?o.emp.get(k):null,uc:o.uni?o.uni.get(k)||null:null});
+    (G.get(g)||G.set(g,[]).get(g)).push({r,k,D,pv,lt,pm,rop,meta,pos0:pos,t0:0,due:(pos-rop)*MD,costo:o.costo?o.costo.get(k)||null:null,emp:o.emp?o.emp.get(k):null});
   });
   const out=[];
   G.forEach((its,gk)=>{
@@ -1099,9 +996,9 @@ P.calendario=(filas,o)=>{
       const tmin=Math.min(...its.map(i=>i.due));if(!(tmin<=H))break;
       const t=P.calSnap(o.hoy,Math.max(0,tmin),dias);if(t>H)break;
       const lote=its.filter(i=>i.due<=t+ciclo);
-      const L=lote.map(i=>{const pos=i.pos0-(t-i.t0)/MD;let q=Math.max(0,P.ceil3(i.D*(i.meta-pos)));const e=q>0?P.empaque(q,i.emp,i.r.u,i.uc):{q,ok:false};q=e.q||0;
+      const L=lote.map(i=>{const pos=i.pos0-(t-i.t0)/MD;let q=Math.max(0,P.ceil3(i.D*(i.meta-pos)));const e=q>0?P.empaque(q,i.emp,i.r.u):{q,ok:false};q=e.q||0;
         const x={c:i.k,n:i.r.n,m:i.r.m||'',g:i.r.g||'',comp:i.r.comp,est:i.r.est,u:i.r.u||'',D:i.D,pos:Math.round(pos*10)/10,rop:Math.round(i.rop*10)/10,
-          fp:P.calFecha(o.hoy,Math.round(i.due)),atr:i.due<0?Math.round(-i.due):0,q,eq:P.eqCompra(q,i.r),emp:e.ok?e.tipo:null,costo:i.costo,valor:i.costo!=null?Math.round(q*i.costo*100)/100:null,prov:i.pv};
+          fp:P.calFecha(o.hoy,Math.round(i.due)),atr:i.due<0?Math.round(-i.due):0,q,emp:e.ok?e.tipo:null,costo:i.costo,valor:i.costo!=null?Math.round(q*i.costo*100)/100:null,prov:i.pv};
         i.pos0=pos+q/i.D;i.t0=t;i.due=t+(i.pos0-i.rop)*MD;if(!(i.due>t))i.due=t+ciclo;return x;}).filter(x=>x.q>0);
       if(!L.length)continue;
       const valor=L.reduce((a,x)=>a+(x.valor||0),0),pzas=L.reduce((a,x)=>a+x.q,0),sinCosto=L.filter(x=>x.costo==null).length;
@@ -1120,7 +1017,7 @@ P.calendario=(filas,o)=>{
 // Lee todo lo que necesita el calendario (catálogo, reglas, OCs, Comparativos, costos, empaques). Cada fuente es opcional.
 P.calFuentes=async(sb,sbc)=>{
   const todo=async q=>{let out=[];for(let i=0;i<200;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;};
-  const F={cat:new Map(),reglas:new Map(),oc:new Map(),cmp:new Map(),costo:new Map(),emp:new Map(),uni:new Map(),origen:new Map(),avisos:[]};
+  const F={cat:new Map(),reglas:new Map(),oc:new Map(),cmp:new Map(),costo:new Map(),emp:new Map(),origen:new Map(),avisos:[]};
   const paso=async(n,fn)=>{try{await fn();}catch(e){F.avisos.push(n+': '+(e.message||e));}};
   await Promise.all([
     paso('Catálogo proveedor por clave (¿ya corriste plan_tablas_16.sql?)',async()=>(await todo(()=>sb.from('plan_prov_clave').select('clave,proveedor').order('clave'))).forEach(r=>{if(P.provValido(r.proveedor))F.cat.set(Number(r.clave),String(r.proveedor).trim());})),
@@ -1129,7 +1026,6 @@ P.calFuentes=async(sb,sbc)=>{
     paso('Costos',async()=>(await todo(()=>sb.from('plan_costos').select('clave,costo').order('clave'))).forEach(r=>{if(Number(r.costo)>0)F.costo.set(Number(r.clave),Number(r.costo));})),
     paso('Origen de recolección (¿ya corriste plan_tablas_17.sql?)',async()=>(await todo(()=>sb.from('plan_origen_clave').select('clave,origen').order('clave'))).forEach(r=>F.origen.set(Number(r.clave),r.origen))),
     paso('Empaques',async()=>(await todo(()=>sb.from('plan_empaques').select('*').order('clave'))).forEach(r=>F.emp.set(Number(r.clave),r))),
-    paso('Unidades',async()=>(await todo(()=>sb.from('plan_unidades').select('clave,uni_compra,f_compra,uni_min').order('clave'))).forEach(r=>F.uni.set(Number(r.clave),r))),
     paso('Proveedor aprobado en Comparativos',async()=>{if(!sbc)return;(await todo(()=>sbc.from('cmp_asignaciones').select('clave,proveedor,aprobado_en').eq('vigente',true).order('clave'))).forEach(r=>{
       const k=Number(r.clave),f=String(r.aprobado_en||'').slice(0,10),x=F.cmp.get(k);if(P.provValido(r.proveedor)&&(!x||f>=x.f))F.cmp.set(k,{p:String(r.proveedor).trim(),f});});}),
   ]);
