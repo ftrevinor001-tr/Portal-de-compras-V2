@@ -6,7 +6,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261105f" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261106a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -357,6 +357,15 @@ async function cargaPar(log){
   if(!wb.SheetNames.some(n=>wb.Sheets[n]&&['PARAMETROS','DETALLE'].includes(P.norm(n))))wb=await leerLibro('f-par',null,log);
   const r=P.parametrosArchivo(wb);
   log.msg('⚙️ Hoja '+r.hoja+': '+fmt(r.rows.length)+' claves');
+  // «SIN COMPRA» no viene en la clasificación semestral: si el archivo no trae ninguna, se respeta la que ya tenía cada clave
+  if(!r.rows.some(x=>x.rotacion==='SIN COMPRA')){
+    const sc=new Set((await todo(()=>sb.from('plan_parametros').select('clave').eq('rotacion','SIN COMPRA').order('clave'))).map(x=>Number(x.clave)));
+    let n=0;r.rows.forEach(x=>{if(sc.has(Number(x.clave))){x.rotacion='SIN COMPRA';n++;}});
+    if(n)log.msg('   El archivo no trae «SIN COMPRA»: se conserva en '+fmt(n)+' claves que ya la tenían.');
+  }
+  const ant=new Map((await todo(()=>sb.from('plan_parametros').select('clave,rotacion').order('clave'))).map(x=>[Number(x.clave),x.rotacion]));
+  const cam={};r.rows.forEach(x=>{const a=ant.get(Number(x.clave));if(a&&a!==x.rotacion){const k=a+' → '+x.rotacion;cam[k]=(cam[k]||0)+1;}});
+  const cl=Object.entries(cam).sort((a,b)=>b[1]-a[1]);if(cl.length)log.msg('   Cambios de rotación: '+cl.map(([k,v])=>k+' '+fmt(v)).join(' · '));
   await guardarPar(r.rows,'ARCHIVO',log);
   log.msg('🎉 Listo. Se usan desde el siguiente Cálculo diario.');pintarParFalta();
 }

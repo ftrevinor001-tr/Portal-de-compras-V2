@@ -514,11 +514,13 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const dsx=pexOk?Math.round((new Date(fecha+'T12:00:00')-new Date(pexOk+'T12:00:00'))/864e5):null;
     const hv=hv0||(dsx!=null&&dsx>P.R.DIAS_NUEVA);
     const pv=ctx.prevEst&&ctx.prevEst.get(k)||{};
-    const est=P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
     const su=ctx.sust&&ctx.sust.get(k)||null;
-    const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     // Sin ninguna entrada en su historial (ni de sus claves sustituidas) y sin BO (no hay OC en camino): no lleva nivel de riesgo ni alarma
     const se=ctx.conEntrada&&!(d.bo>0)&&!ctx.conEntrada.has(Number(k))&&!(su&&su.some(x=>ctx.conEntrada.has(Number(x.o))))?1:0;
+    // nov-2026: estatus SIN COMPRA = la clave nunca se ha comprado (sin entradas en el histórico de compras/recepciones y sin OC abierta).
+    // Ya no depende de que la rotación diga «SIN COMPRA»; con existencia 0 no cuenta como faltante.
+    const est=se?'SIN COMPRA':P.estatus(d.rot,d.ex,D,lt,pm,pv.est,hv);
+    const ra=P.racha(pv,est,fecha,ctx.prevFecha);
     const nr=P.nivelRiesgo(d.ex,D,lt,se?'':est,fecha,pv.xh);
     // BO del CEDI: se quita la parte que es de OCs de entrega directa a sucursal (no llega al CEDI)
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
@@ -536,7 +538,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const mb=ctx.mfBase&&ctx.mfBase.has(k)?ctx.mfBase.get(k):null;
     const r1=x=>x==null?null:Math.round(x*10)/10;
     const notas=[...(sv.ed.length?['ED restada '+sv.ed.join(',')]:[]),...ap.notas,...(ap.I!=null?['venta intermitente: demanda = promedio 12 meses']:ap.P==null&&ap.A!=null?['sin pronóstico válido: demanda = antecedente']:ap.A==null&&ap.P!=null?['sin antecedente válido: demanda = pronóstico']:[]),...(e.nota?[e.nota]:[]),...(!hv0&&!(D>0)&&d.ex>0?['nunca se ha vendido'+(pexOk?'; con existencia desde '+pexOk+' ('+dsx+' días)':'; primera vez con existencia')]:[]),...(ctx.prodCons&&ctx.prodCons.has(k)?['incluye consumo de producción de '+ctx.prodCons.get(k).map(x=>x[0]).join(', ')]:[]),...(su?['incluye historial de '+su.map(x=>x.o+(x.cv&&x.cv!==1?' ×'+x.cv:'')+(x.f/(x.cv||1)<1?' ('+Math.round(x.f/(x.cv||1)*100)+'%)':'')).join(', ')]:[]),...(ctx.sustOmit&&ctx.sustOmit.some(z=>z[0]===k)?['NO suma la venta de '+ctx.sustOmit.filter(z=>z[0]===k).map(z=>z[1]).join(', ')+': su venta es de otra escala (unidad distinta); captura el factor de conversión en el archivo de sustituciones']:[]),...(rg?['incluye '+rg.q+' en resguardo con '+rg.det.map(x=>x[0]).join(', ')+(rg.qBo?' ('+rg.qBo+' descontado del BO)':'')]:[])];
-    const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
+    const eX=(X,pr)=>X==null?null:se?'SIN COMPRA':P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
       sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,...(ez&&!ez.err&&(ez.inn>0||ez.mas>0)?{eI:ez.inn||null,eM:ez.mas||null}:{}),...(fC?{uC:uc.uni_compra,fC}:{}),

@@ -6,9 +6,9 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261105f" charset="utf-8"></script>
-<script src="plan_fotos.js?v=20261105f" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261105f" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261106a" charset="utf-8"></script>
+<script src="plan_fotos.js?v=20261106a" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261106a" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -239,7 +239,7 @@
         </div>
         <div class="admin-card">
           <h2>📤 Cargar Excel maestro</h2>
-          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los dashboards, las alarmas y el Cálculo diario del portal: Histórico de Inventarios (Hoja1 + Detalle), Monitor de Inventario (Historico de faltantes), Estatus Back Orders (RP01-23 + Productos Incluidos en) e Inventario &amp; OTIF (Asignacion + OTIF PEDIDOS).</p>
+          <p class="desc">Sube el archivo <b>Portal_de_compras_Info.xlsx</b>. Una sola carga actualiza los dashboards, las alarmas y el Cálculo diario del portal. Hojas del Excel del día: <b>RP01-23 Ordenes de Compra</b>, <b>Productos Incluidos en</b> y <b>Base produccion</b> (más <b>Historico de faltantes</b> para el Monitor de Inventario, aquí o en «Otro archivo»). Pedidos propuestos, Target y OTIF los calcula el portal.</p>
           <div style="background:#f4f7ff;border:1px solid #d6e0f5;border-radius:8px;padding:9px 11px;margin:6px 0 10px;font-size:12.5px;line-height:1.5">
             <b>Sin hoja Detalle (nuevo):</b> selecciona primero el <b>RP03-08 Existencias con Todas las Unidades</b> y su fecha; después sube el Excel del día con las OCs (RP01-23, Productos Incluidos en) y la Base produccion. El portal arma el Detalle: existencia EXIUNIMIN (menor a 1 = 0) de las claves L+, LS, PRUEBA e INSUMO PRODUCCION, BO de las OCs abiertas y comprador, rotación, T. entrega y objetivo de los <b>Parámetros por clave</b> (Cálculo diario → 6a). Hoja1 ya no hace falta.
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px"><label>RP03-08: <input type="file" id="fx-rp" accept=".csv,.xlsx"></label><label>Fecha de la existencia: <input type="date" id="fx-fecha"></label><label title="Otro Excel con hojas que no vienen en el del día, p. ej. Historico de faltantes">Otro archivo (opcional): <input type="file" id="fx-extra" accept=".xlsx,.xlsm"></label></div>
@@ -1461,7 +1461,7 @@ function computarAlarmas(payload,rowsOC,rowsAsig,rowsOtif,mapaManual){
 
     const ped=asig.filter(r=>r.directriz==='LEVANTAR PEDIDO'&&mine(r))
       .map(r=>({Clave:r.clave,Descripción:r.descripcion,'Cant. a pedir':r.cantidad,Proveedor:r.proveedor,'Fecha sugerida':r.fechaLev?r.fechaLev.split('-').reverse().join('/'):''}));
-    if(comp==='GENERAL')log('🛒 Pedidos propuestos (LEVANTAR PEDIDO): '+ped.length+' · filas Asignacion: '+asig.length);
+    if(comp==='GENERAL'&&asig.length)log('🛒 Pedidos propuestos (LEVANTAR PEDIDO): '+ped.length+' · filas Asignacion: '+asig.length);
     push(comp,'otif','PEDIDO_PROPUESTO',ped,ped.length);
 
     const mineOt=otif.filter(mine);
@@ -1783,7 +1783,8 @@ async function publicarFaltantesV2(payload,rawUse,rawDUse,nombre,op){
 }
 
 // ── Guardar el detalle diario en Supabase, solo los días que aún no están ──
-async function guardarDiasNuevos(rawD){
+async function guardarDiasNuevos(rawD,opt){
+  opt=opt||{};
   if(!rawD||!rawD.length){log('   (sin filas de Detalle para guardar)');return;}
   // 1. Ver qué días ya están cargados en la base
   const {data:diasEx,error:e1}=await sb.from('dias_cargados').select('fecha');
@@ -1819,6 +1820,9 @@ async function guardarDiasNuevos(rawD){
 
   // 3. Determinar qué días son NUEVOS
   const dias=Object.keys(porDia).sort();
+  // Modo RP03-08: el día calculado por el portal reemplaza lo que hubiera guardado de ese día (para poder recargarlo)
+  const reemp=opt.reemplazar?dias.filter(d=>yaCargados.has(d)):[];
+  for(const d of reemp){const{error:eDel}=await sb.from('detalle_diario').delete().eq('fecha',d);if(eDel)throw new Error('reemplazar '+d+': '+eDel.message);const{error:eDd}=await sb.from('dias_cargados').delete().eq('fecha',d);if(eDd)throw new Error('reemplazar '+d+': '+eDd.message);yaCargados.delete(d);log('   ♻️ '+d+' ya estaba guardado: se reemplaza con el cálculo de hoy.');}
   const nuevos=dias.filter(d=>!yaCargados.has(d));
   if(!nuevos.length){log('   ✔️ La base ya tiene todos los días ('+dias.length+'). Nada nuevo que guardar.');return;}
   log('   💾 Guardando '+nuevos.length+' día(s) nuevo(s) en la base…');
@@ -1897,7 +1901,7 @@ async function procesarExcel(file){
       const E=await estadoPortal(true);
       rawD=(E.claves||[]).map(r=>P.fotoADetalle(r,E.fecha));
       log('💾 Guardando el Detalle del '+E.fecha+' ('+rawD.length.toLocaleString()+' claves) en la base…');
-      try{ await guardarDiasNuevos(rawD); }catch(e){ log('⚠️ Guardado en base: '+e.message); }
+      try{ await guardarDiasNuevos(rawD,{reemplazar:true}); }catch(e){ log('⚠️ Guardado en base: '+e.message); }
     }
     else if(document.getElementById('chk-calc').checked)await calculoAutomatico(file);
     else log('ℹ️ Sin Cálculo diario en esta carga: los tableros usan el último día calculado por el portal.');
@@ -2005,8 +2009,6 @@ async function procesarExcel(file){
     const rowsAsig=leerHoja(wsAs,['ID IND.','DIRECTRIZ DE PEDIDO','LEVANTAR PEDIDO']);
     const rowsOtif=leerHoja(wsOt,['ESTATUS','CLAVE','EN TIEMPO','OC']);
     if(!wsOC)log('⚠️ No se encontró la hoja RP01-23 Ordenes de Compra: alarmas de Back Orders vacías.');
-    if(!wsAs)log('⚠️ No se encontró la hoja Asignacion: pedidos propuestos vacíos.');
-    if(!wsOt)log('⚠️ No se encontró la hoja OTIF PEDIDOS: indicador OTIF vacío.');
     log('🔎 Leyendo asignaciones manuales de OCs…');
     const asgOC=await sb.from('oc_compradores').select('folio,comprador');
     const mapaManual={};if(!asgOC.error&&asgOC.data)asgOC.data.forEach(x=>{mapaManual[String(x.folio).trim()]=x.comprador;});
@@ -2096,7 +2098,7 @@ async function procesarExcel(file){
       await subirBinario('payloads/otif.xlsx',new Blob([otArr]),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       await publicarDataset('otif',{version:version,ruta:'payloads/otif.xlsx'});
       log('✅ Inventario & OTIF publicado');
-    }else{log('⚠️ Faltan hojas Asignacion / OTIF PEDIDOS: Inventario & OTIF no actualizado.');}
+    }else{log('ℹ️ Pedidos propuestos, Target y OTIF: los calcula el portal (Planeación); ya no se usan las hojas Asignacion ni OTIF PEDIDOS.');}
 
     if(document.getElementById('chk-bk').checked){
       log('💾 Respaldando Excel original ('+Math.round(file.size/1048576)+' MB)…');
