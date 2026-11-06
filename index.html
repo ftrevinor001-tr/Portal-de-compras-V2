@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
 <script src="plan_fotos.js?v=20261105a" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261105a" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261106r" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -2463,8 +2463,8 @@ init();
         </div>
         <p style="font-size:10.5px;color:#6b7a99;margin-top:6px">Puedes editar el texto antes de copiarlo. Los datos salen de la base del portal (detalle diario).</p>
         <div style="margin-top:16px;border-top:1px dashed #c9d4f0;padding-top:12px">
-          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Claves en RIESGO por nivel (alto, medio, bajo) y clasificación</div>
-          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">Un solo mensaje: totales, una línea por comprador con su riesgo alto que pide acción (sin OC, OC atrasada u OC que llega tarde) y las claves Sagrados y Alta rotación en riesgo alto <b>sin OC</b>. El detalle completo está en el portal: <b>Mi Resumen → ⚠️ Riesgo del día</b> (el link del mensaje lo abre).</div>
+          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Claves en riesgo alto que se acaban en los próximos 14 días</div>
+          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">Por clasificación (Sagrados, Alta, Media y Lenta): clave, descripción, marca, comprador y la fecha en que se acabaría al ritmo de venta actual. No incluye claves restringidas ni las que nunca se han comprado. El detalle completo está en el portal: <b>Mi Resumen → ⚠️ Riesgo del día</b> (el link del mensaje lo abre).</div>
           <div id="tg-rsg-parts"><textarea id="tg-txt2" spellcheck="false">Cargando…</textarea></div>
         </div>
       </div>
@@ -2619,7 +2619,7 @@ const tgFila=r=>({clave:String(r.c),nombre:r.n,marca:r.m,comprador:r.comp,rotaci
 const tgRacha=(r,f)=>{const n=P.diasRacha(r.eD,f);return n==null?'':(r.eDx?n+'+':n);};
 // Faltantes, riesgo, nuevos y resueltos según el portal (estatus del día y del día anterior que guarda el Cálculo diario)
 async function tgDatosPortal(forzar){
-  const E=await estadoPortal(forzar),fB=E.fecha,fA=E.fecha_ant||null;
+  const E=await estadoPortal(forzar),fB=E.fecha,fA=E.fecha_ant||null;await cargarRestrRG();
   const exc=r=>!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase());
   const vivas=(E.claves||[]).filter(exc);
   const sinPrev=!vivas.some(r=>'pE' in r);
@@ -2788,27 +2788,28 @@ function genTgRiesgo(){
   try{
     const {fB,rg}=TG;if(!fB||!rg){box.innerHTML='';return;}
     const h=tgHandles(),B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s);
+    const DIAS=14,lim=P.addDias(fB,DIAS);
     const L=[],F=rg.filas,alto=F.filter(r=>r.nv==='ALTO');
-    const n=st=>alto.filter(r=>r.st===st).length;
-    L.push(`⚠️ ${B('RIESGO — '+tgFecha(fB).toUpperCase())}`);
+    L.push(`⚠️ ${B('RIESGO ALTO — '+tgFecha(fB).toUpperCase())}`);
     if(rg.sinNivel){L.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
-    L.push(`🔴 Alto ${B(String(alto.length))} → ❗${n('SIN_OC')} sin OC · ⚠️${n('ATRASADA')} OC atrasada · ⚠️${n('TARDE')} llega tarde · ✅${n('A_TIEMPO')} a tiempo`);
-    if(alto.length)L.push(`   ${tgClsCuenta(alto)}`);
-    L.push(`Entraron hoy a riesgo: 🟠 Medio ${F.filter(r=>r.nv==='MEDIO'&&r.nueva).length} · 🟡 Bajo ${F.filter(r=>r.nv==='BAJO'&&r.nueva).length}`+(rg.sinPrevNv?' (primer día: las que entraron hoy a riesgo)':''));
-    // Una línea por comprador
-    const comps=rgPorComprador(F);
-    const lc=comps.filter(a=>a.accion||a.mN||a.bN);
-    if(lc.length){L.push('');L.push(`${B('Por comprador')} (riesgo alto que pide acción)`);
-      lc.forEach(a=>L.push(`• ${tgWho(a.c,h)} ${B(String(a.accion))}: `+[a.SIN_OC?'❗'+a.SIN_OC+' sin OC':'',a.ATRASADA?a.ATRASADA+(a.ATRASADA>1?' atrasadas':' atrasada'):'',a.TARDE?a.TARDE+' tarde':''].filter(Boolean).join(', ')+(a.mN||a.bN?' | entraron hoy'+(a.mN?' 🟠'+a.mN:'')+(a.bN?' 🟡'+a.bN:''):'')));}
-    // Sagrados y Alta rotación en riesgo alto SIN OC, separadas
-    const sin=alto.filter(r=>r.st==='SIN_OC');
-    const sec=[['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN']].map(([k,ic,t])=>[ic,t,sin.filter(r=>tgCls(r.rotacion)===k).sort((a,b)=>(a.dA??9e9)-(b.dA??9e9))]).filter(x=>x[2].length);
-    if(sec.length){L.push('');L.push(`🚨 ${B('Riesgo alto SIN OC')}`);
-      sec.forEach(([ic,t,rs])=>{L.push(`${ic} ${B(t)} (${rs.length})`);const top=rs.slice(0,15);
-        top.forEach(r=>L.push(`• ${tgWho(tgComp(r),h)} – ${r.clave} ${tgCorto(r.nombre,30)} → ${r.dA!=null&&Math.floor(r.dA)<=0?'HOY':segFmt(r.fAg)}`));
-        if(rs.length>top.length)L.push(`   …y ${rs.length-top.length} más en el portal`);});}
-    if(rg.nSe)L.push('',`ℹ️ No se incluyen ${rg.nSe} claves en riesgo que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).`);
-    L.push('');L.push('ℹ️ 🔴Alto: se acaba antes de la mitad del T. de entrega · 🟠Medio: antes del T. de entrega · 🟡Bajo: aún alcanza · ❗sin OC · atrasada: la OC ya debió llegar · tarde: la OC llega después de que se acabe · → fecha estimada en que se acaba');
+    L.push(`🔴 En riesgo alto: ${B(String(alto.length))} claves`+(alto.length?` (${tgClsCuenta(alto)})`:''));
+    // Claves en riesgo alto que se acaban en los próximos 14 días, por clasificación
+    const prox=alto.filter(r=>r.fAg&&r.fAg<=lim);
+    L.push('');L.push(`⏳ ${B('Se acaban en los próximos '+DIAS+' días')} (al ${segFmt(lim)}): ${prox.length}`);
+    const grupos=[['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN'],['MEDIA','🔸','MEDIA ROTACIÓN'],['LENTA','🔹','LENTA ROTACIÓN']];
+    // Se arma con hasta 25 claves por clasificación y se baja el tope si no cabe en un mensaje de Telegram (4,096 caracteres)
+    const L0=L.slice();let G=[];
+    for(const MAXG of [25,20,16,12,10,8,6,5]){G=[];
+      grupos.forEach(([k,ic,t])=>{const rs=prox.filter(r=>tgCls(r.rotacion)===k).sort((a,b)=>String(a.fAg).localeCompare(String(b.fAg))||(a.dA??9e9)-(b.dA??9e9));if(!rs.length)return;
+        G.push('');G.push(`${ic} ${B(t)} (${rs.length})`);
+        rs.slice(0,MAXG).forEach(r=>G.push(`• ${r.clave} – ${tgCorto(r.nombre,32)} – ${tgCorto(r.marca||'',12)} – ${tgWho(tgComp(r),h)} → ${r.dA!=null&&Math.floor(r.dA)<=0?'HOY':segFmt(r.fAg)}`));
+        if(rs.length>MAXG)G.push(`   …y ${rs.length-MAXG} más en el portal`);});
+      if(L0.join('\n').length+G.join('\n').length<3600)break;}
+    L.push(...G);
+    if(!prox.length)L.push('Ninguna clave en riesgo alto se acaba en los próximos '+DIAS+' días.');
+    const notas=[];if(rg.nRestr)notas.push(rg.nRestr+' restringidas');if(rg.nSe)notas.push(rg.nSe+' sin entradas (nunca compradas)');
+    if(notas.length)L.push('',`ℹ️ No se incluyen claves ${notas.join(' ni ')}.`);
+    L.push('');L.push('ℹ️ Riesgo alto: se acaba antes de la mitad de su tiempo de entrega. La fecha es cuándo se acabaría al ritmo de venta actual.');
     const link=tgV('tg-link').trim();if(link){L.push(`👉 Detalle por comprador: ${link.replace(/[?#].*$/,'')}?riesgo=1`);}
     const txt=L.join('\n');
     box.innerHTML=`<textarea id="tg-txt2" spellcheck="false" style="width:100%;min-height:340px;border:1.5px solid #c9d4f0;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.45;resize:vertical"></textarea>
@@ -2891,14 +2892,20 @@ const rgRank=n=>({ALTO:0,MEDIO:1,BAJO:2})[n]??3;
 // ¿Entró hoy a este nivel? (antes no estaba en riesgo, o estaba en un nivel menos grave)
 function rgEntro(r,sinPrevNv){if(r.pE==null||r.pE==='FALTANTE')return false;if(r.pE!=='RIESGO')return true;if(sinPrevNv)return false;return rgRank(r.nv)<rgRank(r.pNv);}
 // Filas de riesgo con su situación de OC: SIN_OC · ATRASADA (su llegada estimada ya pasó) · TARDE (llega después de que se acabe) · A_TIEMPO
+// Claves restringidas vigentes (Admin → Claves restringidas): no salen en el riesgo de Telegram ni en Riesgo del día
+let RG_RESTR=null;
+async function cargarRestrRG(){try{RG_RESTR=await restringidasVigentes();}catch(e){RG_RESTR=null;}}
+function rgEsRestr(r){if(!RG_RESTR||!RG_RESTR.size)return false;const k=String(r.c).trim(),cp=String(r.comp||'').trim().toUpperCase();
+  for(const x of RG_RESTR){const i=x.indexOf('||');if(x.slice(0,i)!==k)continue;const c=x.slice(i+2);if(!c||c===cp||(P.mismoComp&&P.mismoComp(c,cp)))return true;}return false;}
 function rgFilas(E){
-  const viv=(E.claves||[]).filter(r=>!r.pr&&!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase()));
+  const viv0=(E.claves||[]).filter(r=>!r.pr&&!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase()));
+  const viv=viv0.filter(r=>!rgEsRestr(r)),nRestr=viv0.filter(r=>r.est==='RIESGO').length-viv.filter(r=>r.est==='RIESGO').length;
   const sinPrev=!viv.some(r=>'pE' in r),sinPrevNv=!viv.some(r=>'pNv' in r);
   const rs=viv.filter(r=>r.est==='RIESGO');
   const filas=rs.filter(r=>r.nv&&!r.se).map(r=>{const oc=tgOcCedi(E.ocs&&E.ocs[r.c],r.lt);
     const st=!oc?'SIN_OC':oc.llega&&oc.llega<E.fecha?'ATRASADA':oc.llega&&r.fAg&&oc.llega>r.fAg?'TARDE':'A_TIEMPO';
     return{...tgFila(r),nv:r.nv,dA:r.dA,fAg:r.fAg,lt:r.lt,ex:r.ex,oc,st,nueva:r.nv==='ALTO'?false:(sinPrev?false:rgEntro(r,sinPrevNv))};});
-  return{fecha:E.fecha,filas,sinPrevNv,nSe:rs.filter(r=>r.se).length,sinNivel:rs.length>0&&!rs.some(r=>r.nv)};
+  return{fecha:E.fecha,filas,sinPrevNv,nSe:rs.filter(r=>r.se).length,nRestr,sinNivel:rs.length>0&&!rs.some(r=>r.nv)};
 }
 const rgAccion=r=>r.nv==='ALTO'?r.st!=='A_TIEMPO':r.nueva;
 function rgPorComprador(F){
@@ -2910,7 +2917,7 @@ async function openRiesgo(){
   document.getElementById('rg-ov').classList.add('on');
   const st=document.getElementById('rg-st');st.textContent='⏳ leyendo el cálculo del portal…';
   try{
-    const E=await estadoPortal();RG.d=rgFilas(E);
+    const E=await estadoPortal();await cargarRestrRG();RG.d=rgFilas(E);
     const comps=rgPorComprador(RG.d.filas).map(a=>a.c).sort();
     const sel=document.getElementById('rg-comp');const prev=sel.value;
     sel.innerHTML='<option value="">Todos los compradores</option>'+comps.map(c=>`<option value="${c}">${tgCorto2(c)}</option>`).join('');
@@ -2918,7 +2925,7 @@ async function openRiesgo(){
     const yo=comps.find(c=>P.mismoComp(c,usuarioActual));
     if(prev&&comps.includes(prev))sel.value=prev;else if(yo&&!esAdmin){sel.value=yo;}
     RG.open=new Set(yo?[yo]:[]);
-    st.textContent='Cálculo del portal al '+tgDMY(RG.d.fecha)+(RG.d.nSe?' · no incluye '+RG.d.nSe+' claves que nunca han tenido entrada':'')+(RG.d.sinNivel?' · ⚠️ el cálculo publicado no trae niveles: corre el Cálculo diario':'');
+    st.textContent='Cálculo del portal al '+tgDMY(RG.d.fecha)+(RG.d.nRestr?' · no incluye '+RG.d.nRestr+' claves restringidas':'')+(RG.d.nSe?' · no incluye '+RG.d.nSe+' claves que nunca han tenido entrada':'')+(RG.d.sinNivel?' · ⚠️ el cálculo publicado no trae niveles: corre el Cálculo diario':'');
     renderRiesgo();
   }catch(e){st.textContent='';document.getElementById('rg-body').innerHTML='<tr><td colspan="8" style="padding:20px;color:#b42318">❌ '+String(e.message||e).replace(/</g,'&lt;')+'</td></tr>';}
 }
