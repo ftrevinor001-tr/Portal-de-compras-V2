@@ -103,6 +103,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600
       <button class="sec" onclick="exportar()">⬇ Excel</button>
     </div>
     <div class="kpis" id="kpis"></div>
+    <div id="sh" style="display:none;margin:8px 0"></div>
     <div class="d" id="corte"></div>
     <div class="d" id="avisos" style="color:var(--warn)"></div>
   </div>
@@ -218,6 +219,27 @@ function gruposVisibles(){
   const q=($('f-q').value||'').trim().toUpperCase();
   return S.cal.filter(g=>(!S.diaF||g.pedidos.some(p=>p.f===S.diaF))).filter(g=>!S.soloAlto||altoDe(g.prox)>0).filter(g=>!q||g.g.toUpperCase().includes(q)||g.pedidos.some(p=>p.lineas.some(l=>String(l.c).startsWith(q)||(l.m||'').toUpperCase().includes(q))));
 }
+// ── Claves resurtibles sin historial (nunca compradas o sin ventas/consumo) con existencia 0 ──
+// No entran al cálculo de pedidos (no tienen consumo para proyectar), pero se listan para que el comprador decida si se piden.
+function sinHist(r){if(!r)return null;if(r.rot==='SIN COMPRA'||r.est==='SIN COMPRA')return 'nunca se ha comprado';if(r.est==='NUEVA'||(!(r.A>0)&&!(r.P>0)&&!(r.D>0)))return 'sin ventas ni consumo';return null;}
+function grupoDe(r){const ag=$('f-ag').value,k=Number(r.c);return ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):ag==='ORIGEN'?((S.F.origen.get(k))||'SIN ORIGEN DE RECOLECCIÓN'):((S.F.prov.get(k)||{}).p||('MARCA '+(r.m||'SIN MARCA')));}
+function clavesSH(){const q=($('f-q').value||'').trim().toUpperCase();return filasFiltradas().filter(r=>sinHist(r)&&!(r.ex>0)&&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)||grupoDe(r).toUpperCase().includes(q)));}
+function shPorGrupo(){const m=new Map();clavesSH().forEach(r=>{const g=grupoDe(r);(m.get(g)||m.set(g,[]).get(g)).push(r);});return [...m.entries()].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));}
+function shTabla(rs){return '<table style="margin-top:4px"><thead><tr><th>Clave</th><th>Descripción</th><th>Marca</th><th>Comprador</th><th>Sin historial</th><th>Folio abierto</th></tr></thead><tbody>'
+  +rs.map(r=>'<tr><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.comp||'')+'</td><td><span class="chip" style="background:#eef1f6;color:#475569">🆕 '+sinHist(r)+'</span></td><td>'+(S.abiertas.has(r.c)?'<span class="chip c-teal">'+esc(S.abiertas.get(r.c))+'</span>':'')+'</td></tr>').join('')+'</tbody></table>';}
+function shBotones(g,rs){const pc={};rs.forEach(r=>(pc[r.comp||'—']=pc[r.comp||'—']||[]).push(r.c));
+  return Object.entries(pc).map(([c,ks])=>'<button class="sm" onclick="crearPropSH(\''+encodeURIComponent(g)+'\',\''+esc(c)+'\')">📝 Crear propuesta '+esc(c)+' · '+ks.length+(ks.length===1?' clave':' claves')+'</button>').join(' ');}
+function pintarSH(){const box=$('sh');if(!S.verSH){box.style.display='none';return;}box.style.display='block';const G=shPorGrupo();
+  box.innerHTML='<div class="card" style="margin:0;border-left:4px solid #64748b"><b>🆕 Claves sin historial con existencia 0</b> <span class="d">— resurtibles que nunca se han comprado o que no tienen ventas ni consumo. No entran al calendario porque no hay consumo para calcular cuándo pedir; revisa si se compran. En la propuesta salen marcadas y la recomendada es 0.</span> <a class="lk" onclick="S.verSH=false;pintar()">cerrar</a>'
+    +(G.length?G.map(([g,rs])=>'<details style="margin-top:8px"><summary><b>'+esc(g)+'</b> · '+rs.length+(rs.length===1?' clave':' claves')+'</summary><div style="margin:6px 0">'+shBotones(g,rs)+'</div>'+shTabla(rs)+'</details>').join(''):'<div class="d" style="margin-top:6px">No hay claves sin historial con estos filtros.</div>')+'</div>';}
+function crearPropSH(gEnc,comp){
+  const g=decodeURIComponent(gEnc),eq=r=>$('f-ag').value==='PROV'?P.provKey(grupoDe(r))===P.provKey(g):grupoDe(r)===g;
+  const todasG=S.claves.filter(r=>(r.comp||'—')===comp&&eq(r));
+  const ks=clavesSH().filter(r=>(r.comp||'—')===comp&&eq(r)).map(r=>Number(r.c));if(!ks.length)return;
+  const todas=todasG.map(r=>Number(r.c));
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g,todas);return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g),'_blank');
+}
 function pintar(){
   const G=gruposVisibles(),H=Number($('f-h').value);
   const conP=G.filter(g=>g.prox);
@@ -228,7 +250,9 @@ function pintar(){
     +'<div class="kpi"><b>'+nf(q14.length)+'</b><span>pedidos en 14 días</span></div><div class="kpi"><b>'+mxn(v14)+'</b><span>valor estimado a 14 días</span></div>'
     +'<div class="kpi"><b>'+nf(G.reduce((a,g)=>a+g.pedidos.length,0))+'</b><span>pedidos en '+H+' días</span></div>'
     +($('f-ag').value==='PROV'?'<div class="kpi"><b>'+nf(sinProv)+'</b><span>claves sin proveedor (agrupadas por marca)</span></div>':'')
+    +(n=>'<div class="kpi" style="cursor:pointer;'+(S.verSH?'outline:2px solid #64748b':'')+'" onclick="S.verSH=!S.verSH;pintar()" title="Clic para ver las claves resurtibles sin historial (nunca compradas o sin ventas) con existencia 0, para decidir si se piden"><b>'+nf(n)+'</b><span>🆕 sin historial, existencia 0'+(S.verSH?' (viendo)':'')+'</span></div>')(clavesSH().length)
     +'<div class="kpi r" style="cursor:pointer;'+(S.soloAlto?'outline:2px solid var(--err)':'')+'" onclick="S.soloAlto=!S.soloAlto;pintar()" title="Clic para ver solo los pedidos con claves en riesgo alto"><b>'+nf(G.filter(g=>altoDe(g.prox)>0).length)+'</b><span>🔴 con claves en riesgo alto'+(S.soloAlto?' · <u>quitar filtro</u>':' · ver solo estos')+'</span></div>';
+  pintarSH();
   const pedDe=g=>S.diaF?g.pedidos.find(x=>x.f===S.diaF):g.prox;
   const rows=G.filter(g=>pedDe(g));
   $('lista').innerHTML=rows.map(g=>{const p=pedDe(g),ip=g.pedidos.indexOf(p);const enF=p.lineas.filter(l=>S.abiertas.has(l.c)).length;
@@ -280,6 +304,7 @@ function pintarDet(){
   const porComp={};p.lineas.forEach(l=>(porComp[l.comp||'—']=porComp[l.comp||'—']||[]).push(l.c));
   $('det-acc').innerHTML=(p.av.length?'<span class="av">⚠️ '+esc(p.av.join(' · '))+'</span>':'')
     +Object.entries(porComp).map(([c,ks])=>'<button class="sm" onclick="crearProp(\''+esc(c)+'\','+S.ped+')">📝 Crear propuesta '+esc(c)+' · '+ks.length+(ks.length===1?' clave':' claves')+'</button>').join('')
+    +(sh=>sh.length?'<div class="d" style="margin:6px 0">🆕 Además, <b>'+sh.length+'</b> clave'+(sh.length===1?'':'s')+' de este grupo sin historial y con existencia 0 (no entran al cálculo): '+sh.slice(0,8).map(r=>r.c).join(', ')+(sh.length>8?'…':'')+'. Si creas la propuesta desde aquí aparecen en la lista del grupo para que decidas si se piden. '+shBotones(g.g,sh)+'</div>':'')(clavesSH().filter(r=>g.ag==='PROV'?P.provKey(grupoDe(r))===P.provKey(g.g):grupoDe(r)===g.g))
     +'<span class="d">'+(p.atr>0?'Pedido vencido: hay claves que ya pasaron su punto de pedido (en riesgo o faltante). ':'')+'La propuesta se abre en Propuestas de compra con estas claves para que la revises y crees el folio.</span>';
   const rk=l=>P.nivRank(S.byC.get(Number(l.c)));
   $('det-b').innerHTML=p.lineas.slice().sort((a,b)=>rk(a)-rk(b)||a.pos-b.pos).map(l=>'<tr><td><b>'+l.c+'</b></td><td class="desc">'+esc(l.n)+'</td><td>'+esc(l.m)+'</td><td>'+esc(l.comp||'')+'</td><td class="e-'+esc(l.est||'')+'">'+esc(l.est||'')+P.nivChip(S.byC.get(Number(l.c)))+'</td>'
