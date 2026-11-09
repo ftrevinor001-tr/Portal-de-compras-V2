@@ -87,6 +87,7 @@ tr.lin-q td{background:#fbfcff}
     </div>
     <div class="row" style="margin-top:10px">
       <select id="f-comp" onchange="pintarLista()"></select>
+      <select id="f-mes" onchange="pintarLista()" title="Mes en que se creó el folio. En «mes actual» también salen los folios abiertos de meses anteriores (borrador, en revisión o regresados)"></select>
       <select id="f-est" onchange="pintarLista()"><option value="ABIERTOS">Abiertos (borrador, en revisión, regresados)</option><option value="">Todos</option><option>BORRADOR</option><option value="EN REVISION">En revisión</option><option>REGRESADO</option><option>AUTORIZADO</option><option>CANCELADO</option></select>
       <button class="sec" onclick="recargar()">↻ Actualizar</button>
       <button onclick="abrirNueva()" style="margin-left:auto">➕ Nueva propuesta</button>
@@ -214,6 +215,8 @@ function desdeCalendario(){
 }
 function setQuien(inicial){
   const v=quien();lsSet('plan_prop_quien',v);
+  // Por default: compradores ven sus folios abiertos; quien autoriza (no es comprador) ve los que están En revisión
+  if(v)$('f-est').value=COMPRADORES.includes(v)?'ABIERTOS':'EN REVISION';
   $('ses').textContent=v?'Trabajando como: '+v:'';
   if(COMPRADORES.includes(v))$('f-comp').value=v;else if(!inicial)$('f-comp').value='';
   if(!inicial){pintarLista();if(S.actual)pintarFolio();}
@@ -241,13 +244,25 @@ async function recargar(){
     pintarLista();if(S.actual)await abrirFolio(S.actual.folio);
   }catch(e){$('lista').innerHTML='<tr><td colspan="8" style="color:var(--err)">❌ '+esc(e.message||e)+(String(e.message||'').includes('plan_propuesta')?' · ¿Ya corriste plan_tablas_9.sql?':'')+'</td></tr>';}
 }
+// Mes de creación del folio (hora de México)
+const mesDe=f=>f&&f.creado_en?new Date(f.creado_en).toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'}).slice(0,7):'';
+const MESES_N=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const mesTxt=m=>MESES_N[Number(m.slice(5,7))-1]+' '+m.slice(0,4);
+function pintarMeses(){
+  const sel=$('f-mes'),hoy=new Date().toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'}).slice(0,7),prev=sel.dataset.ok?sel.value:'ACTUAL';
+  const ms=[...new Set((S.folios||[]).map(mesDe).filter(Boolean))].filter(m=>m!==hoy).sort().reverse();
+  sel.innerHTML='<option value="ACTUAL">Mes actual ('+mesTxt(hoy)+')</option>'+ms.map(m=>'<option value="'+m+'">'+mesTxt(m).replace(/^./,c=>c.toUpperCase())+'</option>').join('')+'<option value="">Todos los meses</option>';
+  sel.value=[...sel.options].some(o=>o.value===prev)?prev:'ACTUAL';sel.dataset.ok='1';
+  return hoy;
+}
 function pintarLista(){
-  const fc=$('f-comp').value,fe=$('f-est').value;
-  const rows=S.folios.filter(f=>(!fc||f.comprador===fc)&&(!fe||(fe==='ABIERTOS'?ABIERTOS.includes(f.estado):f.estado===fe)));
+  const fc=$('f-comp').value,fe=$('f-est').value,hoy=pintarMeses(),fm=$('f-mes').value;
+  const okMes=f=>!fm||(fm==='ACTUAL'?(mesDe(f)===hoy||ABIERTOS.includes(f.estado)):mesDe(f)===fm);
+  const rows=S.folios.filter(f=>(!fc||f.comprador===fc)&&(!fe||(fe==='ABIERTOS'?ABIERTOS.includes(f.estado):f.estado===fe))&&okMes(f));
   $('lista').innerHTML=rows.map(f=>{const r=(S.resumen||{})[f.folio]||{n:0};
     return '<tr><td><a class="lk" onclick="abrirFolio(\''+f.folio+'\')">'+esc(f.folio)+'</a></td><td>'+esc(f.comprador)+'</td><td>'+fFH(f.creado_en)+'</td><td>'+fF(f.fecha_calculo)+'</td><td class="num">'+nf(r.n)+'</td><td>'
       +(r.VERDE?'<span class="chip s-VERDE">'+r.VERDE+'</span> ':'')+(r.AMARILLO?'<span class="chip s-AMARILLO">'+r.AMARILLO+'</span> ':'')+(r.ROJO?'<span class="chip s-ROJO">'+r.ROJO+'</span> ':'')+(r.SIN?'<span class="chip s-SIN">'+r.SIN+' sin surt.</span>':'')
-      +'</td><td>'+estChip(f.estado)+'</td><td class="mut">'+(f.autorizado_por?esc(f.autorizado_por)+' · '+fFH(f.autorizado_en):'')+'</td></tr>';}).join('')||'<tr><td colspan="8" class="mut">No hay folios con estos filtros.</td></tr>';
+      +'</td><td>'+estChip(f.estado)+(fm==='ACTUAL'&&mesDe(f)!==hoy?' <span class="chip s-SIN" title="Folio abierto creado en un mes anterior">'+mesTxt(mesDe(f)).slice(0,3)+'</span>':'')+'</td><td class="mut">'+(f.autorizado_por?esc(f.autorizado_por)+' · '+fFH(f.autorizado_en):'')+'</td></tr>';}).join('')||'<tr><td colspan="8" class="mut">No hay folios con estos filtros.</td></tr>';
 }
 
 // ── Nueva propuesta ──
