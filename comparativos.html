@@ -1186,17 +1186,25 @@ async function vEditor(main, arg){
     S.dirty = true;
   }
   if (arg && (arg.importado || arg.duplicar || arg.nuevaClave)) S.dirty = true;
+  // Proveedor propuesto por clave (el de Propuestas de compra) y, la primera vez que se abre una propuesta
+  // con varios proveedores, la ventana para elegir qué proveedores o claves van en este comparativo
+  let avisoDiv = '';
+  if (editable() && c.lineas.some(l => l.folio_propuesta)) {
+    await provPropuestos(c.lineas);
+    if (desdeProp.length && c.lineas.length > 1 && gruposDe(c.lineas).length > 1) avisoDiv = await dividirComparativo(true);
+  }
   // Borradores guardados (ej. creados desde una propuesta del Portal de Compras V2): agrega los
   // proveedores con historial y los precios de listas que les falten, igual que al capturar claves
   let avisoAuto = '';
-  if (typeof arg === 'number' && editable() && claves.length) {
-    const nuevos = sugerirProveedores(claves), llenos = llenarConListas();
+  if (typeof arg === 'number' && editable() && c.lineas.length) {
+    const nuevos = sugerirProveedores(c.lineas.map(l => +l.clave).filter(Boolean)), llenos = llenarConListas();
     if (nuevos.length || llenos) { S.dirty = true;
       avisoAuto = `${llenos ? `${llenos} precio(s) tomados de las listas de precios. ` : ''}Presiona Guardar para que los cambios queden en el comparativo.`; }
   }
   c.lineas.forEach((l, i) => calcLinea(i));
   pintarEditor(main);
   if (avisoAuto) setTimeout(() => toast(avisoAuto), 100);
+  if (avisoDiv) setTimeout(() => toast(avisoDiv), avisoAuto ? 3400 : 100);
 }
 async function cargarRefs(claves){
   const [ps, vs, rs, pv] = await Promise.all([API.productos(claves), API.vigentes(claves), API.relaciones(claves).catch(() => []), API.preciosVigentes(claves).catch(() => [])]);
@@ -1250,6 +1258,149 @@ function sugerirProveedores(claves){
     if (!pr.clave_prov) { pr.clave_prov = r.clave_proveedor; const p = c.proveedores.find(x => +x.id === r.proveedor_id); if (p) p.con_clave = true; } }));
   if (nuevos.length) toast(`Se agregaron los proveedores con historial: ${nuevos.join(', ')}`);
   return nuevos;
+}
+/* ====================================================================
+   DIVIDIR COMPARATIVO (propuestas de compra con varios proveedores)
+   Proveedor propuesto por clave, igual que en Propuestas de compra del Portal V2:
+   catálogo proveedor-clave → aprobado vigente en Comparativos → proveedor de la última OC
+   ==================================================================== */
+const V2_URL = 'https://lyjbuhttdikfhmufunra.supabase.co', V2_KEY = 'sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT';
+let _sbv2 = null;
+const sbV2 = () => _sbv2 || (_sbv2 = window.supabase.createClient(V2_URL, V2_KEY, {auth:{autoRefreshToken:false}}));
+const pvNorm = s => String(s == null ? '' : s).trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
+const pvValido = s => !!s && !/OTROS INGRESOS|AJUSTE|TRASPASO|INVENTARIO INICIAL/.test(pvNorm(s));
+const PV_SUF = new Set(['S','A','SA','DE','C','V','CV','SAPI','SAB','RL','R','L','SC','SPR','P','I','B','SRL']);
+const pvKey = s => { const t = pvNorm(s).replace(/[.,;()]/g, ' ').replace(/\s+/g, ' ').trim().split(' '); while (t.length > 1 && PV_SUF.has(t[t.length - 1])) t.pop(); return t.join(' '); };
+const SIN_PROV = '(sin proveedor)';
+// el proveedor propuesto manda (vacío = Propuestas no le encontró proveedor); sin ese dato, el aprobado vigente
+const grpDe = l => l.proveedor_prop != null ? (l.proveedor_prop || SIN_PROV) : ((l.vigente && l.vigente.proveedor) || SIN_PROV);
+async function v2Todo(q){ let out = []; for (let i = 0; i < 200; i++) { const {data, error} = await q().range(i * 1000, i * 1000 + 999); if (error) throw error; out = out.concat(data || []); if (!data || data.length < 1000) break; } return out; }
+/* Llena proveedor_prop / prov_origen en las líneas que no lo traen (comparativos creados antes de este cambio) */
+async function provPropuestos(lineas){
+  const falt = lineas.filter(l => l.proveedor_prop == null);
+  if (!falt.length) return 0;
+  const ks = [...new Set(falt.map(l => +l.clave).filter(Boolean))], cat = new Map(), oc = new Map();
+  if (!DEMO && ks.length) try {
+    const s = sbV2();
+    for (const c of chunk(ks, 150)) {
+      (await v2Todo(() => s.from('plan_prov_clave').select('clave,proveedor').in('clave', c).order('clave'))).forEach(r => { if (pvValido(r.proveedor)) cat.set(+r.clave, String(r.proveedor).trim()); });
+      (await v2Todo(() => s.from('plan_oc_lineas').select('clave,proveedor,fecha_oc').in('clave', c).order('folio').order('clave'))).forEach(r => { if (!pvValido(r.proveedor)) return;
+        const k = +r.clave, f = String(r.fecha_oc || '').slice(0, 10), x = oc.get(k); if (!x || f >= x.f) oc.set(k, {p:String(r.proveedor).trim(), f}); });
+    }
+  } catch(e) { console.warn('Proveedor propuesto (Portal V2):', e); }
+  falt.forEach(l => { const k = +l.clave, v = E().vig.get(k);
+    const x = cat.has(k) ? {p:cat.get(k), o:'CATÁLOGO'} : v && pvValido(v.proveedor) ? {p:String(v.proveedor).trim(), o:'COMPARATIVO'} : oc.has(k) ? {p:oc.get(k).p, o:'ÚLTIMA OC'} : null;
+    l.proveedor_prop = x ? x.p : ''; l.prov_origen = x ? x.o : ''; });
+  return falt.length;
+}
+function gruposDe(lineas){
+  const m = new Map();
+  lineas.forEach((l, i) => { const nom = grpDe(l), k = nom === SIN_PROV ? SIN_PROV : (pvKey(nom) || nom);
+    if (!m.has(k)) m.set(k, {k, nom, idx:[]}); m.get(k).idx.push(i); });
+  return [...m.values()].sort((a, b) => (a.k === SIN_PROV) - (b.k === SIN_PROV) || b.idx.length - a.idx.length || a.nom.localeCompare(b.nom));
+}
+const nomCorto = nom => nom === SIN_PROV ? 'sin proveedor' : (pvKey(nom) || nom);
+/* Ventana para elegir proveedores / claves. Devuelve un texto con lo que hizo, o '' si no cambió nada */
+function dividirComparativo(auto=false){
+  const c = E().c, gs = gruposDe(c.lineas), total = c.lineas.length;
+  const sel = new Set();
+  const inv = idx => idx.reduce((s, i) => s + (num(c.lineas[i].inversion) || 0), 0);
+  const fila = i => { const l = c.lineas[i];
+    return `<label class="dv-l row small" data-i="${i}" style="gap:8px;padding:3px 0 3px 26px;flex-wrap:nowrap"><input type="checkbox" data-i="${i}"><span class="mono" style="min-width:56px">${esc(l.clave)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.descripcion || '')}</span><span class="muted" style="white-space:nowrap">${fmtN(l.cantidad)} pzs</span></label>`; };
+  const body = `
+    <p class="small" style="margin-top:0">${auto ? `Este comparativo viene de la propuesta <b>${esc((c.lineas.find(l => l.folio_propuesta) || {}).folio_propuesta || '')}</b> y trae <b>${total} claves de ${gs.length} proveedores</b>. ` : ''}
+      Elige los proveedores o las claves que van en <b>este</b> comparativo. Las demás no se pierden: se pasan a comparativos nuevos en borrador, con el mismo folio de propuesta en el título.</p>
+    <div class="row" style="gap:8px;margin-bottom:8px"><input id="dv-q" type="search" placeholder="Buscar clave o descripción" style="flex:1">
+      <button class="btn ghost sm" id="dv-todo">Marcar todo</button><button class="btn ghost sm" id="dv-nada">Quitar todo</button></div>
+    <div id="dv-list" style="max-height:46vh;overflow:auto;border:1px solid var(--border,#ddd);border-radius:6px;padding:6px 10px">
+      ${gs.map(g => `<div class="dv-g" data-g="${esc(g.k)}" style="padding:4px 0;border-bottom:1px solid var(--border,#eee)">
+        <div class="row" style="gap:8px;flex-wrap:nowrap"><label class="row" style="gap:8px;flex:1;min-width:0;flex-wrap:nowrap"><input type="checkbox" data-g="${esc(g.k)}"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.nom)}</b></label>
+          <span class="muted small" style="white-space:nowrap">${g.idx.length} clave${g.idx.length > 1 ? 's' : ''}${inv(g.idx) ? ' · ' + fmtImp(inv(g.idx)) : ''}</span>
+          <button class="btn ghost sm" data-ver="${esc(g.k)}">Ver claves</button></div>
+        <div class="dv-ls" hidden>${g.idx.map(fila).join('')}</div></div>`).join('')}
+    </div>
+    <div class="row small" style="gap:14px;margin-top:10px"><span>Las claves que no elijas:</span>
+      <label class="row" style="gap:4px"><input type="radio" name="dv-r" value="prov" checked> un comparativo por proveedor</label>
+      <label class="row" style="gap:4px"><input type="radio" name="dv-r" value="uno"> todas en un solo comparativo</label></div>
+    <div class="note small" id="dv-res" style="margin-top:8px"></div>
+    <div class="err-msg"></div>`;
+  return new Promise(res => {
+    let hecho = '';
+    const m = modal({title: 'Elegir proveedores o claves del comparativo', wide: true, body,
+      actions: [
+        {label: auto ? 'Comparar todo junto' : 'Cancelar', onClick: () => true},
+        ...(gs.length > 1 ? [{label: `Un comparativo por cada proveedor (${gs.length})`, onClick: async (el) => {
+          if (!(await confirmar('Un comparativo por proveedor', `Este comparativo se queda con <b>${esc(gs[0].nom)}</b> (${gs[0].idx.length} claves) y se crean <b>${gs.length - 1}</b> comparativos nuevos en borrador, uno por cada proveedor.`, 'Dividir'))) return false;
+          hecho = await aplicarDivision(gs[0].idx, gs.slice(1).map(g => ({nom:g.nom, idx:g.idx}))); return true; }}] : []),
+        {label: 'Crear con lo seleccionado', cls: 'pri', onClick: async (el) => {
+          const err = $('.err-msg', el);
+          if (!sel.size) { err.textContent = 'Marca al menos un proveedor o una clave.'; return false; }
+          if (sel.size === total) { err.textContent = 'Marcaste todas las claves: usa «' + (auto ? 'Comparar todo junto' : 'Cancelar') + '» para dejarlo como está.'; return false; }
+          const quedan = [...sel].sort((a, b) => a - b), resto = c.lineas.map((l, i) => i).filter(i => !sel.has(i));
+          const modo = ($('input[name=dv-r]:checked', el) || {}).value || 'prov';
+          const otros = modo === 'uno' ? [{nom:'resto', idx:resto}] : gruposDe(resto.map(i => c.lineas[i])).map(g => ({nom:g.nom, idx:g.idx.map(j => resto[j])}));
+          hecho = await aplicarDivision(quedan, otros); return true; }}
+      ]});
+    const el = m.el;
+    $('[data-x]', el).addEventListener('click', () => res(''));
+    const obs = new MutationObserver(() => { if (!el.isConnected) { obs.disconnect(); res(hecho); } });
+    obs.observe(document.body, {childList: true});
+    const pinta = () => {
+      $$('input[data-i]', el).forEach(x => { x.checked = sel.has(+x.dataset.i); });
+      gs.forEach(g => { const x = $(`input[data-g="${CSS.escape(g.k)}"]`, el), n = g.idx.filter(i => sel.has(i)).length;
+        x.checked = n === g.idx.length; x.indeterminate = n > 0 && n < g.idx.length; });
+      const nG = gs.filter(g => g.idx.some(i => sel.has(i))).length, resto = total - sel.size;
+      const modo = ($('input[name=dv-r]:checked', el) || {}).value || 'prov';
+      const nNuevos = !resto ? 0 : modo === 'uno' ? 1 : gruposDe(c.lineas.filter((l, i) => !sel.has(i))).length;
+      $('#dv-res', el).innerHTML = sel.size ? `Este comparativo: <b>${sel.size}</b> clave${sel.size > 1 ? 's' : ''} de ${nG} proveedor${nG > 1 ? 'es' : ''}. ` +
+        (resto ? `Las otras <b>${resto}</b> clave${resto > 1 ? 's' : ''} van a <b>${nNuevos}</b> comparativo${nNuevos > 1 ? 's' : ''} nuevo${nNuevos > 1 ? 's' : ''}.` : 'No queda ninguna clave fuera.')
+        : 'No has marcado nada.';
+    };
+    $$('input[data-g]', el).forEach(x => x.onchange = () => { const g = gs.find(y => y.k === x.dataset.g); g.idx.forEach(i => x.checked ? sel.add(i) : sel.delete(i)); pinta(); });
+    $$('input[data-i]', el).forEach(x => x.onchange = () => { x.checked ? sel.add(+x.dataset.i) : sel.delete(+x.dataset.i); pinta(); });
+    $$('button[data-ver]', el).forEach(b => b.onclick = () => { const d = $('.dv-ls', b.closest('.dv-g')); d.hidden = !d.hidden; b.textContent = d.hidden ? 'Ver claves' : 'Ocultar'; });
+    $$('input[name=dv-r]', el).forEach(x => x.onchange = pinta);
+    $('#dv-todo', el).onclick = () => { c.lineas.forEach((l, i) => sel.add(i)); pinta(); };
+    $('#dv-nada', el).onclick = () => { sel.clear(); pinta(); };
+    $('#dv-q', el).oninput = () => { const q = pvNorm($('#dv-q', el).value);
+      $$('.dv-g', el).forEach(gEl => { let vis = 0;
+        $$('.dv-l', gEl).forEach(r => { const l = c.lineas[+r.dataset.i], ok = !q || pvNorm(l.clave + ' ' + (l.descripcion || '')).includes(q); r.hidden = !ok; if (ok) vis++; });
+        gEl.hidden = !!q && !vis && !pvNorm(gEl.querySelector('b').textContent).includes(q);
+        if (q && vis) { $('.dv-ls', gEl).hidden = false; $('[data-ver]', gEl).textContent = 'Ocultar'; } }); };
+    pinta();
+  });
+}
+/* Deja en este comparativo las líneas `quedan` y crea un borrador nuevo por cada grupo de `otros` */
+async function aplicarDivision(quedan, otros){
+  const c = E().c;
+  const limpia = l => { const x = {}; Object.keys(l).forEach(k => { if (!k.startsWith('_')) x[k] = l[k]; }); return JSON.parse(JSON.stringify(x)); };
+  const provsPara = ls => c.proveedores.filter(p => ls.some(l => { const pr = (l.precios || {})[p.id];
+    return (pr && (pr.precio != null || pr.clave_prov)) || relDe(p.id, l.clave) || +l.elegido === +p.id; }));
+  const base = c.titulo.trim().replace(/ · resto$/, '') || ('Comparativo ' + (c.folio || ''));
+  const titulo = idx => { const gs = gruposDe(idx.map(i => c.lineas[i])); return base + ' · ' + (gs.length === 1 ? nomCorto(gs[0].nom) : gs.length + ' proveedores'); };
+  const origen = c.folio ? `Dividido de ${c.folio}` : 'Dividido de otro comparativo';
+  const nuevos = otros.filter(o => o.idx.length).map(o => { const ls = o.idx.map(i => limpia(c.lineas[i]));
+    return {id:null, titulo: o.nom === 'resto' ? base + ' · resto' : titulo(o.idx), comprador:c.comprador, estatus:'BORRADOR', proveedores:JSON.parse(JSON.stringify(provsPara(ls))), lineas:ls,
+      notas:(c.notas ? c.notas + '\n' : '') + `${origen}: ${ls.length} clave(s)${o.nom === 'resto' ? '' : ' de ' + o.nom}.`, importe_actual:0, importe_propuesto:0, enviado_en:null}; });
+  const creados = [];
+  for (const n of nuevos) { const r = await API.guardarComparativo(n, S.user.nombre); creados.push(r.folio || ('#' + r.id)); API.log(S.user.nombre, 'CREÓ COMPARATIVO', 'comparativo', r.folio, origen); }
+  const nuevoTit = titulo(quedan);
+  c.lineas = quedan.map(i => c.lineas[i]);
+  c.proveedores = provsPara(c.lineas);
+  c.titulo = nuevoTit;
+  c.notas = (c.notas ? c.notas + '\n' : '') + `Dividido: ${c.lineas.length} clave(s) quedan aquí; las demás pasaron a ${creados.join(', ')}.`;
+  c.lineas.forEach((l, i) => calcLinea(i));
+  const msg = `Se crearon ${creados.length} comparativo(s) en borrador: ${creados.join(', ')}.`;
+  if (!c.id) { S.dirty = true; return msg + ' Guarda este comparativo para que quede con las claves elegidas.'; }
+  try {
+    const r = await API.guardarComparativo(payload(), S.user.nombre);
+    Object.assign(c, {id:r.id, folio:r.folio, actualizado_en:r.actualizado_en, actualizado_por:r.actualizado_por, estatus:r.estatus});
+    S.dirty = false;
+    return msg + ` Este (${c.folio}) se quedó con ${c.lineas.length} clave(s).`;
+  } catch(e) {
+    S.dirty = true;
+    throw new Error(`${msg} Pero no se pudo guardar este comparativo (${errMsg(e)}). Si recargas, todavía tendrá todas las claves: quítale las que ya pasaron a los nuevos o cancélalos.`);
+  }
 }
 const E = () => S.editor;
 const editable = () => !E().c.id || EDITABLE.includes(E().c.estatus);
@@ -1390,6 +1541,7 @@ function pintarAcciones(){
   if (c.estatus === 'EN REVISION') { b.push(['Regresar a borrador', 'e-back2', '']); if (isAprob()) { b.push(['Rechazar', 'e-rej', 'bad']); b.push(['Aprobar', 'e-apr', 'ok']); } }
   if (c.id && ['BORRADOR','RECHAZADO'].includes(c.estatus)) b.unshift(['Cancelar comparativo', 'e-cancel', 'ghost']);
   if (c.lineas.length) b.unshift(['Exportar Excel', 'e-xls', '']);
+  if (editable() && c.lineas.length > 1) b.unshift(['Dividir por proveedor o claves', 'e-div', '']);
   if (c.id && ['APROBADO','CANCELADO','RECHAZADO','ANULADO'].includes(c.estatus)) b.unshift(['Duplicar para recotizar', 'e-dup', '']);
   if (c.estatus === 'APROBADO' && isAprob()) b.push(['Anular aprobación', 'e-anular', 'bad']);
   if (['APROBADO','ANULADO'].includes(c.estatus)) b.push(['Constancia PDF', 'e-pdf', c.estatus === 'APROBADO' ? 'pri' : '']);
@@ -1405,6 +1557,7 @@ function pintarAcciones(){
   on('e-pdf', async () => { const r = await constanciaPDF(); toast(`Constancia descargada · ${r.paginas} página(s) · huella ${r.huella}`); });
   on('e-xls', async () => exportarComparativo());
   on('e-dup', async () => duplicar());
+  on('e-div', async () => { await provPropuestos(E().c.lineas); const r = await dividirComparativo(false); if (r) { pintarEditor(); toast(r); } });
 }
 
 function pintarProvs(){
@@ -1731,7 +1884,8 @@ async function duplicar(){
     proveedores:JSON.parse(JSON.stringify(c.proveedores)), notas:`Basado en ${c.folio}.`, ver_demanda:c.ver_demanda,
     lineas:c.lineas.map(l => ({clave:l.clave, descripcion:l.descripcion, cantidad:l.cantidad, clasificacion:l.clasificacion || '', inversion:l.inversion ?? null, pron:l.pron ?? null, antec:l.antec ?? null,
       u_costo:l.u_costo, u_compra:l.u_compra, f_u_compra:l.f_u_compra, base:l.base,
-      precios:Object.fromEntries(Object.entries(l.precios||{}).map(([k,v]) => [k, {precio:null, clave_prov:v.clave_prov||''}])), elegido:null, manual:false, motivo:''}))};
+      precios:Object.fromEntries(Object.entries(l.precios||{}).map(([k,v]) => [k, {precio:null, clave_prov:v.clave_prov||''}])), elegido:null, manual:false, motivo:'',
+      ...(l.folio_propuesta ? {folio_propuesta:l.folio_propuesta} : {}), ...(l.proveedor_prop != null ? {proveedor_prop:l.proveedor_prop, prov_origen:l.prov_origen || ''} : {})}))};
   S.dirty = false; await go('editor', {duplicar:d});
   E().c.lineas.forEach(l => { const p = E().prod.get(+l.clave), v = E().vig.get(+l.clave);
     if (p) Object.assign(l, {descripcion:p.descripcion || l.descripcion, u_costo:p.u_costo ?? l.u_costo, u_compra:p.u_compra ?? l.u_compra, f_u_compra:p.f_u_compra || l.f_u_compra, base:p.precio_base ?? l.base});

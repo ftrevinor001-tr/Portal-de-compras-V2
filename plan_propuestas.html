@@ -616,10 +616,16 @@ function regresar(){pinAbrir('REGRESAR');}
 // El portal de comparativos completa las líneas (catálogo, proveedor vigente, proveedores sugeridos y listas) la primera vez que se abre.
 async function enviarComparativos(auto){
   const f=S.actual;if(!f||f.estado!=='AUTORIZADO')return;
-  if(f.cmp_id){if(!auto)toast('Este folio ya está en comparativos ('+(f.cmp_folio||f.cmp_id)+')');return;}
+  if(f.cmp_id){
+    if(auto){return;}
+    let est='';try{const{data}=await sbc().from('cmp_comparativos').select('estatus').eq('id',f.cmp_id).maybeSingle();est=data?data.estatus:'';}catch(e){}
+    if(est!=='CANCELADO'){toast('Este folio ya está en comparativos ('+(f.cmp_folio||f.cmp_id)+')');return;}
+    if(!confirm('El comparativo '+(f.cmp_folio||f.cmp_id)+' de este folio está CANCELADO. ¿Crear uno nuevo en borrador con las claves autorizadas?'))return;
+  }
   const lineas=S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0).map(l=>{const p=l.portal||{},s=l.surt||{};
     return{clave:Number(l.clave),descripcion:p.n||'',cantidad:Number(l.pedido_aut??l.pedido),clasificacion:p.rot||'',inversion:s.inversion??null,pron:s.pron??null,antec:s.anteo??null,
-      precios:{},elegido:null,manual:false,motivo:'',_completar:true,folio_propuesta:f.folio};});
+      precios:{},elegido:null,manual:false,motivo:'',_completar:true,folio_propuesta:f.folio,
+      ...(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?{proveedor_prop:x.p,prov_origen:x.o}:{proveedor_prop:'',prov_origen:''};})()};});
   if(!lineas.length){toast('El folio no tiene claves con pedido mayor a cero');return;}
   const quienEnvia=f.autorizado_por||quien()||'PORTAL V2';
   const row={titulo:'Propuesta '+f.folio+' · '+f.comprador,comprador:f.comprador,estatus:'BORRADOR',proveedores:[],lineas,
@@ -643,7 +649,13 @@ async function pintarCmp(){
     :'<a class="lk" href="'+CMP_PORTAL+'?cmp='+f.cmp_id+'" target="_blank" rel="noopener">'+esc(f.cmp_folio||('#'+f.cmp_id))+' ↗</a>';
   el.innerHTML='<b>Comparativo:</b> '+liga+' · enviado '+fFH(f.cmp_enviado_en);
   try{const{data}=await sbc().from('cmp_comparativos').select('folio,estatus,aprobado_por,aprobado_en').eq('id',f.cmp_id).maybeSingle();
-    if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en);}catch(e){}
+    if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en)
+      +(data.estatus==='CANCELADO'&&f.estado==='AUTORIZADO'?' <button onclick="enviarComparativos()">➜ Volver a enviar a comparativos</button>':'');
+    // Otros comparativos del mismo folio (cuando se dividió por proveedor o claves en Comparativos)
+    const{data:otros}=await sbc().from('cmp_comparativos').select('id,folio,titulo,estatus').ilike('titulo','Propuesta '+f.folio+' %').neq('id',f.cmp_id).order('id');
+    if(otros&&otros.length&&S.actual===f){const lk=o=>enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(o.id)+')">'+esc(o.folio||('#'+o.id))+'</a>':'<a class="lk" href="'+CMP_PORTAL+'?cmp='+o.id+'" target="_blank" rel="noopener">'+esc(o.folio||('#'+o.id))+' ↗</a>';
+      el.innerHTML+='<div style="margin-top:3px"><b>También en:</b> '+otros.map(o=>lk(o)+' <span class="mut">'+esc((o.titulo.split(' · ').slice(2).join(' · '))||'')+' · '+esc(o.estatus)+'</span>').join(' &nbsp;|&nbsp; ')+'</div>';}
+  }catch(e){}
 }
 // Cancelar folio (oct-2026): siempre con motivo. En revisión o autorizado, además con nombre y PIN de un ADMINISTRADOR (usuarios de Comparativos).
 // Si ya se había creado su comparativo: en borrador / en revisión / rechazado se cancela; aprobado se anula (regresa el proveedor anterior).
