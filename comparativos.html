@@ -878,6 +878,7 @@ async function salirOk(){
 }
 async function go(view, arg){
   if (S.view === 'editor' && view !== 'editor' && !(await salirOk())) return;
+  const previa = S.view;
   S.dirty = false; S.view = view;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === (view === 'editor' ? 'comparativos' : view)));
   const main = $('#main'); main.innerHTML = '<div class="loading">Cargando…</div>';
@@ -885,7 +886,7 @@ async function go(view, arg){
   try {
     if (view === 'inicio') await vInicio(main);
     else if (view === 'clave') await vClave(main, arg);
-    else if (view === 'comparativos') await vComparativos(main);
+    else if (view === 'comparativos') await vComparativos(main, previa === 'editor');
     else if (view === 'editor') await vEditor(main, arg);
     else if (view === 'vigentes') await vVigentes(main);
     else if (view === 'proveedores') await vProveedores(main);
@@ -1145,15 +1146,17 @@ async function ficha(out, p){
 /* ====================================================================
    LISTA DE COMPARATIVOS
    ==================================================================== */
-async function vComparativos(main){
+async function vComparativos(main, regresando=false){
   const cmps = await API.comparativos();
-  const f = store.get('cmp_filtros') || {estatus:'', q:'', comprador:''};
+  // Por defecto se muestran los borradores; al regresar de un comparativo se conserva el filtro que tenías
+  const f = store.get('cmp_filtros2') || {estatus:'BORRADOR', q:'', comprador:''};
+  if (!regresando) f.estatus = 'BORRADOR';
   const compradores = [...new Set(cmps.map(c => c.comprador))].sort();
   main.innerHTML = `<div class="stack">
     <div class="row"><h1>Comparativos</h1><span class="spacer"></span>
       <button class="btn" id="imp">Importar desde Excel</button><button class="btn pri" id="nuevo">Nuevo comparativo</button></div>
     <div class="row">
-      <div class="tabs" id="ft">${[['','Todos'],['BORRADOR','Borrador'],['EN REVISION','En revisión'],['APROBADO','Aprobado'],['RECHAZADO','Rechazado'],['ANULADO','Anulado'],['CANCELADO','Cancelado']]
+      <div class="tabs" id="ft">${[['BORRADOR','Borrador'],['EN REVISION','En revisión'],['APROBADO','Aprobado'],['RECHAZADO','Rechazado'],['ANULADO','Anulado'],['CANCELADO','Cancelado'],['','Todos']]
         .map(([k,l]) => `<button data-e="${k}" class="${f.estatus === k ? 'on' : ''}">${l} <span class="muted">${k ? cmps.filter(c => c.estatus === k).length : cmps.length}</span></button>`).join('')}</div>
       <span class="spacer"></span>
       <input id="fq" type="search" placeholder="Folio, título, proveedor o clave" style="width:240px" value="${esc(f.q)}">
@@ -1165,7 +1168,7 @@ async function vComparativos(main){
     const rows = cmps.filter(c => (!f.estatus || c.estatus === f.estatus) && (!f.comprador || c.comprador === f.comprador) &&
       (!q || (c.folio + ' ' + c.titulo + ' ' + (c.proveedores||[]).map(p => p.nombre).join(' ')).toUpperCase().includes(q) || (/^\d+$/.test(q) && (c.claves||[]).includes(+q))));
     $('#lst').innerHTML = tablaComparativos(rows, 'No hay comparativos con estos filtros.'); bindCmpRows($('#lst'));
-    store.set('cmp_filtros', f);
+    store.set('cmp_filtros2', f);
   };
   $$('#ft button').forEach(b => b.onclick = () => { f.estatus = b.dataset.e; $$('#ft button').forEach(x => x.classList.toggle('on', x === b)); pinta(); });
   $('#fq').oninput = () => { f.q = $('#fq').value; pinta(); };
