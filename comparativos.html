@@ -1350,7 +1350,7 @@ function dividirComparativo(auto=false){
     return `<label class="dv-l row small" data-i="${i}" style="gap:8px;padding:3px 0 3px 26px;flex-wrap:nowrap"><input type="checkbox" data-i="${i}"><span class="mono" style="min-width:56px">${esc(l.clave)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.descripcion || '')}</span><span class="muted" style="white-space:nowrap">${fmtN(l.cantidad)} pzs</span></label>`; };
   const body = `
     <p class="small" style="margin-top:0">${auto ? `Este comparativo viene de la propuesta <b>${esc((c.lineas.find(l => l.folio_propuesta) || {}).folio_propuesta || '')}</b> y trae <b>${total} claves de ${gs.length} proveedores</b>. ` : ''}
-      Elige los proveedores o las claves que van en <b>este</b> comparativo. Las demás no se pierden: se pasan a comparativos nuevos en borrador, con el mismo folio de propuesta en el título.</p>
+      Elige los proveedores o las claves que van en <b>este</b> comparativo. ${c.lineas.some(l => l.folio_propuesta) ? 'Las demás se quitan de aquí y quedan <b>pendientes en la propuesta</b>: desde Propuestas de compra las mandas a otro comparativo cuando quieras.' : 'Las demás se quitan de este comparativo.'}</p>
     <div class="row" style="gap:8px;margin-bottom:8px"><input id="dv-q" type="search" placeholder="Buscar clave o descripción" style="flex:1">
       <button class="btn ghost sm" id="dv-todo">Marcar todo</button><button class="btn ghost sm" id="dv-nada">Quitar todo</button></div>
     <div id="dv-list" style="max-height:46vh;overflow:auto;border:1px solid var(--border,#ddd);border-radius:6px;padding:6px 10px">
@@ -1360,9 +1360,6 @@ function dividirComparativo(auto=false){
           <button class="btn ghost sm" data-ver="${esc(g.k)}">Ver claves</button></div>
         <div class="dv-ls" hidden>${g.idx.map(fila).join('')}</div></div>`).join('')}
     </div>
-    <div class="row small" style="gap:14px;margin-top:10px"><span>Las claves que no elijas:</span>
-      <label class="row" style="gap:4px"><input type="radio" name="dv-r" value="prov" checked> un comparativo por proveedor</label>
-      <label class="row" style="gap:4px"><input type="radio" name="dv-r" value="uno"> todas en un solo comparativo</label></div>
     <div class="note small" id="dv-res" style="margin-top:8px"></div>
     <div class="err-msg"></div>`;
   return new Promise(res => {
@@ -1377,10 +1374,8 @@ function dividirComparativo(auto=false){
           const err = $('.err-msg', el);
           if (!sel.size) { err.textContent = 'Marca al menos un proveedor o una clave.'; return false; }
           if (sel.size === total) { err.textContent = 'Marcaste todas las claves: usa «' + (auto ? 'Comparar todo junto' : 'Cancelar') + '» para dejarlo como está.'; return false; }
-          const quedan = [...sel].sort((a, b) => a - b), resto = c.lineas.map((l, i) => i).filter(i => !sel.has(i));
-          const modo = ($('input[name=dv-r]:checked', el) || {}).value || 'prov';
-          const otros = modo === 'uno' ? [{nom:'resto', idx:resto}] : gruposDe(resto.map(i => c.lineas[i])).map(g => ({nom:g.nom, idx:g.idx.map(j => resto[j])}));
-          hecho = await aplicarDivision(quedan, otros); return true; }}
+          const quedan = [...sel].sort((a, b) => a - b);
+          hecho = await aplicarDivision(quedan, []); return true; }}
       ]});
     const el = m.el;
     $('[data-x]', el).addEventListener('click', () => res(''));
@@ -1391,16 +1386,14 @@ function dividirComparativo(auto=false){
       gs.forEach(g => { const x = $(`input[data-g="${CSS.escape(g.k)}"]`, el), n = g.idx.filter(i => sel.has(i)).length;
         x.checked = n === g.idx.length; x.indeterminate = n > 0 && n < g.idx.length; });
       const nG = gs.filter(g => g.idx.some(i => sel.has(i))).length, resto = total - sel.size;
-      const modo = ($('input[name=dv-r]:checked', el) || {}).value || 'prov';
-      const nNuevos = !resto ? 0 : modo === 'uno' ? 1 : gruposDe(c.lineas.filter((l, i) => !sel.has(i))).length;
+      const deProp = c.lineas.some(l => l.folio_propuesta);
       $('#dv-res', el).innerHTML = sel.size ? `Este comparativo: <b>${sel.size}</b> clave${sel.size > 1 ? 's' : ''} de ${nG} proveedor${nG > 1 ? 'es' : ''}. ` +
-        (resto ? `Las otras <b>${resto}</b> clave${resto > 1 ? 's' : ''} van a <b>${nNuevos}</b> comparativo${nNuevos > 1 ? 's' : ''} nuevo${nNuevos > 1 ? 's' : ''}.` : 'No queda ninguna clave fuera.')
+        (resto ? `Las otras <b>${resto}</b> clave${resto > 1 ? 's' : ''} ${deProp ? 'quedan pendientes en la propuesta' : 'se quitan'}; no se crea ningún borrador.` : 'No queda ninguna clave fuera.')
         : 'No has marcado nada.';
     };
     $$('input[data-g]', el).forEach(x => x.onchange = () => { const g = gs.find(y => y.k === x.dataset.g); g.idx.forEach(i => x.checked ? sel.add(i) : sel.delete(i)); pinta(); });
     $$('input[data-i]', el).forEach(x => x.onchange = () => { x.checked ? sel.add(+x.dataset.i) : sel.delete(+x.dataset.i); pinta(); });
     $$('button[data-ver]', el).forEach(b => b.onclick = () => { const d = $('.dv-ls', b.closest('.dv-g')); d.hidden = !d.hidden; b.textContent = d.hidden ? 'Ver claves' : 'Ocultar'; });
-    $$('input[name=dv-r]', el).forEach(x => x.onchange = pinta);
     $('#dv-todo', el).onclick = () => { c.lineas.forEach((l, i) => sel.add(i)); pinta(); };
     $('#dv-nada', el).onclick = () => { sel.clear(); pinta(); };
     $('#dv-q', el).oninput = () => { const q = pvNorm($('#dv-q', el).value);
@@ -1425,13 +1418,16 @@ async function aplicarDivision(quedan, otros){
       notas:(c.notas ? c.notas + '\n' : '') + `${origen}: ${ls.length} clave(s)${o.nom === 'resto' ? '' : ' de ' + o.nom}.`, importe_actual:0, importe_propuesto:0, enviado_en:null}; });
   const creados = [];
   for (const n of nuevos) { const r = await API.guardarComparativo(n, S.user.nombre); creados.push(r.folio || ('#' + r.id)); API.log(S.user.nombre, 'CREÓ COMPARATIVO', 'comparativo', r.folio, origen); }
-  const nuevoTit = titulo(quedan);
+  const nuevoTit = titulo(quedan), nQuit = c.lineas.length - quedan.length - otros.reduce((s, o) => s + o.idx.length, 0);
+  const folProp = (c.lineas.find(l => l.folio_propuesta) || {}).folio_propuesta;
   c.lineas = quedan.map(i => c.lineas[i]);
   c.proveedores = provsPara(c.lineas);
   c.titulo = nuevoTit;
-  c.notas = (c.notas ? c.notas + '\n' : '') + `Dividido: ${c.lineas.length} clave(s) quedan aquí; las demás pasaron a ${creados.join(', ')}.`;
+  c.notas = (c.notas ? c.notas + '\n' : '') + (creados.length ? `Dividido: ${c.lineas.length} clave(s) quedan aquí; las demás pasaron a ${creados.join(', ')}.`
+    : `Se eligieron ${c.lineas.length} clave(s); ${nQuit} se quitaron${folProp ? ` y quedan pendientes en la propuesta ${folProp}` : ''}.`);
   c.lineas.forEach((l, i) => calcLinea(i));
-  const msg = `Se crearon ${creados.length} comparativo(s) en borrador: ${creados.join(', ')}.`;
+  const msg = creados.length ? `Se crearon ${creados.length} comparativo(s) en borrador: ${creados.join(', ')}.`
+    : `${nQuit} clave(s) se quitaron${folProp ? ` y quedan pendientes en la propuesta ${folProp}; desde Propuestas de compra las mandas a otro comparativo` : ''}.`;
   if (!c.id) { S.dirty = true; return msg + ' Guarda este comparativo para que quede con las claves elegidas.'; }
   try {
     const r = await API.guardarComparativo(payload(), S.user.nombre);
@@ -1440,7 +1436,8 @@ async function aplicarDivision(quedan, otros){
     return msg + ` Este (${c.folio}) se quedó con ${c.lineas.length} clave(s).`;
   } catch(e) {
     S.dirty = true;
-    throw new Error(`${msg} Pero no se pudo guardar este comparativo (${errMsg(e)}). Si recargas, todavía tendrá todas las claves: quítale las que ya pasaron a los nuevos o cancélalos.`);
+    throw new Error(creados.length ? `${msg} Pero no se pudo guardar este comparativo (${errMsg(e)}). Si recargas, todavía tendrá todas las claves: quítale las que ya pasaron a los nuevos o cancélalos.`
+      : `No se pudo guardar este comparativo (${errMsg(e)}). Presiona Guardar para que quede solo con las claves elegidas.`);
   }
 }
 const E = () => S.editor;

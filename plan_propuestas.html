@@ -616,13 +616,15 @@ function regresar(){pinAbrir('REGRESAR');}
 // El portal de comparativos completa las líneas (catálogo, proveedor vigente, proveedores sugeridos y listas) la primera vez que se abre.
 async function enviarComparativos(auto){
   const f=S.actual;if(!f||f.estado!=='AUTORIZADO')return;
+  let soloPend=null,ligaMuerta=false;
   if(f.cmp_id){
     if(auto){return;}
-    let est='';try{const{data}=await sbc().from('cmp_comparativos').select('estatus').eq('id',f.cmp_id).maybeSingle();est=data?data.estatus:'';}catch(e){}
-    if(est!=='CANCELADO'){toast('Este folio ya está en comparativos ('+(f.cmp_folio||f.cmp_id)+')');return;}
-    if(!confirm('El comparativo '+(f.cmp_folio||f.cmp_id)+' de este folio está CANCELADO. ¿Crear uno nuevo en borrador con las claves autorizadas?'))return;
+    let st;try{st=await cmpsDelFolio(f);}catch(e){toast('❌ No pude revisar los comparativos del folio: '+(e.message||e));return;}
+    if(!st.pend.size){toast('Todas las claves de este folio ya están en comparativos');return;}
+    if(!confirm('Crear un comparativo en borrador con las '+st.pend.size+' clave(s) de este folio que no están en ningún comparativo activo?'))return;
+    soloPend=st.pend;ligaMuerta=!st.vivos.some(c=>c.id===f.cmp_id);
   }
-  const lineas=S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0).map(l=>{const p=l.portal||{},s=l.surt||{};
+  const lineas=S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0&&(!soloPend||soloPend.has(Number(l.clave)))).map(l=>{const p=l.portal||{},s=l.surt||{};
     return{clave:Number(l.clave),descripcion:p.n||'',cantidad:Number(l.pedido_aut??l.pedido),clasificacion:p.rot||'',inversion:s.inversion??null,pron:s.pron??null,antec:s.anteo??null,
       precios:{},elegido:null,manual:false,motivo:'',_completar:true,folio_propuesta:f.folio,
       ...(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?{proveedor_prop:x.p,prov_origen:x.o}:{proveedor_prop:'',prov_origen:''};})()};});
@@ -633,11 +635,23 @@ async function enviarComparativos(auto){
     importe_actual:0,importe_propuesto:0,enviado_en:null,creado_por:quienEnvia,actualizado_por:quienEnvia};
   const{data,error}=await sbc().from('cmp_comparativos').insert(row).select('id,folio').single();
   if(error){toast('❌ No se pudo crear el comparativo: '+error.message+'. Usa "Enviar a comparativos" para reintentar.');pintarFolio();return;}
+  if(soloPend&&!ligaMuerta){toast('✓ Comparativo '+(data.folio||'#'+data.id)+' creado en borrador con '+lineas.length+' clave(s) pendientes');pintarFolio();return;}
   const campos={cmp_id:data.id,cmp_folio:data.folio||null,cmp_enviado_en:new Date().toISOString()};
   const{error:e2}=await sb.from('plan_propuestas').update(campos).eq('folio',f.folio);
   if(e2){toast('⚠️ El comparativo '+(data.folio||data.id)+' se creó, pero no pude guardar la liga en el folio: '+e2.message+(/cmp_/.test(e2.message)?' · Corre plan_tablas_11.sql':''));return;}
   Object.assign(f,campos);const fl=S.folios.find(x=>x.folio===f.folio);if(fl)Object.assign(fl,campos);
   toast('✓ Comparativo '+(data.folio||'#'+data.id)+' creado en borrador para '+f.comprador);pintarFolio();
+}
+// Comparativos del folio (el ligado y los que se crearon después con claves pendientes o al dividir) y claves que no están en ninguno activo
+async function cmpsDelFolio(f){
+  const q1=f.cmp_id?sbc().from('cmp_comparativos').select('id,folio,titulo,estatus,aprobado_por,aprobado_en,lineas').eq('id',f.cmp_id):null;
+  const q2=sbc().from('cmp_comparativos').select('id,folio,titulo,estatus,aprobado_por,aprobado_en,lineas').ilike('titulo','Propuesta '+f.folio+' %');
+  const rs=await Promise.all([q1,q2].filter(Boolean));rs.forEach(r=>{if(r.error)throw new Error(r.error.message);});
+  const m=new Map();rs.forEach(r=>(r.data||[]).forEach(c=>m.set(c.id,c)));
+  const todos=[...m.values()].sort((a,b)=>a.id-b.id),vivos=todos.filter(c=>!['CANCELADO','ANULADO'].includes(c.estatus));
+  const en=new Set();vivos.forEach(c=>(c.lineas||[]).forEach(l=>en.add(Number(l.clave))));
+  const pend=new Set(S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0&&!en.has(Number(l.clave))).map(l=>Number(l.clave)));
+  return{todos,vivos,pend};
 }
 // Estado del comparativo ligado (se consulta en vivo en el portal de comparativos)
 async function pintarCmp(){
@@ -649,12 +663,13 @@ async function pintarCmp(){
     :'<a class="lk" href="'+CMP_PORTAL+'?cmp='+f.cmp_id+'" target="_blank" rel="noopener">'+esc(f.cmp_folio||('#'+f.cmp_id))+' ↗</a>';
   el.innerHTML='<b>Comparativo:</b> '+liga+' · enviado '+fFH(f.cmp_enviado_en);
   try{const{data}=await sbc().from('cmp_comparativos').select('folio,estatus,aprobado_por,aprobado_en').eq('id',f.cmp_id).maybeSingle();
-    if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en)
-      +(data.estatus==='CANCELADO'&&f.estado==='AUTORIZADO'?' <button onclick="enviarComparativos()">➜ Volver a enviar a comparativos</button>':'');
-    // Otros comparativos del mismo folio (cuando se dividió por proveedor o claves en Comparativos)
-    const{data:otros}=await sbc().from('cmp_comparativos').select('id,folio,titulo,estatus').ilike('titulo','Propuesta '+f.folio+' %').neq('id',f.cmp_id).order('id');
-    if(otros&&otros.length&&S.actual===f){const lk=o=>enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(o.id)+')">'+esc(o.folio||('#'+o.id))+'</a>':'<a class="lk" href="'+CMP_PORTAL+'?cmp='+o.id+'" target="_blank" rel="noopener">'+esc(o.folio||('#'+o.id))+' ↗</a>';
-      el.innerHTML+='<div style="margin-top:3px"><b>También en:</b> '+otros.map(o=>lk(o)+' <span class="mut">'+esc((o.titulo.split(' · ').slice(2).join(' · '))||'')+' · '+esc(o.estatus)+'</span>').join(' &nbsp;|&nbsp; ')+'</div>';}
+    if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en);
+    const st=await cmpsDelFolio(f);if(S.actual!==f)return;
+    // Otros comparativos del mismo folio (claves pendientes enviadas después o división por proveedor)
+    const otros=st.todos.filter(o=>o.id!==f.cmp_id);
+    if(otros.length){const lk=o=>enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(o.id)+')">'+esc(o.folio||('#'+o.id))+'</a>':'<a class="lk" href="'+CMP_PORTAL+'?cmp='+o.id+'" target="_blank" rel="noopener">'+esc(o.folio||('#'+o.id))+' ↗</a>';
+      el.innerHTML+='<div style="margin-top:3px"><b>También en:</b> '+otros.map(o=>lk(o)+' <span class="mut">'+esc((o.titulo.split(' · ').slice(2).join(' · '))||'')+' · '+(o.lineas||[]).length+' clave(s) · '+esc(o.estatus)+'</span>').join(' &nbsp;|&nbsp; ')+'</div>';}
+    if(st.pend.size&&f.estado==='AUTORIZADO')el.innerHTML+='<div style="margin-top:3px"><b>'+st.pend.size+' clave(s) sin comparativo</b> <span class="mut">(no están en ningún comparativo activo de este folio)</span> <button onclick="enviarComparativos()">➜ Enviar '+st.pend.size+' clave(s) pendientes a comparativos</button></div>';
   }catch(e){}
 }
 // Cancelar folio (oct-2026): siempre con motivo. En revisión o autorizado, además con nombre y PIN de un ADMINISTRADOR (usuarios de Comparativos).
@@ -663,9 +678,11 @@ function cancelarFolio(){pinAbrir('CANCELAR');}
 const conPinCancelar=()=>['EN REVISION','AUTORIZADO'].includes(S.actual&&S.actual.estado);
 async function cancelarConMotivo(nombre,uid,pin,motivo){
   const f=S.actual,ahora=new Date(),txt='Cancelado por '+nombre+' el '+fFH(ahora.toISOString())+': '+motivo;
-  if(f.cmp_id){
-    const c=sbc();const{data:cm,error}=await c.from('cmp_comparativos').select('id,folio,estatus,notas').eq('id',f.cmp_id).maybeSingle();
-    if(error)throw new Error('No pude revisar el comparativo ligado: '+error.message);
+  let lista=[];
+  try{lista=(await cmpsDelFolio(f)).vivos;}catch(e){throw new Error('No pude revisar los comparativos del folio: '+(e.message||e));}
+  for(const x of lista){
+    const c=sbc();const{data:cm,error}=await c.from('cmp_comparativos').select('id,folio,estatus,notas').eq('id',x.id).maybeSingle();
+    if(error)throw new Error('No pude revisar el comparativo '+(x.folio||x.id)+': '+error.message);
     if(cm&&['BORRADOR','EN REVISION','RECHAZADO'].includes(cm.estatus)){
       const{error:e2}=await c.from('cmp_comparativos').update({estatus:'CANCELADO',notas:[cm.notas,'Propuesta '+f.folio+' — '+txt].filter(Boolean).join('\n'),actualizado_por:nombre,actualizado_en:ahora.toISOString()}).eq('id',cm.id);
       if(e2)throw new Error('No pude cancelar el comparativo '+(cm.folio||cm.id)+': '+e2.message);
@@ -674,7 +691,7 @@ async function cancelarConMotivo(nombre,uid,pin,motivo){
       if(e3)throw new Error('No pude anular el comparativo aprobado '+(cm.folio||cm.id)+': '+e3.message);
     }
   }
-  const fol=f.folio,comp=f.comprador,ok=await cambiarEstado({estado:'CANCELADO',comentario:[txt,f.comentario?'Antes: '+f.comentario:''].filter(Boolean).join(' · ')},'✓ Folio '+f.folio+' cancelado'+(f.cmp_id?' (y su comparativo)':''));
+  const fol=f.folio,comp=f.comprador,ok=await cambiarEstado({estado:'CANCELADO',comentario:[txt,f.comentario?'Antes: '+f.comentario:''].filter(Boolean).join(' · ')},'✓ Folio '+f.folio+' cancelado'+(lista.length?' (y '+(lista.length>1?'sus '+lista.length+' comparativos':'su comparativo')+')':''));
   if(ok){await cerrarAvisos(fol);if(!P.mismoComp(nombre,comp))await avisar([comp],'CANCELADO',fol,'Folio '+fol+' '+txt.charAt(0).toLowerCase()+txt.slice(1));}
   return ok;
 }
