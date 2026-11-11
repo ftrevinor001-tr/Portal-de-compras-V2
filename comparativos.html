@@ -1148,16 +1148,25 @@ async function ficha(out, p){
    ==================================================================== */
 async function vComparativos(main, regresando=false){
   const cmps = await API.comparativos();
-  // Por defecto se muestran los borradores; al regresar de un comparativo se conserva el filtro que tenías
-  const f = store.get('cmp_filtros2') || {estatus:'BORRADOR', q:'', comprador:''};
-  if (!regresando) f.estatus = 'BORRADOR';
-  const compradores = [...new Set(cmps.map(c => c.comprador))].sort();
+  // Por defecto: borradores y, si entra un comprador, solo sus comparativos. Al regresar de un comparativo se conserva el filtro que tenías.
+  // Un mismo comprador puede venir con nombre corto (MARITZA, desde Propuestas) o completo (MARITZA HERNANDEZ): se tratan como el mismo.
+  const mismoComp = (a, b) => { a = pvNorm(a); b = pvNorm(b); return !!a && !!b && (a === b || a.startsWith(b + ' ') || b.startsWith(a + ' ')); };
+  const compradores = [];
+  [...new Set(cmps.map(c => c.comprador).filter(Boolean))].sort((a, b) => a.length - b.length || a.localeCompare(b)).forEach(n => { if (!compradores.some(x => mismoComp(x, n))) compradores.push(n); });
+  compradores.sort((a, b) => a.localeCompare(b, 'es'));
+  const KF = 'cmp_filtros2_' + (S.user ? S.user.id : '');
+  const f = store.get(KF) || {estatus:'BORRADOR', q:'', comprador:''};
+  if (!regresando) {
+    f.estatus = 'BORRADOR';
+    if (S.user && S.user.rol === 'COMPRADOR') f.comprador = compradores.find(x => mismoComp(x, S.user.nombre)) || S.user.nombre;
+  }
+  if (f.comprador && !compradores.includes(f.comprador)) { const x = compradores.find(y => mismoComp(y, f.comprador)); if (x) f.comprador = x; else compradores.push(f.comprador); }
   main.innerHTML = `<div class="stack">
     <div class="row"><h1>Comparativos</h1><span class="spacer"></span>
       <button class="btn" id="imp">Importar desde Excel</button><button class="btn pri" id="nuevo">Nuevo comparativo</button></div>
     <div class="row">
       <div class="tabs" id="ft">${[['BORRADOR','Borrador'],['EN REVISION','En revisión'],['APROBADO','Aprobado'],['RECHAZADO','Rechazado'],['ANULADO','Anulado'],['CANCELADO','Cancelado'],['','Todos']]
-        .map(([k,l]) => `<button data-e="${k}" class="${f.estatus === k ? 'on' : ''}">${l} <span class="muted">${k ? cmps.filter(c => c.estatus === k).length : cmps.length}</span></button>`).join('')}</div>
+        .map(([k,l]) => `<button data-e="${k}" class="${f.estatus === k ? 'on' : ''}">${l} <span class="muted"></span></button>`).join('')}</div>
       <span class="spacer"></span>
       <input id="fq" type="search" placeholder="Folio, título, proveedor o clave" style="width:240px" value="${esc(f.q)}">
       <select id="fc" style="width:200px"><option value="">Todos los compradores</option>${compradores.map(c => `<option ${f.comprador === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
@@ -1165,10 +1174,12 @@ async function vComparativos(main, regresando=false){
     <div id="lst"></div></div>`;
   const pinta = () => {
     const q = f.q.trim().toUpperCase();
-    const rows = cmps.filter(c => (!f.estatus || c.estatus === f.estatus) && (!f.comprador || c.comprador === f.comprador) &&
+    const base = cmps.filter(c => (!f.comprador || mismoComp(c.comprador, f.comprador)) &&
       (!q || (c.folio + ' ' + c.titulo + ' ' + (c.proveedores||[]).map(p => p.nombre).join(' ')).toUpperCase().includes(q) || (/^\d+$/.test(q) && (c.claves||[]).includes(+q))));
+    const rows = base.filter(c => !f.estatus || c.estatus === f.estatus);
+    $$('#ft button').forEach(b => { $('.muted', b).textContent = b.dataset.e ? base.filter(c => c.estatus === b.dataset.e).length : base.length; });
     $('#lst').innerHTML = tablaComparativos(rows, 'No hay comparativos con estos filtros.'); bindCmpRows($('#lst'));
-    store.set('cmp_filtros2', f);
+    store.set(KF, f);
   };
   $$('#ft button').forEach(b => b.onclick = () => { f.estatus = b.dataset.e; $$('#ft button').forEach(x => x.classList.toggle('on', x === b)); pinta(); });
   $('#fq').oninput = () => { f.q = $('#fq').value; pinta(); };
