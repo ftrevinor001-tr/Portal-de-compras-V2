@@ -931,14 +931,22 @@ P.baseRec=p=>{
   return{b:'ANT',c:A,por:conLY?'sin temporada (el año pasado estos meses variaron '+(pc>0?'+':'')+pc+'% contra los previos; umbral ±'+Math.round(P.R.TEMP_CALC*100)+'%): se usa lo más reciente':'sin temporada (±'+Math.round(P.R.TEMP_VAR*100)+'%): se usa lo más reciente'};
 };
 // Propuesta del portal con o sin BO del CEDI: consumo × (T. entrega + Objetivo) − (existencia + BO)
-P.propSug=(p,c,conBO)=>c>0&&!P.R.SIN_SUG_ROT.includes(p.rot)?Math.max(0,P.ceil3(c*((Number(p.lt)||0)+(Number(p.pm)||0))-((Number(p.ex)||0)+(conBO===false?0:(Number(p.bo)||0))))):null;
+// Compra nacional / importación (nov-2026): xd = piezas que cubren aparte (stock del proveedor nacional en la de importación),
+// mc = múltiplo por contenedor (redondeo hacia arriba), tope = máximo que se puede pedir (stock del proveedor nacional).
+P.propSug=(p,c,conBO)=>{
+  if(!(c>0)||P.R.SIN_SUG_ROT.includes(p.rot))return null;
+  let q=Math.max(0,P.ceil3(c*((Number(p.lt)||0)+(Number(p.pm)||0))-((Number(p.ex)||0)+(conBO===false?0:(Number(p.bo)||0))+(Number(p.xd)||0))));
+  const mc=Number(p.mc)||0;if(mc>0&&q>0)q=P.ceil3(q/mc)*mc;
+  if(p.tope!=null&&q>Number(p.tope))q=Math.max(0,Math.floor(Number(p.tope)));
+  return q;
+};
 // p = cálculo del portal congelado en el folio; s = fila de surtimiento o null; o = {conBO:true|false}
 P.propLinea=(p,s,o)=>{
   const conBO=!(o&&o.conBO===false);
   const br=P.baseRec(p),sA=P.propSug(p,p.A,conBO),sP=P.propSug(p,p.P,conBO),sR=P.propSug(p,br.c,conBO);
   const out={br,sA,sP,sR,conBO};
-  if(!s||s.pedido==null)return{...out,sem:'SIN DATO',mA:null,mP:null,mR:null,lA:null,lP:null,lR:null,varA:null,varP:null,varR:null,difR:null,avisos:['No viene en lo pegado de surtimiento']};
-  const ped=Math.max(0,Number(s.pedido)||0),bo=Number(p.bo)||0,base=(Number(p.ex)||0)+(conBO?bo:0),lt=Number(p.lt)||0,pm=Number(p.pm)||0;
+  if(!s||s.pedido==null)return{...out,sem:'SIN DATO',mA:null,mP:null,mR:null,lA:null,lP:null,lR:null,varA:null,varP:null,varR:null,difR:null,avisos:['No viene en lo pegado de surtimiento',...(p.tipo?P.dualAvisos(p,br.c,conBO,null).av:[])]};
+  const ped=Math.max(0,Number(s.pedido)||0),bo=Number(p.bo)||0,xd=Number(p.xd)||0,base=(Number(p.ex)||0)+(conBO?bo:0)+xd,lt=Number(p.lt)||0,pm=Number(p.pm)||0;
   const r2=x=>Math.round(x*100)/100;   // a 2 decimales para que 4.2 contra 3 × 1.4 no falle por redondeo
   const mes=c=>c>0?r2((base+ped)/c):null;
   const mA=mes(p.A),mP=mes(p.P),mR=mes(br.c);
@@ -969,9 +977,9 @@ P.propLinea=(p,s,o)=>{
   const otra=br.b==='ANT'?'PRON':br.b==='PRON'?'ANT':null,lO=otra==='ANT'?lA:otra==='PRON'?lP:null,sO=otra==='ANT'?sA:otra==='PRON'?sP:null;
   if(sem!=='VERDE'&&otra&&inR(lO)&&near(sO))av.push('Cuadra con '+P.BASE_L[otra].toLowerCase()+' (al llegar '+fM(lO)+' meses), pero el portal recomienda '+P.BASE_L[br.b].toLowerCase()+': '+br.por);
   // Meses de surtimiento vs portal. Si no cuadran pero sí cuadran con el BO al revés, se avisa del "¿Considerar BO?"
-  const tol=P.R.PROP_DIF_MESES,alt=c=>c>0?r2(((Number(p.ex)||0)+(conBO?0:bo)+ped)/c):null;let avBO=false;
+  const tol=P.R.PROP_DIF_MESES,alt=c=>c>0?r2(((Number(p.ex)||0)+(conBO?0:bo)+xd+ped)/c):null;let avBO=false;
   const dd=[];
-  const difM=(sm,m,c,t)=>{if(sm==null||m==null||Math.abs(sm-m)<=tol)return;const x=alt(c);
+  const difM=(sm,m,c,t)=>{if(sm==null||m==null||Math.abs(sm-m)<=tol)return;if(xd>0&&c>0&&Math.abs(sm-(m-xd/c))<=tol)return;const x=alt(c);
     if(bo>0&&x!=null&&Math.abs(sm-x)<=tol){avBO=true;return;}dd.push('meses con '+t+' '+r1(sm)+' (portal '+r1(m)+')');};
   difM(s.anteo,mA,p.A,'antecedente');difM(s.pron,mP,p.P,'pronóstico');
   if(avBO)av.push(conBO?'Surtimiento calculó los meses sin BO (¿Considerar BO? = No); el folio está con BO':'Surtimiento calculó los meses con BO; el folio está sin BO');
@@ -982,9 +990,73 @@ P.propLinea=(p,s,o)=>{
   if(dd.length)av.push('Surtimiento trae datos distintos al portal: '+dd.join('; ')+'. Revisa que el Excel del día sea el mismo.');
   if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+(p.mfB!=null?' sobre su número base ('+p.mfB+')':'')+' para devolución estratégica');
   if(p.ocs>0)av.push(p.ocs+(p.ocs===1?' OC abierta':' OCs abiertas')+' al CEDI');
-  if(conBO&&bo>0){const vb=P.vistaBO(p,true,null);av.push('Considera el BO actual del CEDI: '+fN(bo)+' pzs'+(vb.est!==p.est||vb.boCub?' · estatus con BO: '+(vb.boCub?'FALTANTE cubierto con BO':vb.est)+' (sin BO: '+p.est+')':''));}
+  if(conBO&&bo>0){const vb=P.vistaBO(p,true,null);av.push('Considera el BO actual del CEDI: '+fN(bo)+' pzs'+(p.tipo?(p.tipo==='NACIONAL'?' (solo OCs nacionales)':''):(vb.est!==p.est||vb.boCub)?' · estatus con BO: '+(vb.boCub?'FALTANTE cubierto con BO':vb.est)+' (sin BO: '+p.est+')':''));}
+  if(p.tipo){const dv=P.dualAvisos(p,br.c,conBO,ped);dv.av.forEach(x=>av.push(x));if(dv.amarillo){if(sem==='VERDE'){sem='AMARILLO';por=dv.amarillo;av.unshift(por);}else av.push(dv.amarillo);}}
   const v=x=>x>0?(ped-x)/x:null;
   return{...out,sem,por,mA,mP,mR,lA,lP,lR,lo,hi,bajo,varA:v(sA),varP:v(sP),varR:v(sR),difR:dif,dmR:dm,dmA:dmX(p.A,sA),dmP:dmX(p.P,sP),avisos:av};
+};
+// ══ Compra nacional e importación (nov-2026) ══
+// Claves con dos formas de compra (p. ej. BYP nacional con stock en el proveedor e importación de China).
+// Cada folio de Propuestas es de un solo tipo (NACIONAL o IMPORTACION) y usa el tiempo de entrega y los meses objetivo de ese tipo
+// (vacíos = los de la hoja Detalle). El estatus oficial, las alarmas, el Target y el bono NO cambian: siguen con la hoja Detalle.
+//  · NACIONAL: Propuesta = consumo × (T. entrega nac + Objetivo nac) − existencia − BO de OCs nacionales (con BO); tope = stock vigente del proveedor nacional.
+//  · IMPORTACION: Propuesta = consumo × (T. entrega imp + Objetivo imp) − existencia − stock del proveedor nacional − BO total (con BO);
+//    opción de redondear hacia arriba al mínimo por contenedor.
+// El stock del proveedor nacional es del proveedor (no es nuestro): no se suma a la existencia ni al estatus.
+P.TIPO_L={NACIONAL:'Nacional',IMPORTACION:'Importación'};
+P.TIPO_I={NACIONAL:'🇲🇽',IMPORTACION:'🚢'};
+P.R.STK_DIAS=30;
+P.tipoChip=t=>t&&P.TIPO_L[t]?'<span class="chip" style="background:'+(t==='IMPORTACION'?'#e0f2fe;color:#075985':'#dcfce7;color:#166534')+'">'+P.TIPO_I[t]+' '+P.TIPO_L[t]+'</span>':'';
+P.mismoProv=(a,b)=>{const x=P.provKey(a),y=P.provKey(b);return!!x&&!!y&&(x===y||x.startsWith(y+' ')||y.startsWith(x+' '));};
+// duales = filas de plan_abasto_dual; stock = plan_stock_proveedor; ocs = líneas abiertas de plan_oc_lineas (clave, proveedor, cantidad_pend, entrega_directa, cancelada)
+// → Map clave → {provN, ltN, pmN, provI, ltI, pmI, mc, stk (vigente o null), stkF, stkP, stkV (vencido), stkVF, fI (fracción del BO que es de importación)}
+P.dualMapa=(duales,stock,ocs,fecha)=>{
+  const m=new Map(),n=x=>x==null||x===''||!isFinite(+x)?null:+x,t=new Date((fecha||new Date().toISOString().slice(0,10))+'T12:00:00');
+  (duales||[]).forEach(r=>{const k=Number(r.clave);if(!k)return;
+    m.set(k,{provN:r.prov_nac||null,ltN:n(r.lt_nac),pmN:n(r.obj_nac),provI:r.prov_imp||null,ltI:n(r.lt_imp),pmI:n(r.obj_imp),mc:n(r.min_cont),stk:null,stkF:null,stkP:null,stkV:null,stkVF:null,fI:0});});
+  (stock||[]).forEach(r=>{const d=m.get(Number(r.clave));if(!d)return;const fc=String(r.fecha_corte||'').slice(0,10),q=+r.cantidad||0;if(!fc)return;
+    const dd=Math.round((t-new Date(fc+'T12:00:00'))/864e5);
+    if(dd>P.R.STK_DIAS){d.stkV=(d.stkV||0)+q;if(!d.stkVF||fc>d.stkVF)d.stkVF=fc;return;}
+    d.stk=(d.stk||0)+q;if(!d.stkF||fc<d.stkF)d.stkF=fc;d.stkP=d.stkP&&d.stkP!==r.proveedor?d.stkP+', '+r.proveedor:r.proveedor;});
+  // BO por tipo: OC del proveedor de importación = importación; si no hay proveedor de importación capturado,
+  // toda OC que no sea del proveedor nacional se toma como importación; sin ninguno de los dos, todo es nacional.
+  const g=new Map();(ocs||[]).forEach(l=>{const k=Number(l.clave),d=m.get(k);if(!d||l.entrega_directa||l.cancelada||l.cerrada_en)return;const q=+l.cantidad_pend||0;if(q<=0)return;
+    const imp=d.provI?P.mismoProv(l.proveedor,d.provI):d.provN?!P.mismoProv(l.proveedor,d.provN):false;
+    const o=g.get(k)||{t:0,i:0};o.t+=q;if(imp)o.i+=q;g.set(k,o);});
+  g.forEach((o,k)=>{m.get(k).fI=o.t>0?Math.round(o.i/o.t*10000)/10000:0;});
+  return m;
+};
+// p = cálculo congelado de la clave (con p.dual); tipo = NACIONAL | IMPORTACION; o = {cont:true} redondea al contenedor
+P.dualP=(p,tipo,o)=>{
+  if(!p||!tipo||!p.dual)return p;
+  const d=p.dual,bo=Math.max(0,Number(p.bo)||0),boI=Math.round(bo*(Number(d.fI)||0)*10000)/10000,boN=Math.round((bo-boI)*10000)/10000;
+  const v=(x,def)=>x!=null&&x!==''&&isFinite(+x)?+x:def;
+  const q=Object.assign({},p,{tipo,lt0:p.lt,pm0:p.pm,boCEDI:bo,boN,boI});
+  if(tipo==='NACIONAL'){q.lt=v(d.ltN,p.lt);q.pm=v(d.pmN,p.pm);q.bo=boN;q.xd=0;q.tope=d.stk!=null?Math.max(0,d.stk):null;q.mc=0;}
+  else{q.lt=v(d.ltI,p.lt);q.pm=v(d.pmI,p.pm);q.bo=bo;q.xd=d.stk>0?d.stk:0;q.tope=null;q.mc=o&&o.cont&&d.mc>0?Number(d.mc):0;}
+  return q;
+};
+// Avisos del tipo de compra para el folio. Regresa {av:[...], amarillo: texto si el pedido debe pedir motivo}
+P.dualAvisos=(p,c,conBO,ped)=>{
+  const av=[],d=p.dual||{},fN=x=>Math.round(x).toLocaleString('es-MX'),fF=f=>f?f.slice(8,10)+'/'+f.slice(5,7)+'/'+f.slice(0,4):'';let am=null;
+  const par=(p.lt!==p.lt0||p.pm!==p.pm0)?' (hoja Detalle: '+p.lt0+' y '+p.pm0+')':'';
+  av.push('Compra '+P.TIPO_L[p.tipo].toLowerCase()+': T. entrega '+p.lt+' y objetivo '+p.pm+' meses'+par);
+  if(p.tipo==='NACIONAL'){
+    if(d.stk==null)av.push(d.stkV!=null?'El stock del proveedor nacional está vencido (corte '+fF(d.stkVF)+', más de '+P.R.STK_DIAS+' días): la propuesta no tiene tope; actualízalo en Admin':'Sin stock del proveedor nacional cargado: la propuesta no tiene tope');
+    else{const sin=P.propSug(Object.assign({},p,{tope:null}),c,conBO);
+      av.push('Stock disponible en '+(d.stkP||'el proveedor nacional')+': '+fN(d.stk)+' pzs (corte '+fF(d.stkF)+')');
+      if(sin!=null&&sin>d.stk)av.push('El proveedor nacional no alcanza: se necesitan '+fN(sin)+' y solo tiene '+fN(d.stk)+'; faltan '+fN(sin-d.stk)+' que se deben cubrir con importación');
+      if(ped!=null&&ped>d.stk)am='Pide '+fN(ped-d.stk)+' pzs más de lo que tiene disponible el proveedor nacional ('+fN(d.stk)+')';}
+    if(p.boI>0)av.push('BO de importación en camino: '+fN(p.boI)+' pzs (no se resta en la compra nacional)');
+  }else{
+    if(d.stk>0)av.push('Cubre con el stock del proveedor nacional: '+fN(d.stk)+' pzs (corte '+fF(d.stkF)+')');
+    else if(d.stkV!=null)av.push('El stock del proveedor nacional está vencido (corte '+fF(d.stkVF)+'): no se considera');
+    if(conBO&&(p.boN>0||p.boI>0))av.push('BO considerado: '+fN(p.boN)+' nacional + '+fN(p.boI)+' importación');
+    if(!conBO&&p.boI>0)av.push('Hay '+fN(p.boI)+' pzs de importación en camino que NO se restan (folio sin BO)');
+    if(p.mc>0)av.push('Propuesta redondeada al mínimo por contenedor ('+fN(p.mc)+' pzs)');
+    if(d.mc>0&&ped>0&&Math.abs(ped/d.mc-Math.round(ped/d.mc))>1e-6)av.push('El pedido no es múltiplo del mínimo por contenedor ('+fN(d.mc)+' pzs)');
+  }
+  return{av,amarillo:am};
 };
 P.PROP_MOTIVOS=['Mínimo de compra o flete del proveedor','Múltiplo de empaque','Temporada','Venta especial o proyecto','Compra de oportunidad o cambio de precio','Proveedor con entregas incumplidas (más stock de seguridad)','Redistribución de MF','Clave nueva o en lanzamiento','Reducir inventario o descontinuar','Otro (explicar en comentario)'];
 // ══ Calendario de pedidos por proveedor (oct-2026) ══
