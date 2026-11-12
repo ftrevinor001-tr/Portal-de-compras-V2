@@ -29,15 +29,19 @@
     return{fecha:est.fecha,mes,claves:(est.claves||[]).filter(r=>!r.pr&&!P.esProd(r)),ocs:est.ocs||{},restr,alarmas:al.map(a=>({...a,fecha_alarma:d10(a.fecha_alarma),fecha_oc:d10(a.fecha_oc)})),otif,metaCfg};
   }
 
-  function aplicar(alarmas,v){
+  // conBO: true = estatus, nivel, meses y propuestas sumando el BO del CEDI; por default sin BO (solo existencia, como las alarmas)
+  function aplicar(alarmas,v,conBO){
+    conBO=!!conBO;const claves=P.aplicarBO?P.aplicarBO(v.claves,conBO,v.fecha):v.claves;
     const TIPOS_V2=['RIESGO','SOBREINVENTARIO','PEDIDO_PROPUESTO','TARGET','OTIF'];
-    const comps=[...new Set([...alarmas.map(a=>a.comprador),...v.claves.map(r=>r.comp).filter(Boolean)])];if(!comps.includes('GENERAL'))comps.unshift('GENERAL');
+    const comps=[...new Set([...alarmas.map(a=>a.comprador),...claves.map(r=>r.comp).filter(Boolean)])];if(!comps.includes('GENERAL'))comps.unshift('GENERAL');
     const out=alarmas.filter(a=>!TIPOS_V2.includes(a.tipo));
-    const nota='Cálculo del portal al '+v.fecha.split('-').reverse().join('/')+' (Planeación e indicadores).';
+    const nota='Cálculo del portal al '+v.fecha.split('-').reverse().join('/')+' (Planeación e indicadores) · <b>'+(conBO?'con BO del CEDI':'sin BO')+'</b>.';
+    const notaBO=conBO?' Considera el BO actual del CEDI (lo que viene en camino): las claves que salen de riesgo con el BO dependen de que ese BO llegue a tiempo.'
+      :' Riesgo calculado <b>sin BO</b> (solo existencia): dependemos del BO del CEDI para que este riesgo no se haga faltante.';
     const push=(comp,tipo,items,total,descripcion,extra)=>out.push({comprador:comp,dashboard:'planeacion',tipo,mes:v.mes,descripcion,severidad:null,datos:Object.assign({total,items:items.slice(0,300)},extra||{})});
     comps.forEach(comp=>{
       const mine=x=>comp==='GENERAL'||x===comp;
-      const cl=v.claves.filter(r=>mine(r.comp));
+      const cl=claves.filter(r=>mine(r.comp));
       const NV={ALTO:0,MEDIO:1,BAJO:2},CL=x=>{x=String(x||'').toUpperCase();return x.includes('SAGRADO')?0:x.includes('ALTA')?1:x.includes('MEDIA')?2:x.includes('LENTA')?3:x.includes('NUEVO')?4:5;};
       const fm=f=>f?f.split('-').reverse().slice(0,2).join('/'):'';
       const esR=r=>{if(!v.restr||!v.restr.size)return false;const k=String(r.c).trim(),cp=String(r.comp||'').trim().toUpperCase();for(const x of v.restr){const i=x.indexOf('||');if(x.slice(0,i)!==k)continue;const c=x.slice(i+2);if(!c||c===cp||(P.mismoComp&&P.mismoComp(c,cp)))return true;}return false;};
@@ -45,11 +49,11 @@
       const rsgR=cl.filter(r=>r.est==='RIESGO'&&!r.se&&!esR(r)).sort((a,b)=>(NV[a.nv]??3)-(NV[b.nv]??3)||CL(a.rot)-CL(b.rot)||(a.dA??9e9)-(b.dA??9e9));
       const rsg=rsgR.map(r=>({Nivel:r.nv?({ALTO:'🔴 ALTO',MEDIO:'🟠 MEDIO',BAJO:'🟡 BAJO'})[r.nv]:'',Clasificación:P.ROT_X[r.rot]||r.rot||'',Clave:r.c,Nombre:r.n,Marca:r.m||'','Se acaba':r.fAg?'~'+fm(r.fAg)+' ('+Math.floor(r.dA)+'d)':'','T.Entrega (d)':Math.round((+r.lt||0)*P.R.MES_DIAS),'Meses Inv':r1(r.mi),'Demanda':r1(r.D),'OCs abiertas':(v.ocs[r.c]||[]).filter(o=>!o[4]).length,'Propuesta':r.sE!=null?r.sE:r.s}));
       const cn=k=>rsgR.filter(r=>r.nv===k).length;
-      push(comp,'RIESGO',rsg,rsg.length,nota+' Riesgo: entra con menos de T. entrega × 1.2 meses y sale al pasar T. entrega × 1.4. Nivel por días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega: 🔴 alto = se acaba en 7 días o menos o antes de la mitad del T. entrega · 🟠 medio = antes del T. entrega · 🟡 bajo = aún cubre el T. entrega.'+(nSe?' No incluye '+nSe+' claves que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).':'')+(nRs?' No incluye '+nRs+' claves restringidas.':''),{alto:cn('ALTO'),medio:cn('MEDIO'),bajo:cn('BAJO'),porClmov:Object.fromEntries([['🔴 Riesgo alto',cn('ALTO')],['🟠 Riesgo medio',cn('MEDIO')],['🟡 Riesgo bajo',cn('BAJO')]].filter(x=>x[1]))});
+      push(comp,'RIESGO',rsg,rsg.length,nota+' Riesgo: entra con menos de T. entrega × 1.2 meses y sale al pasar T. entrega × 1.4. Nivel por días para agotarse (existencia ÷ venta diaria, con el ritmo real de los últimos días) contra el tiempo de entrega: 🔴 alto = se acaba en 7 días o menos o antes de la mitad del T. entrega · 🟠 medio = antes del T. entrega · 🟡 bajo = aún cubre el T. entrega.'+(nSe?' No incluye '+nSe+' claves que nunca han tenido entrada (sin compras desde 2024 ni OC en camino).':'')+(nRs?' No incluye '+nRs+' claves restringidas.':'')+notaBO,{conBO,alto:cn('ALTO'),medio:cn('MEDIO'),bajo:cn('BAJO'),porClmov:Object.fromEntries([['🔴 Riesgo alto',cn('ALTO')],['🟠 Riesgo medio',cn('MEDIO')],['🟡 Riesgo bajo',cn('BAJO')]].filter(x=>x[1]))});
       const sob=cl.filter(r=>r.est==='SOBRE INVENTARIO').sort((a,b)=>(b.mi??0)-(a.mi??0)).map(r=>({Clave:r.c,Nombre:r.n,Marca:r.m||'','Meses Inv':r1(r.mi),'Obj':r.pm,'Demanda':r1(r.D)}));
-      push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario que el objetivo × 1.4.');
-      const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));
-      push(comp,'PEDIDO_PROPUESTO',ped,ped.length,nota+' Faltante y riesgo con propuesta = demanda × (tiempo de entrega + objetivo) − (existencia + BO del CEDI, sin entregas directas).');
+      push(comp,'SOBREINVENTARIO',sob,sob.length,nota+' Más meses de inventario'+(conBO?' (existencia + BO del CEDI)':'')+' que el objetivo × 1.4.');
+      const ped=cl.filter(r=>(r.est==='RIESGO'||r.est==='FALTANTE')&&(r.s||0)>0).sort((a,b)=>(a.mi??-1)-(b.mi??-1)).map(r=>({Clave:r.c,Descripción:r.n,Estatus:r.boCub?'FALTANTE (cubierto con BO)':r.est,'Propuesta':r.s,'Con empaque':r.sE!=null?r.sE:'','Ant.':r.sA!=null?r.sA:'','Pron.':r.sP!=null?r.sP:'','OCs abiertas':(v.ocs[r.c]||[]).length}));
+      push(comp,'PEDIDO_PROPUESTO',ped,ped.length,nota+' Faltante y riesgo con propuesta = demanda × (tiempo de entrega + objetivo) − '+(conBO?'(existencia + BO del CEDI, sin entregas directas)':'existencia (sin restar el BO)')+'.');
       // Target por nivel de riesgo: nivel de la clave el día que se colocó la OC (bajo/anticipada = cumple · medio = con riesgo · alto/faltante/sin OC = no cumple)
       const al=v.alarmas.filter(a=>mine(a.comprador));
       const TR=P.targetResumen(al,c=>P.metaTarget(v.metaCfg,c)).gen;const meta=P.metaTarget(v.metaCfg,comp==='GENERAL'?'GENERAL':comp);

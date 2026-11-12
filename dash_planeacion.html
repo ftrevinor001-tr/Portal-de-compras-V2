@@ -129,6 +129,11 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
     <div class="seg" id="seg"><button data-b="D" class="on">Portal</button><button data-b="A">Antecedente</button><button data-b="P">Pronóstico</button></div>
     <span class="mut sm" id="base-desc"></span>
   </div>
+  <div class="row" style="margin-bottom:12px" id="bo-row">
+    <span class="lbl">BO del CEDI</span>
+    <div class="seg" id="seg-bo"><button data-bo="0" class="on" title="Estatus, nivel, meses y propuestas solo con la existencia (como las alarmas, Target y el bono)">Sin BO</button><button data-bo="1" title="Suma el BO del CEDI (OCs en camino) para ver si alcanza o hay que pedir más">Con BO</button></div>
+    <span class="sm" id="bo-desc" style="padding:4px 10px;border-radius:8px"></span>
+  </div>
 
   <!-- ═════ TABLERO ═════ -->
   <section class="pane on" id="pane-tab">
@@ -170,7 +175,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
   <!-- ═════ PEDIDOS ═════ -->
   <section class="pane" id="pane-ped">
     <div class="card">
-      <div class="row" style="justify-content:space-between"><div><h2>Por pedir hoy</h2><div class="sub">Claves en faltante o riesgo con propuesta del portal mayor a cero (ya descuenta existencia y BO del CEDI; el BO de entregas directas no cuenta). Primero las de menos cobertura.</div></div>
+      <div class="row" style="justify-content:space-between"><div><h2>Por pedir hoy</h2><div class="sub">Claves en faltante o riesgo con propuesta del portal mayor a cero (descuenta la existencia y, si eliges «Con BO», también el BO del CEDI; el BO de entregas directas no cuenta). Primero las de menos cobertura.</div></div>
       <div class="row"><select id="p-est"><option value="RF">Faltante y riesgo</option><option value="TODAS">Todas las que tienen propuesta</option></select><button class="btn" onclick="excelPedir()">⬇ Excel</button></div></div>
       <div class="row" style="margin:8px 0"><div id="p-comp" data-t="Comprador"></div><div id="p-estm" data-t="Estatus"></div><div id="p-rot" data-t="Rotación"></div><div id="p-marca" data-t="Marca"></div><div id="p-grupo" data-t="Grupo"></div><div id="p-temp" data-t="Temporada"></div><div id="p-oc" data-t="OC al CEDI"></div><button class="btn" onclick="limpiarF(PF);pintarPedir()">Limpiar</button><span class="mut sm" id="p-cnt"></span></div>
       <div class="cards" id="p-cards"></div>
@@ -232,7 +237,12 @@ const RIESGOS=['FALTANTE','RIESGO'];
 function estBase(r,b){const X=b==='A'?r.A:r.P;if(X==null)return null;const v=b==='A'?r.eA:r.eP;return v!==undefined&&v!==null?v:P.estatus(r.rot,r.ex,X,r.lt,r.pm);}
 function estDe(r,b){if(b==='D')return r.est;const v=estBase(r,b);return v||(r.rot==='SIN COMPRA'?'SIN COMPRA':'SIN CONSUMO');}
 function consDe(r,b){return b==='A'?r.A:b==='P'?r.P:r.D;}
-function mesesDe(r,b){const c=consDe(r,b);return c>0?r.ex/c:null;}
+function mesesDe(r,b){const c=consDe(r,b);return c>0?(r.ex+(r.boU||0))/c:null;}
+// ── Con o sin BO (default sin BO). Tablero, Detalle y Pedidos siguen la opción; Target, OTIF y precisión siempre sin BO ──
+function aplicarBO(){if(!S.raw)return;S.claves=P.aplicarBO(S.raw,!!S.conBO,S.fecha);}
+function avisoBO(){const x=$('bo-desc');if(!x)return;const c=!!S.conBO;x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
+  x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: estatus, nivel de riesgo, meses y propuestas suman lo que viene en camino; un faltante con BO sale como <b>cubierto con BO</b>. La tendencia, Target y OTIF siguen sin BO.'
+    :'📦 <b>Sin BO</b> (solo existencia), como se miden las alarmas, Target y el bono. Cambia a <b>Con BO</b> para ver si el BO alcanza o hay que pedir más.';}
 function propDe(r,b){return b==='A'?r.sA:b==='P'?r.sP:r.s;}
 const malo=e=>RIESGOS.includes(e);
 // Cambia: el estatus con antecedente y con pronóstico es distinto. Empeora: antecedente sano y pronóstico en riesgo/faltante
@@ -311,7 +321,7 @@ const fmtMes=m=>m?MESES[+m.slice(5,7)]+' '+m.slice(2,4):'—';
 const hoy=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 async function todo(q){let out=[];for(let i=0;i<200;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
 // Nivel de riesgo (alto/medio/bajo) con días para agotarse
-function nivTag(r){if(r&&r.se&&r.est==='RIESGO')return ' <span class="pill p-n" title="Nunca ha tenido entrada (sin compras desde 2024 ni recepciones) y no tiene OC en camino: no lleva nivel de riesgo, alarma ni sale en los mensajes de riesgo">sin entradas</span>';if(!r||!r.nv)return'';const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
+function nivTag(r){if(r&&r.boCub)return P.nivChip(r);if(r&&r.se&&r.est==='RIESGO')return ' <span class="pill p-n" title="Nunca ha tenido entrada (sin compras desde 2024 ni recepciones) y no tiene OC en camino: no lleva nivel de riesgo, alarma ni sale en los mensajes de riesgo">sin entradas</span>';if(!r||!r.nv)return'';const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
   return ' <span class="pill" style="background:'+c[0]+';color:'+c[1]+'" title="Riesgo '+r.nv.toLowerCase()+': se acaba ~'+(r.fAg?r.fAg.split('-').reverse().join('/'):'')+' ('+Math.floor(r.dA||0)+' días) · T. entrega '+Math.round((+r.lt||0)*P.R.MES_DIAS)+' días'+(r.vr!=null&&r.rd>r.D/P.R.MES_DIAS*1.001?' · se está vendiendo más rápido que la demanda ('+(Math.round(r.vr*10)/10)+'/día)':'')+'">'+c[2]+' '+r.nv+' · '+Math.floor(r.dA||0)+'d</span>';}
 function tag(e,on=true){const s=EST[e];if(!s)return e?'<span class="tag" style="--c:var(--st-n)">'+esc(e)+'</span>':'—';return '<span class="tag'+(on?'':' off')+'" style="--c:'+s.c+'" title="'+s.l+'"><i></i>'+s.i+' '+s.l+'</span>';}
 const usuarioPortal=()=>{try{return window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){return'';}};
@@ -334,6 +344,7 @@ async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>irTab(b.dataset.t));
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{S.base=b.dataset.b;document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));pintar();});
+  document.querySelectorAll('#seg-bo button').forEach(b=>b.onclick=()=>{S.conBO=b.dataset.bo==='1';document.querySelectorAll('#seg-bo button').forEach(x=>x.classList.toggle('on',x===b));aplicarBO();pintar();});
   MS.mount('g-comp',{t:'Comprador',todos:'Todos',on:()=>{lsSet('plan_dash_comp',JSON.stringify([...MS.sel('g-comp')]));S.limite=400;pintar();}});
   DF.forEach(([id])=>MS.mount(id,{on:()=>{if(esComp(id))compDesde(id);S.limite=400;pintarDetalle();}}));
   $('tr-rango').onchange=()=>pintarTendencia();
@@ -357,7 +368,7 @@ async function recargar(){
     // Claves restringidas vigentes (activas, menos de 30 días): no cuentan al comprador en Mi Resumen ni en Histórico de Inventarios
     S.restr=new Map();try{const{data}=await sb.from('claves_restringidas').select('clave,comprador,motivo,autorizado_en,activa').eq('activa',true);
       (data||[]).forEach(x=>{const b=x.autorizado_en?new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'):null;if(b&&!isNaN(b)&&Math.floor((Date.now()-b.getTime())/864e5)>=30)return;
-        S.restr.set(String(x.clave).trim()+'||'+String(x.comprador||'').trim().toUpperCase(),{motivo:x.motivo||'',hasta:b?new Date(b.getTime()+30*864e5).toISOString().slice(0,10):null});});}catch(e){}S.claves=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));/* producción: solo se consulta desde la ficha del insumo */S.ocs=js.ocs||{};S.fecha=js.fecha;S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
+        S.restr.set(String(x.clave).trim()+'||'+String(x.comprador||'').trim().toUpperCase(),{motivo:x.motivo||'',hasta:b?new Date(b.getTime()+30*864e5).toISOString().slice(0,10):null});});}catch(e){}/* producción: solo se consulta desde la ficha del insumo */S.ocs=js.ocs||{};S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
     $('corte').textContent='Cálculo al '+fmtF(S.fecha)+' · '+fmtN(S.claves.length)+' claves';
     try{const cs=await todo(()=>sb.from('plan_costos').select('clave,costo,mes').order('clave'));S.costos=new Map(cs.map(x=>[Number(x.clave),{c:Number(x.costo),mes:String(x.mes||'').slice(0,7)}]));S.costoErr=null;}
     catch(e){S.costos=new Map();S.costoErr=e.message||String(e);}
@@ -412,9 +423,9 @@ const tempDe=r=>P.temporada(r.A,r.P);
 const varTxt=r=>{const t=tempDe(r);if(t.t==='SIN DATO')return'—';const c=t.t==='SUBE'?'#c2410c':t.t==='BAJA'?'#2563eb':'var(--tx2)';const s=t.v==null?(t.t==='SUBE'?'nueva':'—'):(t.v>0?'+':'')+Math.round(t.v*100)+'%';return '<span style="color:'+c+';font-weight:'+(t.t==='ESTABLE'?400:700)+'" title="'+P.TEMP_L[t.t]+'">'+(t.t==='SUBE'?'↑ ':t.t==='BAJA'?'↓ ':'')+s+'</span>';};
 const misClaves=()=>compSel().size?S.claves.filter(r=>compOk(r.comp)):S.claves;
 function irTab(t){S.tab=t;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
-  $('base-row').style.display=(t==='tab'||t==='det')?'':'none';pintar();}
+  $('base-row').style.display=(t==='tab'||t==='det')?'':'none';$('bo-row').style.display=(t==='tab'||t==='det'||t==='ped')?'':'none';pintar();}
 function pintar(){
-  $('base-desc').textContent='— '+BASES[S.base].d;
+  $('base-desc').textContent='— '+BASES[S.base].d;avisoBO();
   if(S.tab==='tab')pintarTablero();else if(S.tab==='det')pintarDetalle();else if(S.tab==='ped'){pintarPedir();pintarPrecision();}else if(S.tab==='tgt')pintarTarget();else if(S.tab==='otif')pintarOTIF();
 }
 function verEnDetalle(f){S.f={q:'',comprar:false,cambia:false,mf:false,lista:null,...f};delete S.f.est;$('d-q').value=f.q||'';DF.forEach(([id])=>MS.clear(id));
@@ -617,7 +628,7 @@ function graficaMeses(arr,agot,parte,pprod){
 function excelDetalle(){
   const lq=listaClaves(S.f.q),DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
   const rows=filtrarClaves(S.claves,{...S.f,comp:null,base:S.base}).filter(r=>MS.pasa(r,DFx));
-  const out=rows.map(r=>({'Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
+  const out=rows.map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,
     'Costo unitario':costoDe(r),'Afectación $ por mes (demanda portal)':impDe(r,'D'),'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
@@ -642,7 +653,7 @@ function pintarPedir(){
     +'<td class="num gD">'+fmtN(r.D,1)+'</td><td class="num gD">'+fmtN(r.mi,1)+'</td><td class="gD">'+tag(r.est)+nivTag(r)+'</td><td class="num gPr">'+cp(r.sA)+'</td><td class="num gPr">'+cp(r.sP)+'</td><td class="num gPr act">'+cp(r.s)+'</td><td class="num gPr">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT)+'</span>':'—')+'</td>'
     +'<td class="sm">'+(r.mfF?'<span class="pill p-warn" title="Excedente MF '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' m'+(r.mfX>=r.s?' · cubre':'')+'</span>':r.mfM!=null?fmtN(r.mfM,1)+' m':'—')+'</td><td class="sm mut" title="'+esc(r.nt||'')+'">'+esc((r.nt||'').slice(0,50))+'</td></tr>';}).join('')||'<tr><td colspan="16" class="empty">Nada por pedir con este filtro. ✅</td></tr>';
 }
-function excelPedir(){descargarXLSX([[filasPedir().map(r=>({'Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
+function excelPedir(){descargarXLSX([[filasPedir().map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
 async function cargarPrecision(){
   if(S.lineasSug)return;
   const [lin,emp,mot,cat]=await Promise.all([

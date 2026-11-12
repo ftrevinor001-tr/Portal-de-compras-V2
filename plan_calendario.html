@@ -97,6 +97,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600
       <select id="f-comp" onchange="calcular()"></select>
       <select id="f-ag" onchange="calcular()"><option value="PROV">Agrupar por proveedor</option><option value="MARCA">Agrupar por marca</option><option value="GRUPO">Agrupar por grupo</option><option value="COMPRADOR">Agrupar por comprador</option><option value="ORIGEN">Agrupar por origen de recolección</option></select>
       <select id="f-h" onchange="calcular()"><option value="30">Próximos 30 días</option><option value="60">Próximos 60 días</option><option value="90" selected>Próximos 90 días</option></select>
+      <select id="f-bo" onchange="calcular()" title="Sin BO: la cobertura, la fecha de pedido, la cantidad, el estatus y el nivel de riesgo solo cuentan la existencia. Con BO: suman el BO del CEDI para ver si lo que viene en camino alcanza."><option value="0">Sin BO (solo existencia)</option><option value="1">Con BO del CEDI</option></select>
       <span id="f-marca"></span><span id="f-grupo"></span>
       <input type="search" id="f-q" placeholder="Buscar proveedor, marca o clave…" oninput="pintar()" style="width:240px">
       <button class="sec" onclick="recargar()">↻ Actualizar</button>
@@ -105,6 +106,7 @@ a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600
     <div class="kpis" id="kpis"></div>
     <div id="sh" style="display:none;margin:8px 0"></div>
     <div class="d" id="corte"></div>
+    <div id="boav" style="margin-top:6px;padding:6px 10px;border-radius:8px;font-size:12px"></div>
     <div class="d" id="avisos" style="color:var(--warn)"></div>
   </div>
 
@@ -188,8 +190,8 @@ async function recargar(){
     if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado.');
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.claves=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));S.byC=new Map(S.claves.map(r=>[Number(r.c),r]));
-    S.F=await P.calFuentes(sb,sbc());S.F.prov=P.provPorClave(S.claves,S.F);
+    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();
+    S.F=await P.calFuentes(sb,sbc());S.F.prov=P.provPorClave(S.raw,S.F);
     S.abiertas=new Map();
     try{const fol=(await todo(()=>sb.from('plan_propuestas').select('folio,estado').order('folio'))).filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);
       for(let i=0;i<fol.length;i+=100)(await todo(()=>sb.from('plan_propuesta_lineas').select('folio,clave').in('folio',fol.slice(i,i+100)).order('folio').order('clave'))).forEach(l=>S.abiertas.set(Number(l.clave),l.folio));}catch(e){}
@@ -203,10 +205,17 @@ async function recargar(){
 }
 const FC=[['f-marca',r=>r.m||''],['f-grupo',r=>r.g||'']];
 function filasFiltradas(){const comp=$('f-comp').value;const base=S.claves.filter(r=>!comp||r.comp===comp);if(window.MS){MS.cascada(base,FC);return base.filter(r=>MS.pasa(r,FC));}return base;}
+// Con o sin BO (default sin BO): estatus, nivel, cobertura, fecha y cantidad siguen la opción
+const conBO=()=>{const x=$('f-bo');return !!x&&x.value==='1';};
+function aplicarBO(){if(!S.raw)return;S.claves=P.aplicarBO(S.raw,conBO(),S.fecha);S.byC=new Map(S.claves.map(r=>[Number(r.c),r]));
+  const x=$('boav');if(x){const c=conBO();x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
+    x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: la cobertura, la fecha y la cantidad a pedir, el estatus y el nivel de riesgo suman lo que viene en camino. Un faltante con BO sale como <b>cubierto con BO</b>.'
+      :'📦 <b>Sin BO</b> (solo existencia): la cobertura, la fecha y la cantidad a pedir, el estatus y el nivel de riesgo no cuentan el BO. Cambia a <b>Con BO del CEDI</b> para ver si el BO alcanza o hay que pedir más.';}}
 function calcular(){
   if(!S.F)return;
+  aplicarBO();
   const hoy=S.fecha;
-  S.cal=P.calendario(filasFiltradas(),{hoy,prov:S.F.prov,reglas:S.F.reglas,costo:S.F.costo,emp:S.F.emp,agrupar:$('f-ag').value,origen:S.F.origen,horiz:Number($('f-h').value)});
+  S.cal=P.calendario(filasFiltradas(),{hoy,conBO:conBO(),prov:S.F.prov,reglas:S.F.reglas,costo:S.F.costo,emp:S.F.emp,agrupar:$('f-ag').value,origen:S.F.origen,horiz:Number($('f-h').value)});
   if(S.sel){const g=S.cal.find(x=>x.g===S.sel);if(!g){S.sel=null;$('det').style.display='none';}}
   pintar();if(S.sel)pintarDet();
 }
@@ -237,8 +246,8 @@ function crearPropSH(gEnc,comp){
   const todasG=S.claves.filter(r=>(r.comp||'—')===comp&&eq(r));
   const ks=clavesSH().filter(r=>(r.comp||'—')===comp&&eq(r)).map(r=>Number(r.c));if(!ks.length)return;
   const todas=todasG.map(r=>Number(r.c));
-  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g,todas);return;}}catch(e){}
-  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g),'_blank');
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g,todas,conBO());return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g)+(conBO()?'&bo=1':''),'_blank');
 }
 function pintar(){
   const G=gruposVisibles(),H=Number($('f-h').value);
@@ -318,13 +327,13 @@ function crearProp(comp,i){
   // Todas las claves asignadas a ese proveedor / marca / grupo del mismo comprador (aunque hoy no les toque), para poder sumarlas al folio
   const ag=g.ag,kg=P.provKey(g.g);
   const todas=S.claves.filter(r=>(r.comp||'—')===comp&&(ag==='MARCA'?(r.m||'SIN MARCA')===g.g:ag==='GRUPO'?(r.g||'SIN GRUPO')===g.g:ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR')===g.g:ag==='ORIGEN'?((S.F.origen.get(Number(r.c))||'SIN ORIGEN DE RECOLECCIÓN')===g.g):P.provKey((S.F.prov.get(Number(r.c))||{}).p||'')===kg)).map(r=>Number(r.c));
-  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g.g,todas);return;}}catch(e){}
-  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g.g),'_blank');
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g.g,todas,conBO());return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g.g)+(conBO()?'&bo=1':''),'_blank');
 }
 // ── Excel ──
 function filasXL(gs,soloPed){
   const out=[];gs.forEach(g=>g.pedidos.forEach((p,i)=>{if(soloPed!=null&&i!==soloPed)return;p.lineas.forEach(l=>out.push({'Fecha de pedido':p.f,'Vencido':p.atr>0?'SÍ':'','Proveedor / grupo':g.g,'Ciclo (días)':g.ciclo,'Ciclo':g.cicloAuto?'automático':'definido',
-    'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est,'Nivel de riesgo':(S.byC.get(Number(l.c))||{}).nv||'','Se acaba (estimado)':(S.byC.get(Number(l.c))||{}).fAg||'','Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
+    'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est+((S.byC.get(Number(l.c))||{}).boCub?' (cubierto con BO)':''),'Nivel de riesgo':(S.byC.get(Number(l.c))||{}).nv||'','BO':conBO()?'con BO':'sin BO','Se acaba (estimado)':(S.byC.get(Number(l.c))||{}).fAg||'','Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
     'Cantidad':l.q,'Unidad':l.u,'Empaque':l.emp||'','Costo':l.costo,'Valor':l.valor,'Proveedor de la clave':l.prov.o==='MARCA'?'':l.prov.p,'Origen proveedor':l.prov.o,'Folio abierto':S.abiertas.get(l.c)||'','Avisos del pedido':p.av.join(' · ')}));}));
   return out;
 }

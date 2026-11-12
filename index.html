@@ -189,6 +189,7 @@
         <h2 id="res-title">🏠 Mi Resumen</h2>
         <label style="font-size:12px;color:#64748b">Comprador:</label>
         <select id="res-comp" onchange="renderResumen()"></select>
+        <select id="res-bo" onchange="resCambiaBO()" title="Riesgo, sobre inventario y pedidos propuestos: sin BO (solo existencia, como se miden las alarmas) o sumando el BO del CEDI para ver si lo que viene en camino alcanza. Target y OTIF no cambian."><option value="0">Sin BO (solo existencia)</option><option value="1">Con BO del CEDI</option></select>
         <span id="res-meses"></span>
         <button class="abtn" style="margin-top:0" id="res-dl" onclick="descargarResumenExcel()">⬇ Descargar Excel</button>
         <button class="abtn" style="margin-top:0;background:#1c4587" id="res-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
@@ -513,8 +514,8 @@ function loadTab(i){ // i = 1..5 (iframes)
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
 const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html',11:'plan_calendario.html'};
 // Calendario de pedidos → abre Propuestas de compra con las claves del pedido listas para crear el folio
-function abrirPropuestaCon(claves,origen,todas){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');
-  fr.src='plan_propuestas.html?claves='+encodeURIComponent(claves.join(','))+'&grupo='+encodeURIComponent((todas||[]).join(','))+'&origen='+encodeURIComponent(origen||'')+'&t='+Date.now();switchTab(9);}
+function abrirPropuestaCon(claves,origen,todas,conBO){const fr=document.getElementById('fr-9');const l=document.getElementById('ld-9');if(l)l.classList.remove('hidden');
+  fr.src='plan_propuestas.html?claves='+encodeURIComponent(claves.join(','))+'&grupo='+encodeURIComponent((todas||[]).join(','))+'&origen='+encodeURIComponent(origen||'')+(conBO?'&bo=1':'')+'&t='+Date.now();switchTab(9);}
 window.abrirPropuestaCon=abrirPropuestaCon;
 // Abre un comparativo en la pestaña Comparativos (lo usa Propuestas de compra)
 function abrirComparativo(id){const fr=document.getElementById('fr-10');const l=document.getElementById('ld-10');if(l)l.classList.remove('hidden');fr.src='comparativos.html'+(id?'?cmp='+encodeURIComponent(id):'');switchTab(10);}
@@ -591,7 +592,8 @@ async function cargarResumen(){
   if(!a.data||!a.data.length){cont.innerHTML='<div class="empty-res">📭 Aún no hay alarmas calculadas.<br><br>El administrador debe subir el Excel maestro en la pestaña <b>Admin</b> (con esta versión del portal) para generarlas.</div>';return;}
   RES.alarmas=a.data;
   // V2: Riesgo, Sobre inventario, Pedidos propuestos, Target y OTIF salen del cálculo del portal
-  try{RES._marcas=null;RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.alarmas,RES.v2);}
+  RES.base=a.data;
+  try{RES._marcas=null;RES.v2=await RESUMEN_V2.cargar(sb);RES.alarmas=RESUMEN_V2.aplicar(RES.base,RES.v2,resConBO());}
   catch(e){console.warn('Mi Resumen V2:',e);RES.v2err=e.message||String(e);}
   RES.resumen=d.data?d.data.payload:null;RES.t=Date.now();
   // Selector de comprador
@@ -616,6 +618,9 @@ function togMes(el){const m=el.dataset.m;
   document.querySelectorAll('.mes-chip').forEach(ch=>ch.classList.toggle('on',RES.mesesSel.has(ch.dataset.m)));
   renderResumen();
 }
+// Mi Resumen con o sin BO del CEDI (default sin BO): solo cambian Riesgo, Sobre inventario y Pedidos propuestos
+function resConBO(){const x=document.getElementById('res-bo');return !!x&&x.value==='1';}
+function resCambiaBO(){if(!RES.base||!RES.v2)return;RES.alarmas=RESUMEN_V2.aplicar(RES.base,RES.v2,resConBO());renderResumen();}
 function alarmaDe(comp,tipo){return (RES.alarmas||[]).find(r=>r.comprador===comp&&r.tipo===tipo);}
 // ═══════════ INCIDENCIAS (Seguimiento a Devoluciones) ═══════════
 const INCIDENCIAS_URL='https://raw.githubusercontent.com/ftrevinor001-tr/dashboard-reclamaciones/main/datos.xlsx';
@@ -878,7 +883,7 @@ async function descargarResumenExcel(){
       let nom=nombreHoja(T.t);let k=2;while(usados[nom]){nom=nombreHoja(T.t.slice(0,28))+' '+(k++);}usados[nom]=1;
       const ws=wb.addWorksheet(nom);
       ws.addRow([T.t+(comp!=='GENERAL'?' · '+comp:' · GENERAL')]).font={bold:true,size:13};
-      if(a.descripcion)ws.addRow([a.descripcion]).font={italic:true,size:9,color:{argb:'FF6B7A99'}};
+      if(a.descripcion)ws.addRow([String(a.descripcion).replace(/<[^>]+>/g,'')]).font={italic:true,size:9,color:{argb:'FF6B7A99'}};
       if(d.porClmov&&Object.keys(d.porClmov).length){ws.addRow(['Desglose: '+Object.entries(d.porClmov).map(([k2,v2])=>k2+': '+v2).join(' · ')]);}
       if((t==='TARGET'||t==='OTIF')&&d.texto)ws.addRow([String(d.texto).replace(/<[^>]+>/g,'')]).font={bold:true};
       else if(t==='TARGET')ws.addRow(['Cumplen Target: '+(d.ocsOk||0)+' de '+(d.total||0)+' OCs ('+(d.pct!=null?d.pct+'%':'—')+')']).font={bold:true};
@@ -2810,6 +2815,7 @@ function genTgRiesgo(){
     const notas=[];if(rg.nRestr)notas.push(rg.nRestr+' restringidas');if(rg.nSe)notas.push(rg.nSe+' sin entradas (nunca compradas)');
     if(notas.length)L.push('',`ℹ️ No se incluyen claves ${notas.join(' ni ')}.`);
     L.push('');L.push('ℹ️ Riesgo alto: se acaba antes de la mitad de su tiempo de entrega. La fecha es cuándo se acabaría al ritmo de venta actual.');
+    L.push(`📦 ${B('Riesgo calculado SIN BO')} (solo existencia): dependemos del BO del CEDI para que este riesgo no se haga faltante.`);
     const link=tgV('tg-link').trim();if(link){L.push(`👉 Detalle por comprador: ${link.replace(/[?#].*$/,'')}?riesgo=1`);}
     const txt=L.join('\n');
     box.innerHTML=`<textarea id="tg-txt2" spellcheck="false" style="width:100%;min-height:340px;border:1.5px solid #c9d4f0;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.45;resize:vertical"></textarea>
@@ -2873,8 +2879,10 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElement
       <select id="rg-cls" onchange="renderRiesgo()"><option value="">Todas las clasificaciones</option><option value="SAGRADOS">⭐ Sagrados</option><option value="ALTA">🔺 Alta rotación</option><option value="MEDIA">🔸 Media rotación</option><option value="LENTA">🔹 Lenta rotación</option><option value="NUEVOS">🌱 Productos nuevos</option></select>
       <select id="rg-st2" onchange="renderRiesgo()"><option value="">Toda situación de OC</option><option value="SIN_OC">❗ Sin OC</option><option value="ATRASADA">⚠️ OC atrasada</option><option value="TARDE">⚠️ OC llega tarde</option><option value="A_TIEMPO">✅ OC a tiempo</option></select>
       <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="rg-acc" checked onchange="renderRiesgo()"> Solo las que piden acción</label>
+      <select id="rg-bo" onchange="rgCambiaBO()" title="Sin BO: el riesgo solo con la existencia (como el mensaje de Telegram y las alarmas). Con BO: suma el BO del CEDI para ver si lo que viene en camino alcanza."><option value="0">Sin BO (solo existencia)</option><option value="1">Con BO del CEDI</option></select>
       <button class="sg-save" style="background:#1e7a4a;padding:6px 12px;font-size:12px;margin-left:auto" onclick="rgExcel()">⬇ Descargar Excel</button>
     </div>
+    <div id="rg-boav" style="margin:8px 18px 0;padding:6px 10px;border-radius:8px;font-size:12px"></div>
     <div id="rg-wrap">
       <table id="rg-tbl"><thead><tr><th>Comprador</th><th class="n">🔴 Alto</th><th class="n">❗ Sin OC</th><th class="n">⚠️ OC atrasada</th><th class="n">⚠️ OC llega tarde</th><th class="n">✅ OC a tiempo</th><th class="n">🟠 Medio<br>entraron hoy</th><th class="n">🟡 Bajo<br>entraron hoy</th></tr></thead>
       <tbody id="rg-body"><tr><td colspan="8" style="padding:30px;text-align:center;color:#6b7a99">Cargando…</td></tr></tbody></table>
@@ -2897,15 +2905,17 @@ let RG_RESTR=null;
 async function cargarRestrRG(){try{RG_RESTR=await restringidasVigentes();}catch(e){RG_RESTR=null;}}
 function rgEsRestr(r){if(!RG_RESTR||!RG_RESTR.size)return false;const k=String(r.c).trim(),cp=String(r.comp||'').trim().toUpperCase();
   for(const x of RG_RESTR){const i=x.indexOf('||');if(x.slice(0,i)!==k)continue;const c=x.slice(i+2);if(!c||c===cp||(P.mismoComp&&P.mismoComp(c,cp)))return true;}return false;}
-function rgFilas(E){
-  const viv0=(E.claves||[]).filter(r=>!r.pr&&!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase()));
+function rgFilas(E,conBO){
+  const viv0=(conBO?P.aplicarBO(E.claves||[],true,E.fecha):(E.claves||[])).filter(r=>!r.pr&&!TG_EXCL.includes(String(r.comp||'').trim().toUpperCase()));
   const viv=viv0.filter(r=>!rgEsRestr(r)),nRestr=viv0.filter(r=>r.est==='RIESGO').length-viv.filter(r=>r.est==='RIESGO').length;
   const sinPrev=!viv.some(r=>'pE' in r),sinPrevNv=!viv.some(r=>'pNv' in r);
   const rs=viv.filter(r=>r.est==='RIESGO');
   const filas=rs.filter(r=>r.nv&&!r.se).map(r=>{const oc=tgOcCedi(E.ocs&&E.ocs[r.c],r.lt);
     const st=!oc?'SIN_OC':oc.llega&&oc.llega<E.fecha?'ATRASADA':oc.llega&&r.fAg&&oc.llega>r.fAg?'TARDE':'A_TIEMPO';
-    return{...tgFila(r),nv:r.nv,dA:r.dA,fAg:r.fAg,lt:r.lt,ex:r.ex,oc,st,nueva:r.nv==='ALTO'?false:(sinPrev?false:rgEntro(r,sinPrevNv))};});
-  return{fecha:E.fecha,filas,sinPrevNv,nSe:rs.filter(r=>r.se).length,nRestr,sinNivel:rs.length>0&&!rs.some(r=>r.nv)};
+    // «entró hoy» se mide contra el día anterior, que está sin BO: con BO se toma el nivel sin BO de la clave
+    const rN=conBO&&r.boU?{...r,nv:r.nv0||r.nv}:r;
+    return{...tgFila(r),nv:r.nv,dA:r.dA,fAg:r.fAg,lt:r.lt,ex:r.ex,bo:r.bo,boU:r.boU||0,oc,st,nueva:r.nv==='ALTO'?false:(sinPrev?false:rgEntro(rN,sinPrevNv))};});
+  return{fecha:E.fecha,conBO:!!conBO,filas,sinPrevNv,nSe:rs.filter(r=>r.se).length,nRestr,sinNivel:rs.length>0&&!rs.some(r=>r.nv)};
 }
 const rgAccion=r=>r.nv==='ALTO'?r.st!=='A_TIEMPO':r.nueva;
 function rgPorComprador(F){
@@ -2917,7 +2927,7 @@ async function openRiesgo(){
   document.getElementById('rg-ov').classList.add('on');
   const st=document.getElementById('rg-st');st.textContent='⏳ leyendo el cálculo del portal…';
   try{
-    const E=await estadoPortal();await cargarRestrRG();RG.d=rgFilas(E);
+    const E=await estadoPortal();await cargarRestrRG();RG.E=E;RG.d=rgFilas(E,rgConBO());rgAvisoBO();
     const comps=rgPorComprador(RG.d.filas).map(a=>a.c).sort();
     const sel=document.getElementById('rg-comp');const prev=sel.value;
     sel.innerHTML='<option value="">Todos los compradores</option>'+comps.map(c=>`<option value="${c}">${tgCorto2(c)}</option>`).join('');
@@ -2929,6 +2939,11 @@ async function openRiesgo(){
     renderRiesgo();
   }catch(e){st.textContent='';document.getElementById('rg-body').innerHTML='<tr><td colspan="8" style="padding:20px;color:#b42318">❌ '+String(e.message||e).replace(/</g,'&lt;')+'</td></tr>';}
 }
+const rgConBO=()=>{const x=document.getElementById('rg-bo');return !!x&&x.value==='1';};
+function rgAvisoBO(){const x=document.getElementById('rg-boav');if(!x)return;const c=rgConBO();x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
+  x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: la existencia más lo que viene en camino. Las claves que salen de riesgo con el BO dependen de que ese BO llegue a tiempo.'
+    :'📦 <b>Riesgo sin BO</b> (solo existencia), como el mensaje de Telegram: dependemos del BO del CEDI para que este riesgo no se haga faltante. Cambia a <b>Con BO del CEDI</b> para ver si el BO alcanza.';}
+function rgCambiaBO(){if(!RG.E)return;RG.d=rgFilas(RG.E,rgConBO());rgAvisoBO();renderRiesgo();}
 function closeRiesgo(){document.getElementById('rg-ov').classList.remove('on');}
 function rgFiltro(){const v=id=>document.getElementById(id).value;const comp=v('rg-comp'),nv=v('rg-nv'),cls=v('rg-cls'),st=v('rg-st2'),acc=document.getElementById('rg-acc').checked;
   return r=>(!comp||tgComp(r)===comp)&&(!nv||r.nv===nv)&&(!cls||tgCls(r.rotacion)===cls)&&(!st||(r.nv==='ALTO'&&r.st===st))&&(!acc||rgAccion(r));}
@@ -2953,9 +2968,9 @@ function rgToggle(c){RG.open.has(c)?RG.open.delete(c):RG.open.add(c);renderRiesg
 function rgExcel(){
   if(!RG.d)return;const ok=rgFiltro();
   const rows=RG.d.filas.filter(ok).sort((x,y)=>tgComp(x).localeCompare(tgComp(y))||rgRank(x.nv)-rgRank(y.nv)||tgRank(x.rotacion)-tgRank(y.rotacion)||(x.dA??9e9)-(y.dA??9e9))
-    .map(r=>({Comprador:tgComp(r),Nivel:r.nv,'Entró hoy':r.nueva?'SÍ':'',Clasificación:P.ROT_X[r.rotacion]||r.rotacion,Clave:Number(r.clave),Descripción:r.nombre,Marca:r.marca||'',Existencia:r.ex,'Días para agotarse':r.dA,'Se acaba (estimado)':r.fAg,'T. entrega (días)':Math.round((+r.lt||0)*P.R.MES_DIAS),'OC abierta':r.oc?r.oc.folio:'','Llegada estimada OC':r.oc?r.oc.llega:'','Situación':RG_ST[r.st]}));
+    .map(r=>({'BO':RG.d.conBO?'con BO':'sin BO',Comprador:tgComp(r),Nivel:r.nv,'Entró hoy':r.nueva?'SÍ':'',Clasificación:P.ROT_X[r.rotacion]||r.rotacion,Clave:Number(r.clave),Descripción:r.nombre,Marca:r.marca||'',Existencia:r.ex,'BO CEDI':r.bo||0,'Días para agotarse':r.dA,'Se acaba (estimado)':r.fAg,'T. entrega (días)':Math.round((+r.lt||0)*P.R.MES_DIAS),'OC abierta':r.oc?r.oc.folio:'','Llegada estimada OC':r.oc?r.oc.llega:'','Situación':RG_ST[r.st]}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riesgo del día');
-  XLSX.writeFile(wb,'Riesgo_del_dia_'+RG.d.fecha+'.xlsx');
+  XLSX.writeFile(wb,'Riesgo_del_dia_'+RG.d.fecha+(RG.d.conBO?'_con_BO':'_sin_BO')+'.xlsx');
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('rg-ov')?.classList.contains('on'))closeRiesgo();});
 </script>

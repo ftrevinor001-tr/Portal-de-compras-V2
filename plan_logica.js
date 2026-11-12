@@ -428,6 +428,8 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const fr=ctx.boFrac&&ctx.boFrac.has(k)?ctx.boFrac.get(k):1;const bo=Math.max(0,Math.round((d.bo*fr-(rg?rg.qBo:0))*10000)/10000);
     const sug=X=>X==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(X*(lt+pm)-(d.ex+bo)));
     const s=sug(D);const e=P.empaque(s,ctx.emp.get(k),d.unidad);
+    // Propuesta SIN restar el BO (vista «Sin BO», la de default en el portal)
+    const s0=D==null||P.R.SIN_SUG_ROT.includes(d.rot)?null:Math.max(0,P.ceil3(D*(lt+pm)-d.ex));const e0=bo>0?P.empaque(s0,ctx.emp.get(k),d.unidad):e;
     // MF
     const smf=P.serie(cut(ctx.ventas.MF.get(k)),null);
     const apm=P.antPron(smf.s,ref,N,m=>ctx.agot.has('MF|'+k+'|'+m),uM,ctx.primero&&ctx.primero.MF);
@@ -442,7 +444,7 @@ P.calcularDia=(fecha,filas,ctx)=>{
     const eX=(X,pr)=>X==null?null:P.estatus(d.rot,d.ex,X,lt,pm,pr,hv);
     out.push({c:k,n:d.nombre,m:d.marca||'',abc:d.abc||'',comp:d.comprador,rot:d.rot,g:d.grupo,u:d.unidad,lt,pm,N,ex:d.ex,exC:d0.ex,rs:rg?rg.q:0,rsBo:rg?rg.qBo:0,rsD:rg?rg.det:null,bo,boT:d.bo,eA:eX(ap.A,pv.eA),eP:eX(ap.P,pv.eP),
       A:r1(ap.A),P:r1(ap.P),D:Math.round(D*10000)/10000,Dp:r1(Dprom),bD:irr?'IRREGULAR 12 MESES':br.b==='INTER'?'INTERMITENTE 12 MESES':br.b==='ANT'?'ANTECEDENTE':br.b==='PRON'?'PRONÓSTICO':'SIN VENTAS',pr:P.esProd(d)?1:0,bp:ctx.bom&&ctx.bom.get(k)||null,bDx:irr?'venta irregular: '+(irr.b==='ANT'?'el antecedente':irr.b==='PRON'?'el pronóstico':'la base')+' ('+(Math.round((irr.c||0)*10)/10)+') se aleja más de '+P.R.IRREG+' veces del promedio de 12 meses ('+(Math.round(ap.W*10)/10)+'), se usa el promedio':br.por,hv:hv?1:0,pex:pexOk,su:su?su.map(x=>[x.o,x.f]):null,mi:D>0?Math.round(d.ex/D*100)/100:null,miB:D>0?Math.round((d.ex+bo)/D*100)/100:null,est,estX:d.estX,
-      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,
+      sA:sug(ap.A),sP:sug(ap.P),s,sE:e.ok?e.q:null,eT:e.ok?e.tipo:null,s0,sE0:e0.ok?e0.q:null,
       mfA:r1(apm.A),mfP:r1(apm.P),mfD:r1(Dm),mfI:inv,mfM:mm==null?null:Math.round(mm*100)/100,
       ...P.mfRegla(inv,Dm,pm,mb),nA:ap.nA,nP:ap.nP,pE:pv.est??null,pD:pv.eD??null,pDx:pv.eDx?1:0,eD:ra.eD,eDx:ra.eDx?1:0,nv:nr.nv,...(se?{se:1}:{}),...(pv.nv!==undefined?{pNv:pv.nv}:{}),dA:nr.dA,fAg:nr.fAg,rd:nr.rd,vr:nr.vr,...(nr.xh&&!P.esProd(d)?{xh:nr.xh}:{}),nt:notas.join(' · ')});
   });
@@ -481,10 +483,48 @@ P.NIVELES=['ALTO','MEDIO','BAJO'];
 P.nivRank=r=>r&&r.est==='FALTANTE'?0:r&&r.nv==='ALTO'?1:r&&r.nv==='MEDIO'?2:r&&r.nv==='BAJO'?3:4;
 // Etiqueta del nivel de riesgo para las tablas (Propuestas, Calendario): «🔴 ALTO · 5d» con fecha estimada en el título
 P.nivChip=r=>{if(!r)return'';
+  if(r.boCub){const d=r.dA!=null?Math.floor(r.dA):null,f=r.fAg?r.fAg.split('-').reverse().join('/'):'';
+    return' <span style="display:inline-block;border-radius:10px;padding:1px 7px;font-size:10.5px;font-weight:700;background:#dbeafe;color:#1e40af;white-space:nowrap" title="Hoy no hay existencia; el BO del CEDI ('+(Math.round((r.boU||r.bo||0)*10)/10)+' pzs) alcanza ~'+(d??'?')+' días'+(f?' (hasta ~'+f+')':'')+(r.nv?' · nivel '+r.nv.toLowerCase()+' contra su tiempo de entrega':'')+'">🚚 cubierto con BO'+(d!=null?' · '+d+'d':'')+'</span>';}
   if(r.se&&r.est==='RIESGO')return' <span style="display:inline-block;border-radius:10px;padding:1px 7px;font-size:10.5px;font-weight:700;background:#eef1f6;color:#64748b;white-space:nowrap" title="Nunca ha tenido entrada (sin compras desde 2024) y no tiene OC en camino: no lleva nivel de riesgo">sin entradas</span>';
   const c={ALTO:['#fde2e0','#b42318','🔴'],MEDIO:['#ffedd5','#9a3412','🟠'],BAJO:['#fef9c3','#854d0e','🟡']}[r.nv];if(!c)return'';
   const d=Math.floor(r.dA||0),f=r.fAg?r.fAg.split('-').reverse().join('/'):'';
   return' <span style="display:inline-block;border-radius:10px;padding:1px 7px;font-size:10.5px;font-weight:700;background:'+c[0]+';color:'+c[1]+';white-space:nowrap" title="Riesgo '+r.nv.toLowerCase()+': se acaba ~'+f+' ('+d+' días) · T. entrega '+Math.round((+r.lt||0)*P.R.MES_DIAS)+' días">'+c[2]+' '+r.nv+' · '+(d<=0?'hoy':d+'d')+'</span>';};
+// ── Riesgo con o sin BO (nov-2026) ──
+// Por defecto el portal muestra todo SIN BO (solo existencia): es la medición oficial de alarmas, Target, bono e Histórico.
+// «Con BO» es una vista para decidir cuánto pedir: suma el BO del CEDI (OCs en camino, sin entregas directas) a la existencia
+// para el estatus, el nivel de riesgo, los meses de inventario y la propuesta. Una clave en FALTANTE (existencia 0) sigue en
+// FALTANTE pero «cubierta con BO»: su nivel y fecha se calculan con lo que alcanza el BO.
+P.R.BO_DEF=false;
+P.boEtq=c=>c?'con BO':'sin BO';
+P.sugX=(r,X,conBO)=>X==null||P.R.SIN_SUG_ROT.includes(r.rot)?null:Math.max(0,P.ceil3(Number(X)*((Number(r.lt)||0)+(Number(r.pm)||0))-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0))));
+P.vistaBO=(r,conBO,fecha)=>{
+  if(!r)return r;
+  const bo=Math.max(0,Number(r.bo)||0),ex=Number(r.ex)||0,D=Number(r.D)||0,lt=Number(r.lt)||0,pm=Number(r.pm)||0;
+  const o=Object.assign({},r,{conBO:!!conBO,boU:0});
+  if(!conBO){
+    if(bo>0){
+      // el cálculo publicado guarda la propuesta con BO (s) y sin BO (s0); si es de antes de este cambio, se calcula aquí sin empaque
+      if(r.s0!==undefined){o.s=r.s0;o.sE=r.sE0??null;}else{o.s=P.sugX(r,r.D,false);o.sE=null;}
+      o.sA=P.sugX(r,r.A,false);o.sP=P.sugX(r,r.P,false);
+    }
+    return o;
+  }
+  if(!(bo>0))return o;
+  o.boU=bo;o.est0=r.est;o.nv0=r.nv||null;
+  o.mi=r.miB!=null?r.miB:(D>0?Math.round((ex+bo)/D*100)/100:null);
+  const rd=Number(r.rd)||(D>0?D/P.R.MES_DIAS:0),LTd=lt*P.R.MES_DIAS;
+  const niv=q=>{if(!(rd>0))return{nv:null,dA:null,fAg:null};const dA=Math.max(0,q)/rd;
+    return{dA:Math.round(dA*10)/10,fAg:fecha?P.addDias(fecha,Math.floor(dA)):null,nv:dA<=P.R.NIV_DIAS_ALTO||(LTd>0&&dA<=LTd*P.R.NIV_ALTO)?'ALTO':LTd>0&&dA<LTd*P.R.NIV_MEDIO?'MEDIO':'BAJO'};};
+  if(r.est==='FALTANTE'){o.boCub=1;Object.assign(o,niv(bo));}
+  else if(D>0&&['RIESGO','OPTIMO','SOBRE INVENTARIO'].includes(r.est)){
+    o.est=P.clasificar((ex+bo)/D,lt,pm,r.est);
+    Object.assign(o,o.est==='RIESGO'&&!r.se?niv(ex+bo):{nv:null,dA:null,fAg:null});
+  }
+  const eX=(X,e)=>Number(X)>0&&['RIESGO','OPTIMO','SOBRE INVENTARIO'].includes(e)?P.clasificar((ex+bo)/Number(X),lt,pm,e):e;
+  if(r.eA!=null)o.eA=eX(r.A,r.eA);if(r.eP!=null)o.eP=eX(r.P,r.eP);
+  return o;
+};
+P.aplicarBO=(rows,conBO,fecha)=>(rows||[]).map(r=>P.vistaBO(r,conBO,fecha));
 P.addDias=(f,n)=>{const d=new Date(f+'T12:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+P.pad(d.getMonth()+1)+'-'+P.pad(d.getDate());};
 P.difDias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
 // Ritmo real de salida (piezas/día) con la existencia de los días anteriores: solo cuentan los tramos en que la existencia bajó o se quedó igual
@@ -942,6 +982,7 @@ P.propLinea=(p,s,o)=>{
   if(dd.length)av.push('Surtimiento trae datos distintos al portal: '+dd.join('; ')+'. Revisa que el Excel del día sea el mismo.');
   if(p.mfF&&p.mfX>0)av.push('MF con más de '+P.R.MF_MESES_REV+' meses: excedente de '+p.mfX+(p.mfB!=null?' sobre su número base ('+p.mfB+')':'')+' para devolución estratégica');
   if(p.ocs>0)av.push(p.ocs+(p.ocs===1?' OC abierta':' OCs abiertas')+' al CEDI');
+  if(conBO&&bo>0){const vb=P.vistaBO(p,true,null);av.push('Considera el BO actual del CEDI: '+fN(bo)+' pzs'+(vb.est!==p.est||vb.boCub?' · estatus con BO: '+(vb.boCub?'FALTANTE cubierto con BO':vb.est)+' (sin BO: '+p.est+')':''));}
   const v=x=>x>0?(ped-x)/x:null;
   return{...out,sem,por,mA,mP,mR,lA,lP,lR,lo,hi,bajo,varA:v(sA),varP:v(sP),varR:v(sR),difR:dif,dmR:dm,dmA:dmX(p.A,sA),dmP:dmX(p.P,sP),avisos:av};
 };
@@ -983,7 +1024,7 @@ P.calendario=(filas,o)=>{
     const g=ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):ag==='ORIGEN'?((o.origen&&o.origen.get(k))||'SIN ORIGEN DE RECOLECCIÓN'):P.provKey(pv.p);
     if(ag==='PROV'){const n=NOM.get(g)||new Map();n.set(pv.p,(n.get(pv.p)||0)+1);NOM.set(g,n);}
     const rg=regla(g),lt=rg&&rg.lead_time_dias>0?rg.lead_time_dias/MD:(Number(r.lt)||0),pm=Number(r.pm)||0,rop=lt*P.R.FACT_ENTRA_RIESGO,meta=lt+pm;
-    const pos=((Number(r.ex)||0)+(Number(r.bo)||0))/D;
+    const pos=((Number(r.ex)||0)+(o.conBO===false?0:(Number(r.bo)||0)))/D;
     (G.get(g)||G.set(g,[]).get(g)).push({r,k,D,pv,lt,pm,rop,meta,pos0:pos,t0:0,due:(pos-rop)*MD,costo:o.costo?o.costo.get(k)||null:null,emp:o.emp?o.emp.get(k):null});
   });
   const out=[];
