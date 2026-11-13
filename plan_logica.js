@@ -849,6 +849,8 @@ P.targetResumen=(al,meta)=>{
 };
 // Meta del Target (% de OCs colocadas en riesgo bajo o anticipadas) por comprador: Admin → Objetivos del bono (plan_config 'bono_objetivos', campo TARGET)
 P.metaTarget=(cfg,comp)=>{const k=cfg&&Object.keys(cfg).find(x=>x!=='GENERAL'&&P.mismoComp(x,comp));const v=k&&cfg[k].TARGET;const g=cfg&&cfg.GENERAL&&cfg.GENERAL.TARGET;return v!=null?Number(v):g!=null?Number(g):P.R.META_TARGET;};
+P.R.OTIF_HOL_DIAS=3;P.R.OTIF_HOL_PCT=0.10;
+P.otifHolgura=lt=>Math.max(P.R.OTIF_HOL_DIAS,Math.round((Number(lt)||0)*P.R.DIAS_MES*P.R.OTIF_HOL_PCT));
 // OTIF por línea cerrada. compromisos: Map folio → fecha
 P.otifLinea=(l,recs,compromisos,lt)=>{
   if(l.entrega_directa)return null;                                 // entrega directa a sucursal: no es OTIF del CEDI
@@ -862,8 +864,11 @@ P.otifLinea=(l,recs,compromisos,lt)=>{
   else if(l.fecha_oc&&Number(lt)>0){const d=new Date(l.fecha_oc+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Math.round(Number(lt)*P.R.DIAS_MES));ref=d.toISOString().slice(0,10);base='COMPROMISO POR DEFECTO';}
   else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='ENTREGA EN OC (sin tiempo de entrega)';}
   const tot=rec.reduce((t,r)=>t+Number(r.cantidad),0);const ult=rec[rec.length-1].fecha;
+  // Holgura (nov-2026): la fecha compromiso es estimada; una llegada tarde cuenta a tiempo si el retraso es de hasta
+  // OTIF_HOL_DIAS días o el OTIF_HOL_PCT del tiempo de entrega de la clave (lo que sea mayor). tarde = días de retraso.
+  const tarde=ref?P.difDias(ref,ult):null,hol=P.otifHolgura(lt);
   return{folio:Number(l.folio),clave:Number(l.clave),proveedor:l.proveedor,comprador:l.comprador,mes:ult.slice(0,7),ref,base,
-    on_time:ref?ult<=ref:null,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
+    on_time:ref?tarde<=hol:null,tarde:tarde!=null&&tarde>0?tarde:0,hol,conHol:ref!=null&&tarde>0&&tarde<=hol,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
 };
 P.otifResumen=(lineas,clave)=>{
   // On Time solo sobre líneas con fecha de referencia válida; In Full sobre todas. OTIF = promedio de los dos.

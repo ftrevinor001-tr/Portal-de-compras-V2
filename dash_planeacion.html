@@ -6,7 +6,7 @@
 <title>Planeación e indicadores</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
@@ -208,7 +208,7 @@ tr.det td{background:#f8fafc!important;padding:12px 14px}
     <div class="row" style="margin-bottom:12px"><div id="of-comp" data-t="Comprador"></div><div id="o-mes" data-t="Mes de cierre"></div><div id="o-prov" data-t="Proveedor"></div><div id="o-marca" data-t="Marca"></div><div id="o-ot" data-t="A tiempo"></div><div id="o-if" data-t="Completa"></div><div id="o-base" data-t="Fecha compromiso"></div><button class="btn" onclick="limpiarF(OF,['o-mes']);pintarOTIF()">Limpiar</button><span class="mut sm" id="o-cnt"></span><button class="btn" style="margin-left:auto" onclick="excelOTIF()">⬇ Excel</button></div>
     <div class="cards" id="o-cards"></div>
     <div class="grid2">
-      <div class="card"><h2>OTIF por proveedor</h2><div class="sub">Líneas de OC cerradas en el mes. On Time contra la fecha compromiso (capturada o por defecto = fecha OC + tiempo de entrega).</div><div class="tw" style="max-height:52vh"><table id="o-prov-t"></table></div></div>
+      <div class="card"><h2>OTIF por proveedor</h2><div class="sub">Líneas de OC cerradas en el mes. On Time contra la fecha compromiso (capturada o por defecto = fecha OC + tiempo de entrega), con holgura de 3 días o el 10% del tiempo de entrega (lo que sea mayor).</div><div class="tw" style="max-height:52vh"><table id="o-prov-t"></table></div></div>
       <div class="card"><h2>OTIF por comprador</h2><div class="sub">Mismas líneas, agrupadas por comprador de la OC.</div><div class="tw" style="max-height:52vh"><table id="o-comp-t"></table></div></div>
     </div>
     <div class="card"><h2>Líneas evaluadas</h2><div class="sub">Clic en el encabezado para ordenar.</div><div class="tw" style="max-height:60vh"><table><thead id="o-head"></thead><tbody id="o-body"></tbody></table></div></div>
@@ -753,9 +753,9 @@ async function pintarOTIF(){
   $('o-head').querySelectorAll('th').forEach(h=>h.onclick=()=>{const k=h.dataset.k;if(S.osort.k===k)S.osort.d*=-1;else S.osort={k,d:1};pintarOTIF();});
   const{k,d}=S.osort;const srt=ls.slice().sort((a,b)=>{const x=a[k],y=b[k];if(x==null)return 1;if(y==null)return -1;return(typeof x==='string'?x.localeCompare(y):x-y)*d;});
   const sn=v=>v==null?'<span class="pill p-n">sin fecha</span>':v?'<span class="pill p-ok">sí</span>':'<span class="pill p-bad">no</span>';
-  $('o-body').innerHTML=srt.slice(0,2000).map(l=>'<tr><td>'+l.folio+'</td><td>'+l.clave+'</td><td class="sm">'+esc(l.proveedor)+'</td><td class="sm">'+esc(l.comprador)+'</td><td class="num">'+fmtN(l.pedido)+'</td><td class="num">'+fmtN(l.recibido)+'</td><td>'+fmtF(l.ref)+'</td><td class="sm mut">'+esc((l.base||'').toLowerCase())+'</td><td>'+sn(l.on_time)+'</td><td>'+sn(l.in_full)+'</td></tr>').join('')||'<tr><td colspan="10" class="empty">Sin líneas.</td></tr>';
+  $('o-body').innerHTML=srt.slice(0,2000).map(l=>'<tr><td>'+l.folio+'</td><td>'+l.clave+'</td><td class="sm">'+esc(l.proveedor)+'</td><td class="sm">'+esc(l.comprador)+'</td><td class="num">'+fmtN(l.pedido)+'</td><td class="num">'+fmtN(l.recibido)+'</td><td>'+fmtF(l.ref)+'</td><td class="sm mut">'+esc((l.base||'').toLowerCase())+'</td><td>'+sn(l.on_time)+(l.conHol?'<div class="sm mut" title="Llegó '+l.tarde+' día(s) después de la fecha compromiso, dentro de la holgura de '+l.hol+' días">a tiempo con holgura · +'+l.tarde+' d</div>':l.on_time===false&&l.tarde?'<div class="sm mut">+'+l.tarde+' d (holgura '+l.hol+' d)</div>':'')+'</td><td>'+sn(l.in_full)+'</td></tr>').join('')||'<tr><td colspan="10" class="empty">Sin líneas.</td></tr>';
 }
-function excelOTIF(){descargarXLSX([[(S.otifFilas||[]).map(l=>({'OC':l.folio,'Clave':l.clave,'Proveedor':l.proveedor,'Comprador':l.comprador,'Mes':l.mes,'Pedido':l.pedido,'Recibido':l.recibido,'Fecha compromiso':l.ref,'Base':l.base,'A tiempo':l.on_time==null?'SIN FECHA':l.on_time?'SÍ':'NO','Completa':l.in_full?'SÍ':'NO'})),'Líneas'],[P.otifResumen(S.otifFilas||[],'proveedor').map(o=>({'Proveedor':o.nombre,'Líneas':o.lineas,'On Time':o.on_time,'In Full':o.in_full,'OTIF':o.otif,'Con compromiso':o.con_compromiso})),'Por proveedor']],'OTIF_'+[...MS.sel('o-mes')].join('_'));}
+function excelOTIF(){descargarXLSX([[(S.otifFilas||[]).map(l=>({'OC':l.folio,'Clave':l.clave,'Proveedor':l.proveedor,'Comprador':l.comprador,'Mes':l.mes,'Pedido':l.pedido,'Recibido':l.recibido,'Fecha compromiso':l.ref,'Base':l.base,'A tiempo':l.on_time==null?'SIN FECHA':l.on_time?(l.conHol?'SÍ (CON HOLGURA)':'SÍ'):'NO','Días tarde':l.tarde||0,'Holgura (días)':l.hol,'Completa':l.in_full?'SÍ':'NO'})),'Líneas'],[P.otifResumen(S.otifFilas||[],'proveedor').map(o=>({'Proveedor':o.nombre,'Líneas':o.lineas,'On Time':o.on_time,'In Full':o.in_full,'OTIF':o.otif,'Con compromiso':o.con_compromiso})),'Por proveedor']],'OTIF_'+[...MS.sel('o-mes')].join('_'));}
 </script>
 </body>
 </html>
