@@ -186,6 +186,13 @@ td:first-child,th:first-child{text-align:left}
     <div class="log" id="log-resg"></div>
     <div id="resg-lista" style="margin-top:10px"></div>
   </div>
+  <div class="card">
+    <h2><span class="n">📥</span>Entradas reales (RP01-07 Compras por ID) <small style="color:var(--tx2);font-weight:400">· diario, antes del Cálculo diario</small></h2>
+    <p class="d">Reporte <b>RP01-07 Compras por ID</b> tal como sale del sistema (el del mes, o uno de varios meses para cargar historia). El portal guarda cada entrada con su <b>fecha de recibo</b> y la <b>cantidad recibida</b>, ligada a la OC (FOLIO OC). El <b>OTIF</b> usa esa fecha y esa cantidad en lugar del día en que el portal detecta que bajó el pendiente al comparar archivos de OCs (si una línea no tiene entradas aquí, sigue con la detectada). Solo se guardan entradas de OCs que el portal ya conoce. Al subir un archivo se reemplazan las entradas de las fechas que trae.</p>
+    <div class="row"><input type="file" id="f-recreal" accept=".xlsx,.xls"><button onclick="run('recreal')">Cargar entradas</button></div>
+    <div class="log" id="log-recreal"></div>
+    <div id="recreal-res" class="d" style="margin-top:8px"></div>
+  </div>
   <div class="card" style="border:2px solid var(--navy2)">
     <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
     <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (la base recomendada: pronóstico si es temporada, si no antecedente), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
@@ -226,7 +233,7 @@ async function entrar(){
   if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
   abrir();
 }
-function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarDual();}catch(e){}try{pintarBono();}catch(e){}}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarDual();}catch(e){}try{pintarRecReal();}catch(e){}try{pintarBono();}catch(e){}}
 (async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
 
 function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
@@ -284,6 +291,7 @@ async function run(tipo){
     if(tipo==='sustx')await bajarConversiones(log);
     if(tipo==='octipo')await cargaOcTipo(log,false);
     if(tipo==='octipo_man')await cargaOcTipo(log,true);
+    if(tipo==='recreal')await cargaRecReal(log);
     if(tipo==='dual')await cargaDual(log);
     if(tipo==='dual_baja')await bajarDual(log);
     if(tipo==='stk')await cargaStk(log);
@@ -889,6 +897,28 @@ async function pintarResg(){
 }
 async function resgBO(clave,prov,v){const{error}=await sb.from('plan_resguardo').update({desc_bo:v}).eq('clave',clave).eq('proveedor',prov);if(error)alert('No se guardó: '+error.message);}
 async function resgQuitar(clave,prov){if(!confirm('¿Quitar la clave '+clave+' del resguardo con '+prov+'?'))return;const{error}=await sb.from('plan_resguardo').delete().eq('clave',clave).eq('proveedor',prov);if(error)alert('No se quitó: '+error.message);pintarResg();}
+// ── Entradas reales del RP01-07 Compras por ID (plan_tablas_25.sql) ──
+async function cargaRecReal(log){
+  const wb=await leerLibro('f-recreal',null,log);
+  log.msg('⚙️ Leyendo entradas…');await pausa();
+  const r=P.recepReales(wb);
+  if(!r.rows.length)throw new Error('El archivo no trae entradas con FOLIO OC, CLAVE, FECHA REC y CANT REC.');
+  log.msg('   '+fmt(r.rows.length)+' entradas (recibo-OC-clave) del '+r.desde+' al '+r.hasta+(r.malas?' · '+r.malas+' filas sin OC, clave o fecha (se ignoraron)':''));
+  // solo OCs que el portal conoce
+  const ocs=new Set((await todo(()=>sb.from('plan_oc_lineas').select('folio').order('folio').order('clave'))).map(x=>Number(x.folio)));
+  const rows=r.rows.filter(x=>ocs.has(x.folio_oc)),fuera=r.rows.length-rows.length;
+  log.msg('   '+fmt(rows.length)+' de OCs que el portal sigue'+(fuera?' · '+fmt(fuera)+' de OCs anteriores a la primera foto o que no vienen en los archivos de OCs (no se guardan)':''));
+  // reemplaza las entradas de las fechas que trae el archivo
+  const{error}=await sb.from('plan_recepciones_real').delete().gte('fecha',r.desde).lte('fecha',r.hasta);
+  if(error)throw new Error('plan_recepciones_real: '+error.message+' (¿ya corriste plan_tablas_25.sql?)');
+  if(rows.length)await enLotes('plan_recepciones_real',rows.map(x=>({...x,cargado_en:new Date().toISOString()})),log,{onConflict:'folio_rec,folio_oc,clave'});
+  log.msg('🎉 Entradas reales guardadas. El OTIF de Planeación e indicadores y de Mi Resumen ya usa la fecha de recibo; el resumen del mes de Admin se actualiza en el siguiente Cálculo diario.');
+  await pintarRecReal();
+}
+async function pintarRecReal(){const el=document.getElementById('recreal-res');if(!el)return;
+  try{const a=await sb.from('plan_recepciones_real').select('fecha').order('fecha',{ascending:true}).limit(1),b=await sb.from('plan_recepciones_real').select('fecha').order('fecha',{ascending:false}).limit(1),c=await sb.from('plan_recepciones_real').select('*',{count:'exact',head:true});
+    if(a.error)throw a.error;el.innerHTML=c.count?'Cargadas: <b>'+fmt(c.count)+'</b> entradas del '+String(a.data[0].fecha).slice(0,10)+' al '+String(b.data[0].fecha).slice(0,10)+'.':'Aún no hay entradas reales cargadas.';}
+  catch(e){el.innerHTML='Aún no existe la tabla: corre <b>plan_tablas_25.sql</b> en Supabase (proyecto SANVER_Forte).';}}
 // ── Compra nacional e importación (plan_tablas_24.sql) ──
 const DUAL_COLS=['Clave','Proveedor nacional','T. entrega nacional (meses)','Objetivo nacional (meses)','Proveedor importación','T. entrega importación (meses)','Objetivo importación (meses)','Mínimo por contenedor (piezas)','Notas'];
 const SQL24=' (¿ya corriste plan_tablas_24.sql?)';
@@ -1181,8 +1211,9 @@ async function procesarOCs(wb,fecha,log,res,prevEst){
   const tRows=TR.filas.map(o=>({nombre:o.nombre,evaluadas:o.n,cumplen:o.OK,riesgo:o.RIESGO,noCumple:o.NO,target:o.target,meta:o.meta,pendientes:o.PEND}));
   const tN=TR.gen.n,tOk=TR.gen.OK;
   const cer=(await todo(()=>sb.from('plan_oc_lineas').select('*').gte('cerrada_en',mes).order('folio').order('clave'))).map(normOC);
-  const folios=[...new Set(cer.map(l=>Number(l.folio)))];const rec=new Map();
-  for(let i=0;i<folios.length;i+=200){(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio'))).forEach(r=>{r={...r,fecha:P.d10(r.fecha)};const k=Number(r.folio)+'|'+Number(r.clave);if(!rec.has(k))rec.set(k,[]);rec.get(k).push(r);});}
+  const folios=[...new Set(cer.map(l=>Number(l.folio)))];let det=[];
+  for(let i=0;i<folios.length;i+=200){det=det.concat(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio')));}
+  const rec=P.recepMapa(det,await P.cargarReales(sb,folios));
   const comp=new Map((await todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))).filter(c=>c.fecha).map(c=>[Number(c.folio),P.d10(c.fecha)]));
   const oLin=cer.map(l=>P.otifLinea(l,rec.get(Number(l.folio)+'|'+Number(l.clave)),comp,ltMap.get(Number(l.clave)))).filter(Boolean);
   const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;

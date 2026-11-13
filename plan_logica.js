@@ -160,6 +160,35 @@ P.comprasED=wb=>{
   const rows=[];acc.forEach((q,key)=>{const [c,m]=key.split('|');rows.push({clave:+c,mes:m,cantidad:Math.round(q*10000)/10000});});
   return{rows,meses:[...meses].sort()};
 };
+// 5a. Entradas reales del reporte RP01-07 Compras por ID (nov-2026): una fila por recibo, OC y clave
+//     → {rows:[{folio_rec,folio_oc,clave,fecha,cantidad,pzas,unidad}], desde, hasta}
+P.recepReales=wb=>{
+  let aoa=null,hi=-1,H=null;
+  for(const n of wb.SheetNames){const a=P.aoa(wb.Sheets[n]);for(let i=0;i<Math.min(40,a.length);i++){const f=(a[i]||[]).map(P.norm);
+    if(f.includes('FOLIO OC')&&f.includes('FECHA REC')&&f.includes('CLAVE')&&f.includes('CANT REC')){aoa=a;hi=i;H=f;break;}}if(aoa)break;}
+  if(!aoa)throw new Error('No encontré los encabezados FOLIO, FECHA REC, FOLIO OC, CLAVE y CANT REC. Usa el reporte RP01-07 Compras por ID.');
+  const c=n=>H.indexOf(n),iF=c('FOLIO'),iD=c('FECHA REC'),iO=c('FOLIO OC'),iK=c('CLAVE'),iQ=c('CANT REC'),iP=c('PZAS X UNIDAD'),iU=c('UNIDAD');
+  const m=new Map();let malas=0,desde=null,hasta=null;
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i]||[];const oc=P.clave(r[iO]),k=P.clave(r[iK]),f=P.fecha(r[iD]),q=P.num(r[iQ]);
+    if(oc==null||k==null||!f||q==null){if(r.some(x=>String(x).trim()!==''))malas++;continue;}
+    const fr=iF>=0?(P.clave(r[iF])||0):0,key=fr+'|'+oc+'|'+k;const x=m.get(key)||{folio_rec:fr,folio_oc:oc,clave:k,fecha:f,cantidad:0,pzas:iP>=0?P.num(r[iP]):null,unidad:iU>=0?P.norm(r[iU])||null:null};
+    x.cantidad=Math.round((x.cantidad+q)*10000)/10000;if(f<x.fecha)x.fecha=f;m.set(key,x);
+    if(!desde||f<desde)desde=f;if(!hasta||f>hasta)hasta=f;}
+  return{rows:[...m.values()],desde,hasta,malas};
+};
+// Recepciones por línea de OC para el OTIF: Map 'folio|clave' → [{fecha,cantidad,pzas,real}]. Si la línea tiene entradas reales
+// (RP01-07) se usan esas (fecha y cantidad del recibo); si no, las que el portal detecta al comparar archivos de OCs.
+P.recepMapa=(detectadas,reales)=>{
+  const m=new Map(),R=new Map();
+  (reales||[]).forEach(r=>{const k=Number(r.folio_oc)+'|'+Number(r.clave);(R.get(k)||R.set(k,[]).get(k)).push({fecha:P.d10(r.fecha),cantidad:Number(r.cantidad),pzas:r.pzas!=null?Number(r.pzas):null,real:true});});
+  (detectadas||[]).forEach(r=>{const k=Number(r.folio)+'|'+Number(r.clave);if(R.has(k))return;(m.get(k)||m.set(k,[]).get(k)).push({...r,fecha:P.d10(r.fecha)});});
+  R.forEach((v,k)=>m.set(k,v));return m;
+};
+// Entradas reales de una lista de OCs (tabla plan_recepciones_real · plan_tablas_25.sql). Sin la tabla regresa [] (se usan las detectadas).
+P.cargarReales=async(sb,folios)=>{let out=[];const fs=[...new Set((folios||[]).map(Number))];
+  try{for(let i=0;i<fs.length;i+=200){for(let p=0;p<200;p++){const{data,error}=await sb.from('plan_recepciones_real').select('folio_oc,clave,fecha,cantidad,pzas').in('folio_oc',fs.slice(i,i+200)).order('folio_oc').order('clave').order('folio_rec').range(p*1000,p*1000+999);
+    if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}}}catch(e){return[];}
+  return out;};
 // 5b. Costo unitario de compra por clave (para medir la afectación en dinero): TOTAL ÷ CANT REC
 // de los últimos 3 meses con compra de cada clave (CEDI y entregas directas). Unidad = la de venta (CANT REC viene en unidad básica).
 P.costosCompra=wb=>{
@@ -855,7 +884,9 @@ P.otifHolgura=lt=>Math.max(P.R.OTIF_HOL_DIAS,Math.round((Number(lt)||0)*P.R.DIAS
 P.otifLinea=(l,recs,compromisos,lt)=>{
   if(l.entrega_directa)return null;                                 // entrega directa a sucursal: no es OTIF del CEDI
   if(l.cancelada&&!(recs&&recs.length))return null;              // cancelada sin recibir: no cuenta
-  if(Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null; // ya traía recepciones antes de la primera foto
+  const real=!!(recs&&recs.length&&recs.every(r=>r.real));
+  // ya traía recepciones antes de la primera foto: sin las entradas reales no se sabe cuándo llegó lo anterior
+  if(!real&&Number(l.pend_inicial)<Number(l.cantidad_ped)-1e-9)return null;
   const rec=(recs||[]).slice().sort((a,b)=>a.fecha<b.fecha?-1:1);if(!rec.length)return null;
   // Fecha compromiso: la capturada por el comprador; si no hay, la de POR DEFECTO = fecha de la OC + meses de entrega
   // de la clave × 30 días. Solo si la clave no tiene tiempo de entrega se usa la fecha de entrega de la OC (si es válida).
@@ -864,11 +895,13 @@ P.otifLinea=(l,recs,compromisos,lt)=>{
   else if(l.fecha_oc&&Number(lt)>0){const d=new Date(l.fecha_oc+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Math.round(Number(lt)*P.R.DIAS_MES));ref=d.toISOString().slice(0,10);base='COMPROMISO POR DEFECTO';}
   else if(l.fecha_entrega&&(!l.fecha_oc||l.fecha_entrega>l.fecha_oc)){ref=l.fecha_entrega;base='ENTREGA EN OC (sin tiempo de entrega)';}
   const tot=rec.reduce((t,r)=>t+Number(r.cantidad),0);const ult=rec[rec.length-1].fecha;
+  // Completa: lo recibido cubre lo pedido (si el recibo viene en otra unidad, también se compara × piezas por unidad)
+  const ped=Number(l.cantidad_ped),pz=Math.max(1,...rec.map(r=>Number(r.pzas)||1)),full=tot>=ped-1e-9||(pz>1&&tot*pz>=ped-1e-9);
   // Holgura (nov-2026): la fecha compromiso es estimada; una llegada tarde cuenta a tiempo si el retraso es de hasta
   // OTIF_HOL_DIAS días o el OTIF_HOL_PCT del tiempo de entrega de la clave (lo que sea mayor). tarde = días de retraso.
   const tarde=ref?P.difDias(ref,ult):null,hol=P.otifHolgura(lt);
   return{folio:Number(l.folio),clave:Number(l.clave),proveedor:l.proveedor,comprador:l.comprador,mes:ult.slice(0,7),ref,base,
-    on_time:ref?tarde<=hol:null,tarde:tarde!=null&&tarde>0?tarde:0,hol,conHol:ref!=null&&tarde>0&&tarde<=hol,in_full:!l.cancelada&&tot>=Number(l.cantidad_ped)-1e-9,recibido:tot,pedido:Number(l.cantidad_ped)};
+    on_time:ref?tarde<=hol:null,tarde:tarde!=null&&tarde>0?tarde:0,hol,conHol:ref!=null&&tarde>0&&tarde<=hol,fRec:ult,real,in_full:!l.cancelada&&full,recibido:tot,pedido:ped};
 };
 P.otifResumen=(lineas,clave)=>{
   // On Time solo sobre líneas con fecha de referencia válida; In Full sobre todas. OTIF = promedio de los dos.
