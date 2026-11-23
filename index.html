@@ -1827,7 +1827,15 @@ async function guardarDiasNuevos(rawD){
   // 4. Insertar cada día nuevo (en lotes de 1000 para no saturar)
   let totalFilas=0;
   for(const d of nuevos){
-    const filas=porDia[d];
+    // Una clave solo puede ir una vez por día: se quitan las filas sin clave y las claves repetidas (se queda la primera)
+    const vistas=new Set(),rep=[];let sinClave=0;
+    const filas=porDia[d].filter(r=>{
+      if(!r.clave){sinClave++;return false;}
+      if(vistas.has(r.clave)){rep.push(r.clave);return false;}
+      vistas.add(r.clave);return true;
+    });
+    if(sinClave)log('      ⚠️ '+d+': '+sinClave+' fila(s) sin clave, no se guardan.');
+    if(rep.length)log('      ⚠️ '+d+': '+rep.length+' clave(s) repetida(s) en la hoja Detalle, se guarda solo la primera: '+[...new Set(rep)].slice(0,20).join(', ')+(rep.length>20?'…':''));
     // Si una carga anterior se cortó a medias, el día quedó con filas pero sin registrarse en dias_cargados:
     // se borran esas filas sueltas del día antes de volver a guardarlo completo (evita «duplicate key … ux_detalle_dia_clave»)
     const {error:eDel}=await sb.from('detalle_diario').delete().eq('fecha',d);
