@@ -1828,13 +1828,17 @@ async function guardarDiasNuevos(rawD){
   let totalFilas=0;
   for(const d of nuevos){
     const filas=porDia[d];
+    // Si una carga anterior se cortó a medias, el día quedó con filas pero sin registrarse en dias_cargados:
+    // se borran esas filas sueltas del día antes de volver a guardarlo completo (evita «duplicate key … ux_detalle_dia_clave»)
+    const {error:eDel}=await sb.from('detalle_diario').delete().eq('fecha',d);
+    if(eDel)throw new Error('limpiar '+d+': '+eDel.message);
     for(let i=0;i<filas.length;i+=1000){
       const lote=filas.slice(i,i+1000);
       const {error:eIns}=await sb.from('detalle_diario').insert(lote);
       if(eIns)throw new Error('insertar '+d+': '+eIns.message);
     }
     // registrar el día como cargado
-    const {error:eDia}=await sb.from('dias_cargados').insert({fecha:d,filas:filas.length});
+    const {error:eDia}=await sb.from('dias_cargados').upsert({fecha:d,filas:filas.length},{onConflict:'fecha'});
     if(eDia)throw new Error('marcar día '+d+': '+eDia.message);
     totalFilas+=filas.length;
     log('      • '+d+': '+filas.length.toLocaleString()+' filas ✓');
