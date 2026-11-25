@@ -1636,18 +1636,27 @@ async function borrarRango(){
 
 // ── Descargar TODO el detalle histórico desde Supabase (paginado) ──
 async function descargarDetalleBase(log){
-  const PAGE=1000; let desde=0, todo=[];
+  // Se lee por id (llave primaria) a partir del último leído, no por posición: con más de 600 mil filas
+  // saltar por posición (range) se vuelve lento y la base corta la consulta (statement timeout).
+  const PAGE=1000; let ultimo=0, todo=[];
   while(true){
-    const {data,error}=await sb.from('detalle_diario')
-      .select('fecha,clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,meses_inv,estatus,reorden,back_order')
-      .order('fecha',{ascending:true}).range(desde,desde+PAGE-1);
+    let res;
+    for(let intento=1;intento<=3;intento++){
+      res=await sb.from('detalle_diario')
+        .select('id,fecha,clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,meses_inv,estatus,reorden,back_order')
+        .gt('id',ultimo).order('id',{ascending:true}).limit(PAGE);
+      if(!res.error)break;
+      await new Promise(r=>setTimeout(r,1500*intento));
+    }
+    const {data,error}=res;
     if(error)throw new Error('leer detalle_diario: '+error.message);
     if(!data||!data.length)break;
-    todo=todo.concat(data);
+    ultimo=data[data.length-1].id;
+    for(const r of data){delete r.id;todo.push(r);}
     if(log&&todo.length%10000<PAGE)log('   … '+todo.length.toLocaleString()+' filas leídas');
     if(data.length<PAGE)break;
-    desde+=PAGE;
   }
+  todo.sort((a,b)=>a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0);
   return todo;
 }
 
