@@ -556,7 +556,8 @@ function pintarFolio(){
   const CC=cambiosCalc();
   if(puedeRefrescar()&&S.fecha&&(S.fecha!==f.fecha_calculo||CC.length))acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo, tiempo de entrega, objetivo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo '+(S.fecha!==f.fecha_calculo?'del '+fF(S.fecha):'vigente')+'</button>';
   if(ed)acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio (pide motivo)">✕</button>';
-  else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
+  if(f.estado==='AUTORIZADO')acc+='<button class="bad" onclick="pinAbrir(\'DESAUTORIZAR\')" title="Quita la autorización y regresa el folio al comprador para corregirlo (no lo cancela). Jefe, Gerente o Dirección con PIN y motivo">↩ Regresar al comprador</button>';
+  if(ed){}else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
   $('f-acc').innerHTML=acc;
   $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>'+(conBO()?' <span class="chip" style="background:#dbeafe;color:#1e40af">🚚 Estatus, nivel, propuestas y semáforo consideran el BO actual del CEDI</span>':' <span class="chip s-SIN">📦 Estatus, nivel, propuestas y semáforo sin BO (solo existencia)</span>')
     +(f.tipo_compra==='IMPORTACION'?'<div style="margin-top:6px">'+P.tipoChip('IMPORTACION')+' T. entrega y objetivo de importación; la propuesta resta el stock del proveedor nacional'+(conBO()?' y todo el BO (nacional + importación)':'')+'. <label><input type="checkbox" id="f-cont" '+(f.min_cont?'checked':'')+' '+(ed?'':'disabled')+' onchange="cambiarCont(this.checked)"> Redondear la propuesta al mínimo por contenedor</label></div>'
@@ -750,6 +751,15 @@ async function pinAbrir(accion){
     $('pin-u').innerHTML='<option value="">— ¿Quién ajusta? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
     $('pin-p').value='';$('pin-c').value='';$('pin-c').style.display='none';$('pin-btn').textContent='Desbloquear ajustes';$('pin-btn').className='ok';$('pin-err').style.display='none';
     $('pinbg').style.display='flex';$('pin-u').focus();return;}
+  if(accion==='DESAUTORIZAR'){let us;try{us=await autorizadores('REGRESAR');}catch(e){toast('❌ '+e.message);return;}
+    if(!us.length){toast('❌ No hay Jefe, Gerente o Dirección dados de alta en el portal de comparativos');return;}
+    const f=S.actual;PINACC='DESAUTORIZAR';$('pin-tit').textContent='Regresar al comprador el folio '+f.folio;
+    $('pin-sub').textContent='El folio ya está autorizado'+(f.autorizado_por?' por '+f.autorizado_por:'')+'. Se le quita la autorización y regresa a '+f.comprador+' como REGRESADO para que lo corrija y lo vuelva a enviar; no se cancela.'
+      +(f.cmp_id?' Su comparativo '+(f.cmp_folio||'#'+f.cmp_id)+' se cancela (si ya estaba aprobado, se anula y regresa el proveedor anterior); al volver a autorizar se crea uno nuevo.':'');
+    $('pin-u').innerHTML='<option value="">— ¿Quién regresa? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+    $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder='¿Por qué se regresa? (obligatorio)';
+    $('pin-btn').textContent='Regresar al comprador';$('pin-btn').className='bad';$('pin-err').style.display='none';
+    $('pinbg').style.display='flex';$('pin-u').focus();return;}
   if((accion==='AUTORIZAR'||accion==='REGRESAR')&&S.lineas.some(faltaMotAut)){const fa=S.lineas.filter(faltaMotAut);toast('Faltan motivos del autorizante en '+fa.length+' clave(s): '+fa.slice(0,10).map(l=>l.clave).join(', ')+' («Otro» pide comentario). Da clic en «✏️ Ajustar cantidades» para completarlos.');return;}
   const V=valorFolio(),rg=rangoDe(V.total);
   let us;try{us=await autorizadores(accion,V.total);}catch(e){toast('❌ '+e.message);return;}
@@ -792,7 +802,7 @@ async function pinOk(){
   }
   if(!uid){pinErr('Elige quién '+(PINACC==='AUTORIZAR'?'autoriza':PINACC==='AJUSTAR'?'ajusta':'regresa'));return;}
   if(!pin){pinErr('Escribe tu PIN');return;}
-  if(PINACC==='REGRESAR'&&!com){pinErr('Escribe por qué se regresa');return;}
+  if((PINACC==='REGRESAR'||PINACC==='DESAUTORIZAR')&&!com){pinErr('Escribe por qué se regresa');return;}
   $('pin-btn').disabled=true;
   try{
     const{data,error}=await sbc().rpc('cmp_verificar_pin',{p_usuario_id:uid,p_pin:pin});
@@ -800,6 +810,7 @@ async function pinOk(){
     if(!data){pinErr('PIN incorrecto');return;}
     const nombre=o.dataset.n,ahora=new Date().toISOString(),acc=PINACC;pinCerrar();
     if(acc==='AJUSTAR'){S.rev={id:uid,nombre,folio:S.actual.folio};toast('✏️ Ajustes desbloqueados para '+nombre);pintarFolio();return;}
+    if(acc==='DESAUTORIZAR'){await desautorizar(nombre,uid,pin,com);return;}
     const nAj=S.lineas.filter(ajustada).length,txtAj=nAj?'Con ajustes del autorizante en '+nAj+' clave(s)':'';S.rev=null;
     if(acc==='AUTORIZAR'){
       const V=valorFolio();
@@ -809,6 +820,33 @@ async function pinOk(){
       if(ok){await cerrarAvisos(fol);await avisar([comp],'REGRESADO',fol,'Folio '+fol+' regresado por '+nombre+': '+com+(nAj?' · '+txtAj+': revísalos y acéptalos o ajusta tu plantilla':''));}}
   }catch(e){pinErr('❌ '+(e.message||e));}
   finally{$('pin-btn').disabled=false;}
+}
+// Regresar un folio YA AUTORIZADO al comprador (nov-2026): no se cancela; sus comparativos se cancelan/anulan y al volver a autorizar se crea uno nuevo
+async function cerrarCmpsFolio(f,nombre,uid,pin,txt,motivo){
+  let lista=[];
+  try{lista=(await cmpsDelFolio(f)).vivos;}catch(e){throw new Error('No pude revisar los comparativos del folio: '+(e.message||e));}
+  for(const x of lista){
+    const c=sbc();const{data:cm,error}=await c.from('cmp_comparativos').select('id,folio,estatus,notas').eq('id',x.id).maybeSingle();
+    if(error)throw new Error('No pude revisar el comparativo '+(x.folio||x.id)+': '+error.message);
+    if(cm&&['BORRADOR','EN REVISION','RECHAZADO'].includes(cm.estatus)){
+      const{error:e2}=await c.from('cmp_comparativos').update({estatus:'CANCELADO',notas:[cm.notas,'Propuesta '+f.folio+' — '+txt].filter(Boolean).join('\n'),actualizado_por:nombre,actualizado_en:new Date().toISOString()}).eq('id',cm.id);
+      if(e2)throw new Error('No pude cancelar el comparativo '+(cm.folio||cm.id)+': '+e2.message);
+    }else if(cm&&cm.estatus==='APROBADO'){
+      const{error:e3}=await c.rpc('cmp_anular',{p_id:cm.id,p_usuario_id:uid,p_pin:pin,p_motivo:'Propuesta '+f.folio+' regresada al comprador: '+motivo});
+      if(e3)throw new Error('No pude anular el comparativo aprobado '+(cm.folio||cm.id)+': '+e3.message+'. Pide a un administrador que lo anule en Comparativos y vuelve a intentar.');
+    }
+  }
+  return lista.length;
+}
+async function desautorizar(nombre,uid,pin,motivo){
+  const f=S.actual,ahora=new Date().toISOString(),txt='Autorización retirada por '+nombre+' el '+fFH(ahora)+': '+motivo;
+  try{
+    const n=await cerrarCmpsFolio(f,nombre,uid,pin,txt,motivo);
+    const fol=f.folio,comp=f.comprador;
+    const ok=await cambiarEstado({estado:'REGRESADO',comentario:[txt,f.comentario?'Antes: '+f.comentario:''].filter(Boolean).join(' · '),autorizado_por:nombre,autorizado_en:ahora,cmp_id:null,cmp_folio:null,cmp_enviado_en:null},
+      '↩ Folio '+fol+' regresado a '+comp+(n?' (y '+(n>1?'sus '+n+' comparativos cancelados':'su comparativo cancelado')+')':''));
+    if(ok){await cerrarAvisos(fol);await avisar([comp],'REGRESADO',fol,'Folio '+fol+' (ya autorizado) regresado por '+nombre+': '+motivo+'. Corrígelo y vuelve a enviarlo a autorización.');}
+  }catch(e){toast('❌ '+(e.message||e));}
 }
 function autorizar(){pinAbrir('AUTORIZAR');}
 function regresar(){pinAbrir('REGRESAR');}
